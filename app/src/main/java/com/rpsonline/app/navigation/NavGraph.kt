@@ -15,6 +15,7 @@ import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.PresenceRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import com.rpsonline.app.ui.appearance.AppearanceScreen
 import com.rpsonline.app.ui.auth.SignInScreen
 import com.rpsonline.app.ui.game.GameScreen
 import com.rpsonline.app.ui.home.HomeScreen
@@ -29,6 +30,7 @@ object Routes {
     const val GAME = "game/{matchId}"
     const val RESULT = "result/{matchId}"
     const val LEADERBOARD = "leaderboard"
+    const val APPEARANCE = "appearance"
 
     fun game(matchId: String) = "game/$matchId"
     fun result(matchId: String) = "result/$matchId"
@@ -88,6 +90,7 @@ fun RpsNavGraph() {
                 HomeScreen(
                     onFindMatch = { navController.navigate(Routes.MATCHMAKING) },
                     onLeaderboard = { navController.navigate(Routes.LEADERBOARD) },
+                    onAppearance = { navController.navigate(Routes.APPEARANCE) },
                 )
             }
         }
@@ -146,6 +149,12 @@ fun RpsNavGraph() {
         composable(Routes.LEADERBOARD) {
             LeaderboardScreen(
                 onBackToHome = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.APPEARANCE) {
+            AppearanceScreen(
+                onBack = { navController.popBackStack() },
             )
         }
     }
