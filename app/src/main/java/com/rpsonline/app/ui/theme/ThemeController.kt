@@ -4,9 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.rpsonline.app.data.preferences.ThemeMode
 import com.rpsonline.app.data.preferences.ThemePreferences
@@ -15,13 +13,15 @@ import com.rpsonline.app.data.preferences.ThemePreferences
 class ThemeController(context: Context) {
     private val preferences = ThemePreferences(context)
 
-    var themeMode by mutableStateOf(preferences.getThemeMode())
-        private set
+    private val themeModeState = mutableStateOf(preferences.getThemeMode())
+
+    val themeMode: ThemeMode
+        get() = themeModeState.value
 
     fun setThemeMode(mode: ThemeMode) {
-        if (themeMode == mode) return
+        if (themeModeState.value == mode) return
         preferences.setThemeMode(mode)
-        themeMode = mode
+        themeModeState.value = mode
     }
 
     @Composable
