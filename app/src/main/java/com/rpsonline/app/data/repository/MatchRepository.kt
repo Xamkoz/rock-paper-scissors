@@ -23,6 +23,10 @@ class MatchRepository(
 
     /**
      * Join matchmaking via Firestore (not Callable). Writes queue/{uid}; Cloud Function pairs players.
+     *
+     * Client-only constraints (no Firebase deploy):
+     * - Delete before create so onDocumentCreated always fires (updates do not trigger it).
+     * - Use client [Timestamp.now] for joinedAt so the server's orderBy query includes the doc immediately.
      */
     suspend fun joinQueue(): String? {
         val userId = uid
@@ -39,18 +43,38 @@ class MatchRepository(
             }
         }
 
+        writeQueueEntry(userId, userSnap)
+        return null
+    }
+
+    /** Re-queues while searching so onDocumentCreated fires again without a Firebase deploy. */
+    suspend fun refreshQueueEntry() {
+        val userId = uid
+        val userSnap = firestore.collection("users").document(userId).get().await()
+        if (!userSnap.exists()) return
+        writeQueueEntry(userId, userSnap)
+    }
+
+    private suspend fun writeQueueEntry(
+        userId: String,
+        userSnap: com.google.firebase.firestore.DocumentSnapshot,
+    ) {
         val elo = userSnap.getLong("elo")?.toInt() ?: 1000
         val displayName = userSnap.getString("displayName") ?: "Player"
+        val queueRef = firestore.collection("queue").document(userId)
 
-        firestore.collection("queue").document(userId).set(
+        // onDocumentCreated only fires for new docs; delete first so re-queues trigger matchmaking.
+        runCatching { queueRef.delete().await() }
+
+        queueRef.set(
             mapOf(
-                "joinedAt" to FieldValue.serverTimestamp(),
+                // Client timestamp: deployed Cloud Function uses orderBy("joinedAt"), which skips
+                // documents while serverTimestamp() is still pending.
+                "joinedAt" to Timestamp.now(),
                 "elo" to elo,
                 "displayName" to displayName,
             ),
         ).await()
-
-        return null
     }
 
     suspend fun leaveQueue() {

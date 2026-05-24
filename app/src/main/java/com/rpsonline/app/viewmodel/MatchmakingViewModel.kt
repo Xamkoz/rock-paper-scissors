@@ -41,6 +41,12 @@ class MatchmakingViewModel(
 
     private var observeJob: Job? = null
     private var queueTimerJob: Job? = null
+    private var queueRefreshJob: Job? = null
+
+    companion object {
+        /** Re-create queue doc periodically; server only matches on document create. */
+        private const val QUEUE_REFRESH_INTERVAL_MS = 15_000L
+    }
 
     init {
         viewModelScope.launch {
@@ -77,14 +83,17 @@ class MatchmakingViewModel(
                 val immediateMatchId = matchRepository.joinQueue()
                 if (immediateMatchId != null) {
                     stopQueueTimer()
+                    stopQueueRefresh()
                     _uiState.update {
                         it.copy(status = MatchmakingStatus.MATCHED, matchId = immediateMatchId)
                     }
                     return@launch
                 }
                 observeForMatch()
+                startQueueRefresh()
             } catch (e: Exception) {
                 stopQueueTimer()
+                stopQueueRefresh()
                 _uiState.update {
                     it.copy(status = MatchmakingStatus.ERROR, error = e.message ?: "Matchmaking failed")
                 }
@@ -98,6 +107,7 @@ class MatchmakingViewModel(
             matchRepository.observeActiveMatch().collect { match ->
                 if (match != null) {
                     stopQueueTimer()
+                    stopQueueRefresh()
                     _uiState.update {
                         it.copy(
                             status = MatchmakingStatus.MATCHED,
@@ -119,6 +129,7 @@ class MatchmakingViewModel(
             } finally {
                 observeJob?.cancel()
                 stopQueueTimer()
+                stopQueueRefresh()
                 _uiState.update {
                     it.copy(
                         status = MatchmakingStatus.IDLE,
@@ -150,9 +161,29 @@ class MatchmakingViewModel(
         queueTimerJob = null
     }
 
+    private fun startQueueRefresh() {
+        queueRefreshJob?.cancel()
+        queueRefreshJob = viewModelScope.launch {
+            while (true) {
+                delay(QUEUE_REFRESH_INTERVAL_MS)
+                if (_uiState.value.status != MatchmakingStatus.SEARCHING) break
+                runCatching { matchRepository.refreshQueueEntry() }
+            }
+        }
+    }
+
+    private fun stopQueueRefresh() {
+        queueRefreshJob?.cancel()
+        queueRefreshJob = null
+    }
+
     override fun onCleared() {
         observeJob?.cancel()
         stopQueueTimer()
+        stopQueueRefresh()
+        viewModelScope.launch {
+            runCatching { matchRepository.leaveQueue() }
+        }
         super.onCleared()
     }
 }
