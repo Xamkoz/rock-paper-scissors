@@ -7,6 +7,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import com.rpsonline.app.navigation.RpsNavGraph
+import com.rpsonline.app.ui.components.RpsAppBackground
+import com.rpsonline.app.ui.theme.BackgroundController
+import com.rpsonline.app.ui.theme.LocalBackgroundController
 import com.rpsonline.app.ui.theme.LocalThemeController
 import com.rpsonline.app.ui.theme.RpsTheme
 import com.rpsonline.app.ui.theme.ThemeController
@@ -17,9 +20,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val themeController = remember { ThemeController(applicationContext) }
-            CompositionLocalProvider(LocalThemeController provides themeController) {
+            val backgroundController = remember { BackgroundController(applicationContext) }
+            CompositionLocalProvider(
+                LocalThemeController provides themeController,
+                LocalBackgroundController provides backgroundController,
+            ) {
                 RpsTheme(darkTheme = themeController.useDarkTheme()) {
-                    RpsNavGraph()
+                    RpsAppBackground {
+                        RpsNavGraph()
+                    }
                 }
             }
         }

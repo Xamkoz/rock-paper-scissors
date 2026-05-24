@@ -19,12 +19,16 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.rpsonline.app.data.preferences.AppBackground
 import com.rpsonline.app.data.preferences.ThemeMode
 import com.rpsonline.app.ui.components.rpsScreenPadding
+import com.rpsonline.app.ui.theme.LocalBackgroundController
 import com.rpsonline.app.ui.theme.LocalThemeController
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,11 +37,16 @@ fun AppearanceScreen(
     onBack: () -> Unit,
 ) {
     val themeController = LocalThemeController.current
+    val backgroundController = LocalBackgroundController.current
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text("Appearance") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -76,6 +85,29 @@ fun AppearanceScreen(
                     onClick = { themeController.setThemeMode(mode) },
                 )
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Background",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Choose the backdrop shown across the app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            AppBackground.entries.forEach { background ->
+                ThemeModeRow(
+                    label = background.label,
+                    description = null,
+                    selected = backgroundController.background == background,
+                    onClick = { backgroundController.setBackground(background) },
+                )
+            }
         }
     }
 }
@@ -83,7 +115,7 @@ fun AppearanceScreen(
 @Composable
 private fun ThemeModeRow(
     label: String,
-    description: String,
+    description: String?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -107,11 +139,13 @@ private fun ThemeModeRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            description?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

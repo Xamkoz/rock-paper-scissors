@@ -113,7 +113,7 @@ fun RpsTheme(
         content = {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = colorScheme.background,
+                color = Color.Transparent,
                 contentColor = colorScheme.onBackground,
                 content = content,
             )
