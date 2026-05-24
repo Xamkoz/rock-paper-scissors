@@ -3,10 +3,11 @@ package com.rpsonline.app.ui.components
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,8 +40,7 @@ fun MovePicker(
     }
 
     val spacing = if (compact) 6.dp else 10.dp
-    val cardMinHeight = if (compact) 76.dp else 96.dp
-    val iconSize = if (compact) 28.dp else 36.dp
+    val cardHeight = if (compact) 72.dp else 84.dp
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -51,8 +51,7 @@ fun MovePicker(
                 move = move,
                 onClick = { onMove(move) },
                 compact = compact,
-                minHeight = cardMinHeight,
-                iconSize = iconSize,
+                cardHeight = cardHeight,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -64,17 +63,17 @@ private fun MoveChoiceCard(
     move: Move,
     onClick: () -> Unit,
     compact: Boolean,
-    minHeight: androidx.compose.ui.unit.Dp,
-    iconSize: androidx.compose.ui.unit.Dp,
+    cardHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
     val style = moveCardStyle(move)
     val shape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
+    val imageScale = if (compact) 1.35f else 1.45f
 
     Surface(
         onClick = onClick,
         modifier = modifier
-            .heightIn(min = minHeight)
+            .height(cardHeight)
             .fillMaxWidth(),
         shape = shape,
         color = style.containerColor,
@@ -82,30 +81,29 @@ private fun MoveChoiceCard(
         border = BorderStroke(1.dp, style.borderColor),
         shadowElevation = if (compact) 0.dp else 1.dp,
     ) {
-        Column(
-            modifier = Modifier.padding(
-                horizontal = if (compact) 6.dp else 8.dp,
-                vertical = if (compact) 10.dp else 14.dp,
-            ),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val imageSize = maxWidth * imageScale
             Image(
                 painter = painterResource(move.iconRes),
                 contentDescription = move.label,
-                modifier = Modifier.size(iconSize),
+                modifier = Modifier
+                    .size(imageSize)
+                    .align(Alignment.Center),
                 contentScale = ContentScale.Fit,
             )
             Text(
                 text = move.label,
                 style = if (compact) {
-                    MaterialTheme.typography.labelLarge
+                    MaterialTheme.typography.labelMedium
                 } else {
-                    MaterialTheme.typography.titleSmall
+                    MaterialTheme.typography.labelLarge
                 },
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = if (compact) 6.dp else 8.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(bottom = if (compact) 4.dp else 6.dp),
             )
         }
     }
