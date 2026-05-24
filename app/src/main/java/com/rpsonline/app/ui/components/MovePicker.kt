@@ -1,5 +1,6 @@
 package com.rpsonline.app.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,12 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,10 +18,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Move
 
 @Composable
@@ -92,11 +90,11 @@ private fun MoveChoiceCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                imageVector = move.icon,
+            Image(
+                painter = painterResource(move.iconRes),
                 contentDescription = move.label,
                 modifier = Modifier.size(iconSize),
-                tint = style.iconTint,
+                contentScale = ContentScale.Fit,
             )
             Text(
                 text = move.label,
@@ -113,17 +111,16 @@ private fun MoveChoiceCard(
     }
 }
 
-private val Move.icon: ImageVector
+private val Move.iconRes: Int
     get() = when (this) {
-        Move.ROCK -> Icons.Default.Landscape
-        Move.PAPER -> Icons.Default.Description
-        Move.SCISSORS -> Icons.Default.ContentCut
+        Move.ROCK -> R.drawable.ic_move_rock
+        Move.PAPER -> R.drawable.ic_move_paper
+        Move.SCISSORS -> R.drawable.ic_move_scissors
     }
 
 private data class MoveCardStyle(
     val containerColor: Color,
     val contentColor: Color,
-    val iconTint: Color,
     val borderColor: Color,
 )
 
@@ -134,19 +131,16 @@ private fun moveCardStyle(move: Move): MoveCardStyle {
         Move.ROCK -> MoveCardStyle(
             containerColor = scheme.surfaceContainerHighest,
             contentColor = scheme.onSurface,
-            iconTint = scheme.onSurfaceVariant,
             borderColor = scheme.outline.copy(alpha = 0.6f),
         )
         Move.PAPER -> MoveCardStyle(
             containerColor = scheme.primaryContainer,
             contentColor = scheme.onPrimaryContainer,
-            iconTint = scheme.primary,
             borderColor = scheme.primary.copy(alpha = 0.35f),
         )
         Move.SCISSORS -> MoveCardStyle(
             containerColor = scheme.tertiaryContainer,
             contentColor = scheme.onTertiaryContainer,
-            iconTint = scheme.tertiary,
             borderColor = scheme.tertiary.copy(alpha = 0.35f),
         )
     }
