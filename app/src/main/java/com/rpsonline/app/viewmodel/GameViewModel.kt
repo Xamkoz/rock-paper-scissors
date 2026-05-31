@@ -12,6 +12,9 @@ import com.rpsonline.app.data.repository.GameFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.domain.GameRules
+import com.rpsonline.app.domain.LiveEloPreview
+import com.rpsonline.app.domain.liveEloPreview
+import com.rpsonline.app.domain.resultEloPreview
 import com.rpsonline.app.ui.game.computeRoundSecondsFromAnchor
 import com.rpsonline.app.ui.game.roundElapsedAtSyncMs
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -28,6 +31,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class GameTimerUiState(
+    val countdownSeconds: Int? = null,
+    val myClockSeconds: Int? = null,
+    val opponentClockSeconds: Int? = null,
+)
+
 data class GameUiState(
     val match: Match? = null,
     val userId: String? = null,
@@ -38,11 +47,9 @@ data class GameUiState(
     val isSubmitting: Boolean = false,
     val pendingMove: Move? = null,
     val error: String? = null,
-    val countdownSeconds: Int? = null,
-    val myClockSeconds: Int? = null,
-    val opponentClockSeconds: Int? = null,
     val isResolvingTimeout: Boolean = false,
     val lockedMove: Move? = null,
+    val eloPreview: LiveEloPreview? = null,
 )
 
 class GameViewModel(
@@ -53,6 +60,8 @@ class GameViewModel(
 
     private val _uiState = MutableStateFlow(GameUiState(userId = authRepository.currentUserId))
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+    private val _timerUiState = MutableStateFlow(GameTimerUiState())
+    val timerUiState: StateFlow<GameTimerUiState> = _timerUiState.asStateFlow()
 
     private var observeJob: Job? = null
     private var countdownJob: Job? = null
@@ -76,10 +85,13 @@ class GameViewModel(
     private var matchSnapshotAtTimeoutRequest: String? = null
     private var resolvingRetryJob: Job? = null
     private var stuckRoundNudgeJob: Job? = null
+    private var lastAppliedMatchFingerprint: String? = null
     init {
+        MatchSessionMonitor.ensureStarted()
         observeJob = viewModelScope.launch {
             bootstrapActiveMatch()
-            matchRepository.observeMatch(matchId).collect { match ->
+            MatchSessionMonitor.activeMatch.collect { active ->
+                val match = active?.takeIf { it.id == matchId } ?: return@collect
                 applyMatchSnapshot(match)
             }
         }
@@ -108,16 +120,16 @@ class GameViewModel(
 
     private suspend fun syncMatchFromServer() {
         val match = matchRepository.getMatchFromServer(matchId) ?: return
-        applyMatchSnapshot(match)
+        applyMatchSnapshot(match, authoritative = true)
     }
 
-    private fun applyMatchSnapshot(match: Match?) {
+    private fun applyMatchSnapshot(match: Match?, authoritative: Boolean = false) {
         if (match == null) {
             val current = _uiState.value.match
             if (current?.status == MatchStatus.COMPLETED || current?.status == MatchStatus.ABANDONED) {
                 return
             }
-        } else {
+        } else if (authoritative) {
             MatchSessionMonitor.ingestAuthoritativeMatch(match)
         }
         val userId = authRepository.currentUserId
@@ -187,6 +199,22 @@ class GameViewModel(
 
         val openRoundChanged = previousOpenRound != null && openRoundNumber != previousOpenRound
         val staleSubmitting = _uiState.value.isSubmitting && activeSubmitJob?.isActive != true
+        val snapshotUnchanged = fingerprint != null && fingerprint == lastAppliedMatchFingerprint
+        if (snapshotUnchanged && !clearResolving && !openRoundChanged && !staleSubmitting) {
+            return
+        }
+        if (fingerprint != null) {
+            lastAppliedMatchFingerprint = fingerprint
+        }
+        val eloPreview = if (match != null && userId != null) {
+            when (match.status) {
+                MatchStatus.ACTIVE -> match.liveEloPreview(userId)
+                MatchStatus.COMPLETED -> match.resultEloPreview(userId)
+                else -> null
+            }
+        } else {
+            null
+        }
 
         _uiState.update {
             val canPickAgain = match?.status == MatchStatus.ACTIVE &&
@@ -216,6 +244,7 @@ class GameViewModel(
                 },
                 isResolvingTimeout = if (clearResolving) false else it.isResolvingTimeout,
                 error = if (clearError) null else it.error,
+                eloPreview = eloPreview,
             )
         }
         if (openRound?.roundNumber != timeoutRequestedForRound) {
@@ -314,27 +343,28 @@ class GameViewModel(
         if (match == null || userId == null) {
             clockJob?.cancel()
             lastClockFingerprint = null
-            _uiState.update { it.copy(myClockSeconds = null, opponentClockSeconds = null) }
+            updateTimerState { it.copy(myClockSeconds = null, opponentClockSeconds = null) }
             return
         }
         if (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) {
             clockJob?.cancel()
             clockSyncMyRunning = false
             clockSyncOppRunning = false
-            val existing = _uiState.value
+            val existing = _timerUiState.value
             if (existing.myClockSeconds != null && existing.opponentClockSeconds != null) {
-                _uiState.update { it.copy(opponentHasSubmitted = true) }
+                _uiState.update { current ->
+                    if (current.opponentHasSubmitted) current else current.copy(opponentHasSubmitted = true)
+                }
                 return
             }
             val maxClockSeconds = (GameRules.MAX_CLOCK_MS / 1_000).toInt()
             val mySeconds = ((match.myClockMs(userId) + 999) / 1000).toInt().coerceIn(0, maxClockSeconds)
             val oppSeconds = ((match.opponentClockMs(userId) + 999) / 1000).toInt().coerceIn(0, maxClockSeconds)
-            _uiState.update {
-                it.copy(
-                    myClockSeconds = mySeconds,
-                    opponentClockSeconds = oppSeconds,
-                    opponentHasSubmitted = true,
-                )
+            updateTimerState {
+                it.copy(myClockSeconds = mySeconds, opponentClockSeconds = oppSeconds)
+            }
+            _uiState.update { current ->
+                if (current.opponentHasSubmitted) current else current.copy(opponentHasSubmitted = true)
             }
             return
         }
@@ -346,7 +376,7 @@ class GameViewModel(
         if (match.status != MatchStatus.ACTIVE || match.openRound() == null) {
             clockJob?.cancel()
             lastClockFingerprint = null
-            _uiState.update { it.copy(myClockSeconds = null, opponentClockSeconds = null) }
+            updateTimerState { it.copy(myClockSeconds = null, opponentClockSeconds = null) }
             return
         }
 
@@ -367,8 +397,10 @@ class GameViewModel(
         if (fingerprint != lastClockFingerprint) {
             lastClockFingerprint = fingerprint
             resyncClockAnchor(match, userId, myRunning = !serverSubmitted, oppRunning = !opponentSubmitted)
-            _uiState.update {
-                it.copy(opponentHasSubmitted = opponentSubmitted || !clockSyncOppRunning)
+            val opponentSubmittedUi = opponentSubmitted || !clockSyncOppRunning
+            _uiState.update { current ->
+                if (current.opponentHasSubmitted == opponentSubmittedUi) current
+                else current.copy(opponentHasSubmitted = opponentSubmittedUi)
             }
         }
 
@@ -399,12 +431,19 @@ class GameViewModel(
                 val opponentSubmittedNow = activeMatch.openRound()?.let { open ->
                     open.opponentHasSubmittedFor(userId, activeMatch.player1)
                 } == true
-                _uiState.update {
-                    it.copy(
-                        myClockSeconds = mySeconds,
-                        opponentClockSeconds = oppSeconds,
-                        opponentHasSubmitted = opponentSubmittedNow || !clockSyncOppRunning,
-                    )
+                val opponentSubmitted = opponentSubmittedNow || !clockSyncOppRunning
+                updateTimerState { current ->
+                    if (current.myClockSeconds == mySeconds && current.opponentClockSeconds == oppSeconds) {
+                        current
+                    } else {
+                        current.copy(
+                            myClockSeconds = mySeconds,
+                            opponentClockSeconds = oppSeconds,
+                        )
+                    }
+                }
+                if (_uiState.value.opponentHasSubmitted != opponentSubmitted) {
+                    _uiState.update { it.copy(opponentHasSubmitted = opponentSubmitted) }
                 }
 
                 if (clockSyncMyRunning && myMs <= 0L) {
@@ -419,8 +458,15 @@ class GameViewModel(
                     }
                 }
 
-                delay(100)
+                delay(1_000)
             }
+        }
+    }
+
+    private fun updateTimerState(transform: (GameTimerUiState) -> GameTimerUiState) {
+        _timerUiState.update { current ->
+            val next = transform(current)
+            if (next == current) current else next
         }
     }
 
@@ -453,7 +499,10 @@ class GameViewModel(
         if (match?.status != MatchStatus.ACTIVE || openRound == null || openRound.roundStartMs() == null) {
             countdownJob?.cancel()
             roundCountdownRoundKey = null
-            _uiState.update { it.copy(countdownSeconds = null, isResolvingTimeout = false) }
+            updateTimerState { it.copy(countdownSeconds = null) }
+            _uiState.update { current ->
+                if (!current.isResolvingTimeout) current else current.copy(isResolvingTimeout = false)
+            }
             return
         }
         val roundKey = "${openRound.roundNumber}:${openRound.roundStartMs()}"
@@ -470,21 +519,29 @@ class GameViewModel(
                     if (currentOpen?.roundNumber != roundNumber) break
 
                     val seconds = currentRoundSecondsRemaining()
-                    _uiState.update { it.copy(countdownSeconds = seconds) }
+                    updateTimerState { current ->
+                        if (current.countdownSeconds == seconds) current
+                        else current.copy(countdownSeconds = seconds)
+                    }
                     if (seconds <= 0) {
                         val state = _uiState.value
-                        val matchClockWillResolve = !state.serverMoveSubmitted && state.myClockSeconds == 0
+                        val matchClockWillResolve = !state.serverMoveSubmitted &&
+                            _timerUiState.value.myClockSeconds == 0
                         if (!matchClockWillResolve) {
                             maybeRequestTimeoutResolution(match, roundNumber)
                         }
                         delay(500)
                         continue
                     }
-                    delay(250)
+                    delay(1_000)
                 }
             }
         } else {
-            _uiState.update { it.copy(countdownSeconds = currentRoundSecondsRemaining()) }
+            val seconds = currentRoundSecondsRemaining()
+            updateTimerState { current ->
+                if (current.countdownSeconds == seconds) current
+                else current.copy(countdownSeconds = seconds)
+            }
         }
     }
 

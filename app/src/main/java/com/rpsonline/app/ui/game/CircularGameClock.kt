@@ -54,8 +54,9 @@ fun CircularGameClock(
         modifier = modifier.alpha(if (isRunning) 1f else MoveSlotLockedAlpha),
         contentAlignment = Alignment.Center,
     ) {
+        @Suppress("DEPRECATION")
         CircularProgressIndicator(
-            progress = { progress },
+            progress = progress.coerceIn(0f, 1f),
             modifier = Modifier
                 .size(timerSize)
                 .graphicsLayer { scaleX = -1f },

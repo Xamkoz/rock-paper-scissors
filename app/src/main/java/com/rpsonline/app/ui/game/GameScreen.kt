@@ -47,6 +47,7 @@ import com.rpsonline.app.ui.LocalClockSoundMuted
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.MATCH_END_NAVIGATION_DELAY_MS
 import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
+import com.rpsonline.app.viewmodel.GameTimerUiState
 import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
 import kotlinx.coroutines.delay
@@ -83,6 +84,7 @@ fun GameScreen(
             terminal = terminal,
             userId = uid,
             uiState = uiState,
+            timerState = viewModel.timerUiState.value,
         ).also { frozenEndTransition = it }
     }
 
@@ -379,6 +381,14 @@ fun GameScreen(
                 )
             }
             Spacer(modifier = Modifier.height(if (compactLayout) 4.dp else 8.dp))
+            uiState.eloPreview?.let { preview ->
+                MatchLiveEloPreviewRow(
+                    preview = preview,
+                    style = MaterialTheme.typography.labelMedium,
+                    colorDeltasBySign = match.status == MatchStatus.COMPLETED,
+                )
+                Spacer(modifier = Modifier.height(if (compactLayout) 2.dp else 4.dp))
+            }
             Text(
                 text = stringResource(
                     R.string.round_series,
@@ -390,68 +400,15 @@ fun GameScreen(
             )
             Spacer(modifier = Modifier.height(if (compactLayout) 8.dp else 12.dp))
 
-            val hasClockSnapshot =
-                uiState.myClockSeconds != null && uiState.opponentClockSeconds != null
-            val inPostFinalRoundPause = !inMatchEndTransition &&
-                match.status == MatchStatus.ACTIVE &&
-                match.openRound() == null &&
-                hasClockSnapshot
-            val showTimers = when {
-                inMatchEndTransition -> true
-                inPostFinalRoundPause -> true
-                else ->
-                    match.status == MatchStatus.ACTIVE &&
-                        hasClockSnapshot &&
-                        match.openRound()?.roundStartMs() != null &&
-                        uiState.countdownSeconds != null
-            }
-            if (showTimers) {
-                val myClockSeconds = if (inMatchEndTransition) {
-                    endTransition!!.myClockSeconds
-                } else {
-                    uiState.myClockSeconds!!
-                }
-                val opponentClockSeconds = if (inMatchEndTransition) {
-                    endTransition!!.opponentClockSeconds
-                } else {
-                    uiState.opponentClockSeconds!!
-                }
-                val roundSecondsRemaining = if (inMatchEndTransition) {
-                    endTransition!!.countdownSeconds
-                } else {
-                    uiState.countdownSeconds
-                }
-                val opponentSubmitted = if (inMatchEndTransition) {
-                    endTransition!!.opponentHasSubmitted
-                } else {
-                    uiState.opponentHasSubmitted
-                }
-                val serverMoveSubmitted = if (inMatchEndTransition) {
-                    endTransition!!.serverMoveSubmitted
-                } else {
-                    uiState.serverMoveSubmitted
-                }
-                val hasSubmittedMove = if (inMatchEndTransition) {
-                    endTransition!!.hasSubmittedMove
-                } else {
-                    uiState.hasSubmittedMove
-                }
-                GameTimerRow(
-                    myClockSeconds = myClockSeconds,
-                    opponentClockSeconds = opponentClockSeconds,
-                    myClockRunning = !inMatchEndTransition && !serverMoveSubmitted,
-                    opponentClockRunning = !inMatchEndTransition && !opponentSubmitted,
-                    roundSecondsRemaining = roundSecondsRemaining,
-                    isResolvingTimeout = if (inMatchEndTransition) false else uiState.isResolvingTimeout,
-                    hasSubmittedMove = hasSubmittedMove,
-                    compact = compactLayout,
-                    modifier = Modifier.fillMaxWidth(),
-                    roundClockRunning = !inMatchEndTransition && !uiState.isResolvingTimeout,
-                )
-                Spacer(modifier = Modifier.height(if (tightLayout) 6.dp else if (compactLayout) 8.dp else 12.dp))
-            } else {
-                Spacer(modifier = Modifier.height(if (tightLayout) 4.dp else 8.dp))
-            }
+            GameMatchTimerSection(
+                viewModel = viewModel,
+                match = match,
+                inMatchEndTransition = inMatchEndTransition,
+                endTransition = endTransition,
+                uiState = uiState,
+                compactLayout = compactLayout,
+                tightLayout = tightLayout,
+            )
 
             Box(
                 modifier = Modifier
@@ -693,6 +650,81 @@ private fun openRoundShowsLiveMoves(
         openRound.opponentHasSubmittedFor(userId, match.player1)
 }
 
+@Composable
+private fun GameMatchTimerSection(
+    viewModel: GameViewModel,
+    match: Match,
+    inMatchEndTransition: Boolean,
+    endTransition: MatchEndTransitionUi?,
+    uiState: GameUiState,
+    compactLayout: Boolean,
+    tightLayout: Boolean,
+) {
+    val timerState by viewModel.timerUiState.collectAsState()
+    val hasClockSnapshot =
+        timerState.myClockSeconds != null && timerState.opponentClockSeconds != null
+    val inPostFinalRoundPause = !inMatchEndTransition &&
+        match.status == MatchStatus.ACTIVE &&
+        match.openRound() == null &&
+        hasClockSnapshot
+    val showTimers = when {
+        inMatchEndTransition -> true
+        inPostFinalRoundPause -> true
+        else ->
+            match.status == MatchStatus.ACTIVE &&
+                hasClockSnapshot &&
+                match.openRound()?.roundStartMs() != null &&
+                timerState.countdownSeconds != null
+    }
+    if (!showTimers) {
+        Spacer(modifier = Modifier.height(if (tightLayout) 4.dp else 8.dp))
+        return
+    }
+    val myClockSeconds = if (inMatchEndTransition) {
+        endTransition!!.myClockSeconds
+    } else {
+        timerState.myClockSeconds!!
+    }
+    val opponentClockSeconds = if (inMatchEndTransition) {
+        endTransition!!.opponentClockSeconds
+    } else {
+        timerState.opponentClockSeconds!!
+    }
+    val roundSecondsRemaining = if (inMatchEndTransition) {
+        endTransition!!.countdownSeconds
+    } else {
+        timerState.countdownSeconds
+    }
+    val opponentSubmitted = if (inMatchEndTransition) {
+        endTransition!!.opponentHasSubmitted
+    } else {
+        uiState.opponentHasSubmitted
+    }
+    val serverMoveSubmitted = if (inMatchEndTransition) {
+        endTransition!!.serverMoveSubmitted
+    } else {
+        uiState.serverMoveSubmitted
+    }
+    val hasSubmittedMove = if (inMatchEndTransition) {
+        endTransition!!.hasSubmittedMove
+    } else {
+        uiState.hasSubmittedMove
+    }
+    GameTimerRow(
+        myClockSeconds = myClockSeconds,
+        opponentClockSeconds = opponentClockSeconds,
+        myClockRunning = !inMatchEndTransition && !serverMoveSubmitted,
+        opponentClockRunning = !inMatchEndTransition && !opponentSubmitted,
+        roundSecondsRemaining = roundSecondsRemaining,
+        isResolvingTimeout = if (inMatchEndTransition) false else uiState.isResolvingTimeout,
+        hasSubmittedMove = hasSubmittedMove,
+        compact = compactLayout,
+        modifier = Modifier.fillMaxWidth(),
+        roundClockRunning = !inMatchEndTransition && !uiState.isResolvingTimeout,
+    )
+    Spacer(modifier = Modifier.height(if (tightLayout) 6.dp else if (compactLayout) 8.dp else 12.dp))
+}
+
 private fun myLockedChoice(
     userId: String,
     match: Match,
@@ -731,11 +763,12 @@ private fun buildMatchEndTransitionUi(
     terminal: Match,
     userId: String,
     uiState: GameUiState,
+    timerState: GameTimerUiState,
 ): MatchEndTransitionUi {
     val maxClockSeconds = (GameRules.MAX_CLOCK_MS / 1_000).toInt()
-    val myClockSeconds = uiState.myClockSeconds
+    val myClockSeconds = timerState.myClockSeconds
         ?: clockSecondsFromMatch(displayMatch, userId, myPlayer = true, maxClockSeconds)
-    val opponentClockSeconds = uiState.opponentClockSeconds
+    val opponentClockSeconds = timerState.opponentClockSeconds
         ?: clockSecondsFromMatch(displayMatch, userId, myPlayer = false, maxClockSeconds)
     val finalResolvedRound = terminal.lastResolvedRound()
     val selectedMove = finalResolvedRound?.let { round ->
@@ -749,7 +782,7 @@ private fun buildMatchEndTransitionUi(
         finalResolvedRound = finalResolvedRound,
         myClockSeconds = myClockSeconds,
         opponentClockSeconds = opponentClockSeconds,
-        countdownSeconds = uiState.countdownSeconds,
+        countdownSeconds = timerState.countdownSeconds,
         selectedMove = selectedMove,
         hasSubmittedMove = true,
         serverMoveSubmitted = uiState.serverMoveSubmitted || selectedMove != null,

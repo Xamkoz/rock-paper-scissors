@@ -92,8 +92,8 @@
     <string name="this_week">This week</string>
     <string name="matches_you_played_against">Your name vs opponent name</string>
     <string name="matches">Matches</string>
-    <string name="elo_label">Rating</string>
-    <string name="elo_with_delta">Rating %1$s</string>
+    <string name="elo_label">ELO</string>
+    <string name="elo_with_delta">ELO %1$s</string>
     <string name="opponent_timed_out_resolving">Opponent timed out — resolving…</string>
     <string name="times_up_resolving_round">Time\'s up — resolving round…</string>
     <string name="waiting_opponent_pick">Waiting for opponent\'s pick</string>

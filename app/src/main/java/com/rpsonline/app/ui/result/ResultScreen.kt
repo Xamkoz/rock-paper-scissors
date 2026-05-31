@@ -35,10 +35,11 @@ import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.matchResultOutcomeDetail
+import com.rpsonline.app.domain.LiveEloPreview
 import com.rpsonline.app.domain.opponentEloAtMatch
+import com.rpsonline.app.domain.resultEloPreview
 import com.rpsonline.app.domain.DisplayNames
 import com.rpsonline.app.ui.components.HomeOutlinedButton
-import com.rpsonline.app.ui.components.MatchEloChangeLabel
 import com.rpsonline.app.ui.components.MatchRecapCard
 import com.rpsonline.app.ui.components.MatchResolutionOutcomeHeader
 import com.rpsonline.app.ui.components.ProfileSummaryCard
@@ -49,6 +50,7 @@ import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.formatMatchScore
 import com.rpsonline.app.ui.components.profileStatValueColor
 import com.rpsonline.app.ui.components.rpsScreenPadding
+import com.rpsonline.app.ui.game.MatchLiveEloPreviewRow
 
 @Composable
 fun ResultScreen(
@@ -119,7 +121,7 @@ fun ResultScreen(
         val myWins = userId?.let { currentMatch.myWins(it) } ?: 0
         val opponentWins = userId?.let { currentMatch.opponentWins(it) } ?: 0
         val resolution = userId?.let { currentMatch.viewerResolution(it) }
-        val eloDelta = userId?.let { currentMatch.myEloDelta(it) }
+        val eloPreview = userId?.let { currentMatch.resultEloPreview(it) }
         val opponentName = userId?.let { currentMatch.opponentName(it) } ?: stringResource(R.string.opponent)
         val myDisplayName = userId?.let { uid ->
             myProfile?.displayName?.takeIf { it.isNotBlank() }
@@ -157,8 +159,7 @@ fun ResultScreen(
         FinalScoreCard(
             myWins = myWins,
             opponentWins = opponentWins,
-            postMatchElo = myCurrentElo,
-            eloDelta = eloDelta,
+            eloPreview = eloPreview,
         )
 
         if (userId != null) {
@@ -217,35 +218,45 @@ fun ResultScreen(
 private fun FinalScoreCard(
     myWins: Int,
     opponentWins: Int,
-    postMatchElo: Int?,
-    eloDelta: Int?,
+    eloPreview: LiveEloPreview?,
 ) {
+    val scoreStyle = MaterialTheme.typography.titleLarge
+    val eloStyle = MaterialTheme.typography.titleMedium
     RpsCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
                 Text(
                     text = "${stringResource(R.string.final_score_label)} ",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = scoreStyle,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
                 Text(
                     text = formatMatchScore(myWins, opponentWins),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = scoreStyle,
                     fontWeight = FontWeight.Bold,
                     color = profileStatValueColor(),
+                    maxLines = 1,
                 )
             }
-            MatchEloChangeLabel(
-                postMatchElo = postMatchElo,
-                eloDelta = eloDelta,
-            )
+            eloPreview?.let { preview ->
+                MatchLiveEloPreviewRow(
+                    preview = preview,
+                    style = eloStyle,
+                    colorDeltasBySign = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
