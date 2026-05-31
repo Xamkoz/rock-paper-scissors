@@ -151,6 +151,16 @@ object MatchSessionMonitor {
         enqueueNavigationJob = null
     }
 
+    /** Match ended; clear notification-launch navigation so back from result stays on home. */
+    fun onMatchFinished(matchId: String) {
+        pendingLaunchMatchId = null
+        enqueueNavigationJob?.cancel()
+        enqueueNavigationJob = null
+        consumeGameNavigation()
+        setMatchmakingInProgress(false)
+        autoGameNavigationSuppressedMatchId = matchId
+    }
+
     /** Called when queue entry is confirmed (server or client join timestamp). */
     fun confirmQueueJoinedAt(joinedAtMs: Long) {
         if (!_matchmakingInProgress.value) return
@@ -370,6 +380,12 @@ object MatchSessionMonitor {
         ) {
             requestGameNavigation(match.id)
             pendingLaunchMatchId = null
+        } else if (
+            match.isParticipant(uid) &&
+            (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) &&
+            (pendingLaunchMatchId == match.id || _pendingGameNavigationMatchId.value == match.id)
+        ) {
+            onMatchFinished(match.id)
         }
     }
 

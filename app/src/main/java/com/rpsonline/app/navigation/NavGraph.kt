@@ -54,6 +54,11 @@ private fun NavHostController.navigateToHome() {
     }
 }
 
+private fun NavHostController.navigateToHomeAfterMatch(matchId: String) {
+    MatchSessionMonitor.onMatchFinished(matchId)
+    navigateToHome()
+}
+
 @Composable
 private fun MatchFoundNavigationEffect(navController: NavHostController) {
     val pendingMatchId by MatchSessionMonitor.pendingGameNavigationMatchId
@@ -64,6 +69,14 @@ private fun MatchFoundNavigationEffect(navController: NavHostController) {
     LaunchedEffect(pendingMatchId, currentRoute) {
         val matchId = pendingMatchId ?: return@LaunchedEffect
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) {
+            MatchSessionMonitor.consumeGameNavigation()
+            return@LaunchedEffect
+        }
+        val activeMatch = MatchSessionMonitor.activeMatch.value
+        if (
+            activeMatch?.id == matchId &&
+            activeMatch.status != MatchStatus.ACTIVE
+        ) {
             MatchSessionMonitor.consumeGameNavigation()
             return@LaunchedEffect
         }
@@ -170,8 +183,10 @@ fun RpsNavGraph() {
             GameScreen(
                 matchId = matchId,
                 onMatchComplete = { completedMatchId ->
+                    MatchSessionMonitor.onMatchFinished(completedMatchId)
                     navController.navigate(Routes.result(completedMatchId)) {
-                        popUpTo(Routes.game(matchId)) { inclusive = true }
+                        popUpTo(Routes.HOME) { inclusive = false }
+                        launchSingleTop = true
                     }
                 },
             )
@@ -182,17 +197,20 @@ fun RpsNavGraph() {
             arguments = listOf(navArgument("matchId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val matchId = backStackEntry.arguments?.getString("matchId") ?: return@composable
+            BackHandler {
+                navController.navigateToHomeAfterMatch(matchId)
+            }
             ResultScreen(
                 matchId = matchId,
                 onPlayAgain = {
-                    MatchSessionMonitor.consumeGameNavigation()
+                    MatchSessionMonitor.onMatchFinished(matchId)
                     MatchSessionMonitor.clearQueueState(endMatchmaking = true)
                     navController.navigate(Routes.home(autoStartMatchmaking = true)) {
                         popUpTo(Routes.HOME) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
-                onHome = { navController.navigateToHome() },
+                onHome = { navController.navigateToHomeAfterMatch(matchId) },
                 onOpponentProfile = { userId ->
                     navController.navigate(Routes.profile(userId))
                 },
