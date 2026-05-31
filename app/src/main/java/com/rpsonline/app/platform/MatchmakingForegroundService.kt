@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import com.google.firebase.auth.FirebaseAuth
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -35,6 +37,7 @@ import kotlinx.coroutines.launch
 
 class MatchmakingForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var heartbeatJob: Job? = null
     private var notificationUpdateJob: Job? = null
     private var clockSoundJob: Job? = null
@@ -42,6 +45,8 @@ class MatchmakingForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        runningInstance = this
+        SegmentedNotificationState.setOnContentChangedListener { repostForegroundNotification() }
         ensureForegroundChannel()
     }
 
@@ -65,6 +70,7 @@ class MatchmakingForegroundService : Service() {
         startHeartbeatLoop()
         startNotificationUpdateLoop()
         startClockSoundLoop()
+        repostForegroundNotification()
         return START_STICKY
     }
 
@@ -72,6 +78,11 @@ class MatchmakingForegroundService : Service() {
         heartbeatJob?.cancel()
         notificationUpdateJob?.cancel()
         clockSoundJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null)
+        if (runningInstance === this) {
+            runningInstance = null
+            SegmentedNotificationState.setOnContentChangedListener(null)
+        }
         MatchClockSoundController.sync(false)
         serviceScope.cancel()
         super.onDestroy()
@@ -127,6 +138,12 @@ class MatchmakingForegroundService : Service() {
         }
         val manager = getSystemService(NotificationManager::class.java) ?: return
         manager.notify(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification())
+    }
+
+    /** RemoteViews often miss the first bind; repost on the main thread right after [startForeground]. */
+    private fun repostForegroundNotification() {
+        mainHandler.post { updateForegroundNotification() }
+        mainHandler.postDelayed({ updateForegroundNotification() }, 250L)
     }
 
     private fun resolveNotificationDisplay(): TopBarStatusRowSpec {
@@ -205,7 +222,7 @@ class MatchmakingForegroundService : Service() {
             .setContentIntent(pendingIntent)
         SevenSegmentNotificationRenderer.applySegmentedStatusViews(
             builder = builder,
-            context = this,
+            context = applicationContext,
             state = display,
             accessibilitySummary = accessibilityTime,
         )
@@ -215,6 +232,13 @@ class MatchmakingForegroundService : Service() {
     companion object {
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
+
+        @Volatile
+        private var runningInstance: MatchmakingForegroundService? = null
+
+        fun refreshNotificationIfRunning() {
+            runningInstance?.repostForegroundNotification()
+        }
 
         fun sync(context: Context, shouldRun: Boolean) {
             if (shouldRun) {

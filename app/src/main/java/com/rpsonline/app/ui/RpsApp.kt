@@ -46,6 +46,7 @@ import com.rpsonline.app.platform.SegmentedNotificationState
 import com.rpsonline.app.platform.BatteryOptimizationHelper
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
+import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.NotificationPermissionHelper
 import com.rpsonline.app.navigation.RpsNavGraph
 import com.rpsonline.app.ui.components.AppearanceMenuButton
@@ -102,6 +103,7 @@ fun RpsApp() {
                 Lifecycle.Event.ON_PAUSE -> {
                     appInForeground = false
                     AppForegroundTracker.setInForeground(false)
+                    MatchmakingForegroundService.refreshNotificationIfRunning()
                 }
                 else -> Unit
             }

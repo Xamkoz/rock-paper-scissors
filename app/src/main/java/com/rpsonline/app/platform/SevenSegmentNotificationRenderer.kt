@@ -28,7 +28,10 @@ object SevenSegmentNotificationRenderer {
         return remoteViews
     }
 
-    /** Collapsed, expanded, and heads-up all use the segmented composite bitmap. */
+    /**
+     * Collapsed, expanded, and heads-up all use the segmented composite bitmap.
+     * [DecoratedCustomViewStyle] is required for targetSdk 31+; undecorated custom views are rejected.
+     */
     fun applySegmentedStatusViews(
         builder: NotificationCompat.Builder,
         context: Context,
@@ -38,6 +41,7 @@ object SevenSegmentNotificationRenderer {
         builder
             .setContentTitle(statusHeader(context, state.status))
             .setContentText(accessibilitySummary)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(buildRemoteViews(context, state))
             .setCustomBigContentView(buildRemoteViews(context, state))
             .setCustomHeadsUpContentView(buildRemoteViews(context, state))
@@ -81,6 +85,7 @@ object SevenSegmentNotificationRenderer {
             max(1, totalHeightPx),
             Bitmap.Config.ARGB_8888,
         )
+        bitmap.density = context.resources.displayMetrics.densityDpi
         val canvas = Canvas(bitmap)
         canvas.drawText(header, rowLeftPx, textBaselineY, headerPaint)
         SevenSegmentPainter.drawTopBarStatusRow(
