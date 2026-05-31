@@ -11,7 +11,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,22 +73,16 @@ fun GameScreen(
     val scope = rememberCoroutineScope()
     var navigatedToResult by remember(matchId) { mutableStateOf(false) }
     var frozenEndTransition by remember(matchId) { mutableStateOf<MatchEndTransitionUi?>(null) }
-
-    SideEffect {
-        if (navigatedToResult) {
-            frozenEndTransition = null
-            return@SideEffect
-        }
-        if (frozenEndTransition != null) return@SideEffect
-        val terminal = terminalMatch ?: return@SideEffect
-        val uid = userId ?: return@SideEffect
+    val endTransition = frozenEndTransition ?: run {
+        val terminal = terminalMatch ?: return@run null
+        val uid = userId ?: return@run null
         val liveMatch = match?.takeIf { it.status == MatchStatus.ACTIVE }
-        frozenEndTransition = buildMatchEndTransitionUi(
+        buildMatchEndTransitionUi(
             displayMatch = liveMatch ?: terminal,
             terminal = terminal,
             userId = uid,
             uiState = uiState,
-        )
+        ).also { frozenEndTransition = it }
     }
 
     DisposableEffect(matchId) {
@@ -126,9 +119,9 @@ fun GameScreen(
         viewModel.refreshOnResume()
     }
 
-    LaunchedEffect(frozenEndTransition?.roundKey, matchId) {
+    LaunchedEffect(endTransition?.roundKey, matchId) {
         if (navigatedToResult) return@LaunchedEffect
-        if (frozenEndTransition == null) return@LaunchedEffect
+        if (endTransition == null) return@LaunchedEffect
         val current = terminalMatch
             ?: match?.takeIf { it.status == MatchStatus.COMPLETED || it.status == MatchStatus.ABANDONED }
             ?: monitorMatch?.takeIf {
@@ -145,13 +138,13 @@ fun GameScreen(
                     muted = clockSoundMuted,
                 )
                 delay(MATCH_END_NAVIGATION_DELAY_MS)
-                navigatedToResult = true
                 onMatchComplete(matchId)
+                navigatedToResult = true
             }
             MatchStatus.ABANDONED -> {
                 delay(MATCH_END_NAVIGATION_DELAY_MS)
-                navigatedToResult = true
                 onMatchComplete(matchId)
+                navigatedToResult = true
             }
             else -> Unit
         }
@@ -171,8 +164,7 @@ fun GameScreen(
                 message = stringResource(R.string.waiting_for_opponent),
             )
         } else {
-        val endTransition = frozenEndTransition
-        val inMatchEndTransition = endTransition != null && !navigatedToResult
+        val inMatchEndTransition = endTransition != null
         val screenMatch = if (inMatchEndTransition) endTransition!!.displayMatch else match
         val currentRound = screenMatch.currentRoundData()
         val drawReplay = screenMatch.pendingDrawReplay()
@@ -392,14 +384,20 @@ fun GameScreen(
             )
             Spacer(modifier = Modifier.height(if (compactLayout) 8.dp else 12.dp))
 
-            val showTimers = if (inMatchEndTransition) {
-                true
-            } else {
-                screenMatch.status == MatchStatus.ACTIVE &&
-                    uiState.myClockSeconds != null &&
-                    uiState.opponentClockSeconds != null &&
-                    screenMatch.openRound()?.roundStartMs() != null &&
-                    uiState.countdownSeconds != null
+            val hasClockSnapshot =
+                uiState.myClockSeconds != null && uiState.opponentClockSeconds != null
+            val inPostFinalRoundPause = !inMatchEndTransition &&
+                match.status == MatchStatus.ACTIVE &&
+                match.openRound() == null &&
+                hasClockSnapshot
+            val showTimers = when {
+                inMatchEndTransition -> true
+                inPostFinalRoundPause -> true
+                else ->
+                    match.status == MatchStatus.ACTIVE &&
+                        hasClockSnapshot &&
+                        match.openRound()?.roundStartMs() != null &&
+                        uiState.countdownSeconds != null
             }
             if (showTimers) {
                 val myClockSeconds = if (inMatchEndTransition) {
