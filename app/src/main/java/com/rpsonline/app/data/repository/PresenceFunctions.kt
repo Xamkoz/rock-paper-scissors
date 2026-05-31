@@ -16,8 +16,8 @@ internal object PresenceFunctions {
     private const val TOUCH_CALLABLE = "touchPresence"
     private const val CALL_TIMEOUT_MS = 10_000L
 
-    /** Updates presence on the server. Returns server time and online count when successful. */
-    suspend fun tryTouchPresence(): TouchPresenceResult? {
+    /** Updates presence on the server. Returns server time and online count when requested. */
+    suspend fun tryTouchPresence(includeOnlineCount: Boolean = false): TouchPresenceResult? {
         repeat(2) { attempt ->
             try {
                 awaitCallableAuth()
@@ -25,8 +25,9 @@ internal object PresenceFunctions {
                     FirebaseApp.getInstance(),
                     FIREBASE_FUNCTIONS_REGION,
                 )
+                val payload = mapOf("includeOnlineCount" to includeOnlineCount)
                 val result = withTimeout(CALL_TIMEOUT_MS) {
-                    functions.getHttpsCallable(TOUCH_CALLABLE).call(emptyMap<String, Any>()).await()
+                    functions.getHttpsCallable(TOUCH_CALLABLE).call(payload).await()
                 }
                 @Suppress("UNCHECKED_CAST")
                 val body = result.getData() as? Map<String, Any?> ?: return null

@@ -194,21 +194,23 @@ fun RpsApp() {
                 hasQueueEntry = hasQueueEntry,
                 queueJoinedAtMs = queueJoinedAtMs,
             )
-        fun serviceMaintainsPresence(): Boolean =
-            backgroundUsageEnabled &&
-                MatchmakingBackgroundCoordinator.shouldRunService(context)
+        fun serviceOwnsHeartbeats(): Boolean =
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                context,
+                backgroundUsageEnabled,
+            )
         fun stopLocalPresence() {
             presenceRepository.clearPresence(uid)
             presenceRepository.clearOnlineCount()
         }
 
         if (!shouldMaintainPresence()) {
-            if (!serviceMaintainsPresence()) {
+            if (!serviceOwnsHeartbeats()) {
                 stopLocalPresence()
             }
             return@LaunchedEffect
         }
-        if (serviceMaintainsPresence()) {
+        if (serviceOwnsHeartbeats()) {
             return@LaunchedEffect
         }
         presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
@@ -216,12 +218,12 @@ fun RpsApp() {
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
-                if (!serviceMaintainsPresence()) {
+                if (!serviceOwnsHeartbeats()) {
                     stopLocalPresence()
                 }
                 break
             }
-            if (serviceMaintainsPresence()) {
+            if (serviceOwnsHeartbeats()) {
                 break
             }
             heartbeat++
@@ -296,11 +298,27 @@ fun RpsApp() {
         }
     }
 
-    LaunchedEffect(hasQueueEntry) {
+    LaunchedEffect(hasQueueEntry, backgroundUsageEnabled) {
         if (!hasQueueEntry) return@LaunchedEffect
+        if (
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                context,
+                backgroundUsageEnabled,
+            )
+        ) {
+            return@LaunchedEffect
+        }
         var consecutiveFailures = 0
         matchRepository.sendQueueHeartbeat()
         while (true) {
+            if (
+                MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                    context,
+                    backgroundUsageEnabled,
+                )
+            ) {
+                break
+            }
             if (!matchRepository.sendQueueHeartbeat()) {
                 consecutiveFailures += 1
                 if (consecutiveFailures >= 3) {
@@ -366,8 +384,14 @@ fun RpsApp() {
         lastNotifiedMatchId = match.id
     }
 
-    LifecycleResumeEffect(hasQueueEntry) {
-        if (hasQueueEntry) {
+    LifecycleResumeEffect(hasQueueEntry, backgroundUsageEnabled) {
+        if (
+            hasQueueEntry &&
+            !MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                context,
+                backgroundUsageEnabled,
+            )
+        ) {
             scope.launch {
                 matchRepository.sendQueueHeartbeat()
             }

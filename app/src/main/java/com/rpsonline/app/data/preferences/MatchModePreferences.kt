@@ -12,9 +12,12 @@ class MatchModePreferences(context: Context) {
     fun get(): Set<MatchMode> = MatchMode.parseStoredNames(prefs.getStringSet(KEY_MODES, null))
 
     fun set(modes: Set<MatchMode>) {
-        require(modes.isNotEmpty()) { "At least one match mode must be selected" }
+        val normalized = MatchMode.normalizeSelection(modes)
+        require(normalized.size >= MatchMode.MIN_SELECTION_COUNT) {
+            "At least ${MatchMode.MIN_SELECTION_COUNT} match modes must be selected"
+        }
         prefs.edit()
-            .putStringSet(KEY_MODES, modes.map { it.name }.toSet())
+            .putStringSet(KEY_MODES, normalized.map { it.name }.toSet())
             .apply()
     }
 }

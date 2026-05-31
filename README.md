@@ -2,6 +2,14 @@
 
 Online rock–paper–scissors for Android. Match with another player in real time, play **best of 3**, **5**, or **10** series with match clocks, climb an ELO leaderboard, and review match history on player profiles.
 
+## UI showcase
+
+| Home — matchmaking | Active match |
+|:---:|:---:|
+| ![Home screen while in queue](docs/screenshots/home-queue.png) | ![Live match with round clocks and score](docs/screenshots/game-active.png) |
+| **Leaderboard** | **Match result** |
+| ![Ranked players with online highlights](docs/screenshots/leaderboard.png) | ![Post-match recap and rating change](docs/screenshots/match-result.png) |
+
 ## How it works
 
 - **Matchmaking** — on Home, select any combination of **Best of 3**, **Best of 5**, and **Best of 10** (saved for next time). Queue until an opponent is found; pairing requires at least one shared format (chosen at random) and prefers players within **±300 ELO**.
@@ -27,7 +35,7 @@ Pre-built APKs are attached to [GitHub Releases](https://github.com/melkor217/ro
 | `functions/` | Firebase Cloud Functions (match logic, timeouts, ELO) |
 | `firestore.rules` | Firestore security rules |
 | `firestore.indexes.json` | Composite indexes for queries |
-| `docs/` | Architecture notes and GitHub Pages assets (e.g. App Links) |
+| `docs/` | Architecture notes, UI screenshots, and GitHub Pages assets (e.g. App Links) |
 | `shared/` | `game-rules.json` — round timeout, clocks, match formats (used by app + functions) |
 | `scripts/` | Deploy, auth, and environment helpers |
 

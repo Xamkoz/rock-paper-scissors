@@ -26,6 +26,8 @@ enum class MatchMode(
     val label: String get() = "Best of $bestOfRounds"
 
     companion object {
+        const val MIN_SELECTION_COUNT = 2
+
         val DEFAULT_SELECTION: Set<MatchMode> = entries.toSet()
 
         fun fromString(value: String?): MatchMode =
@@ -33,27 +35,43 @@ enum class MatchMode(
 
         fun parseStoredNames(names: Set<String>?): Set<MatchMode> {
             if (names.isNullOrEmpty()) return DEFAULT_SELECTION
-            return names.mapNotNull { name -> entries.find { it.name.equals(name, ignoreCase = true) } }
-                .toSet()
-                .ifEmpty { DEFAULT_SELECTION }
+            return normalizeSelection(
+                names.mapNotNull { name -> entries.find { it.name.equals(name, ignoreCase = true) } }
+                    .toSet(),
+            ).ifEmpty { DEFAULT_SELECTION }
         }
 
         fun parseRouteArg(value: String?): Set<MatchMode> {
             if (value.isNullOrBlank()) return DEFAULT_SELECTION
-            return value.split(",")
-                .mapNotNull { part -> entries.find { it.name.equals(part.trim(), ignoreCase = true) } }
-                .toSet()
-                .ifEmpty { DEFAULT_SELECTION }
+            return normalizeSelection(
+                value.split(",")
+                    .mapNotNull { part -> entries.find { it.name.equals(part.trim(), ignoreCase = true) } }
+                    .toSet(),
+            ).ifEmpty { DEFAULT_SELECTION }
         }
 
         fun encodeRouteArg(modes: Set<MatchMode>): String =
             modes.sortedBy { it.ordinal }.joinToString(",") { it.name }
 
-        fun toggleInSelection(current: Set<MatchMode>, mode: MatchMode): Set<MatchMode> =
-            when {
-                mode !in current -> current + mode
-                current.size == 1 -> entries.filter { it != mode }.toSet()
-                else -> current - mode
+        fun toggleInSelection(current: Set<MatchMode>, mode: MatchMode): Set<MatchMode> {
+            if (mode !in current) return normalizeSelection(current + mode)
+            val afterRemoval = current - mode
+            if (afterRemoval.size >= MIN_SELECTION_COUNT) return afterRemoval
+            val needed = MIN_SELECTION_COUNT - afterRemoval.size
+            val toAdd = entries.filter { it !in afterRemoval && it != mode }.take(needed)
+            return afterRemoval + toAdd
+        }
+
+        /** Ensures persisted or toggled selections always include at least [MIN_SELECTION_COUNT] modes. */
+        fun normalizeSelection(selection: Set<MatchMode>): Set<MatchMode> {
+            if (selection.size >= MIN_SELECTION_COUNT) return selection
+            if (selection.isEmpty()) return DEFAULT_SELECTION
+            val result = selection.toMutableSet()
+            for (candidate in entries) {
+                if (result.size >= MIN_SELECTION_COUNT) break
+                result += candidate
             }
+            return result
+        }
     }
 }

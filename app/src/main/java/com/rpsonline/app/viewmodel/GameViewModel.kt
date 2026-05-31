@@ -8,7 +8,6 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.data.repository.AuthRepository
-import com.rpsonline.app.data.repository.FirestoreConnectivity
 import com.rpsonline.app.data.repository.GameFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
@@ -101,8 +100,7 @@ class GameViewModel(
     fun refreshOnResume() {
         viewModelScope.launch {
             runCatching {
-                FirestoreConnectivity.restoreOnResume()
-                MatchSessionMonitor.refreshOnResume()
+                MatchSessionMonitor.refreshOnResume(forceServerSync = true)
                 syncMatchFromServer()
             }
         }

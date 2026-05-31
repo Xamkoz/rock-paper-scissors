@@ -64,6 +64,37 @@ class MatchModeTest {
     }
 
     @Test
+    fun toggleInSelection_deselectingFromTwo_swapsInAnotherMode() {
+        assertEquals(
+            setOf(MatchMode.BO5, MatchMode.BO10),
+            MatchMode.toggleInSelection(setOf(MatchMode.BO3, MatchMode.BO5), MatchMode.BO3),
+        )
+        assertEquals(
+            setOf(MatchMode.BO3, MatchMode.BO10),
+            MatchMode.toggleInSelection(setOf(MatchMode.BO3, MatchMode.BO5), MatchMode.BO5),
+        )
+    }
+
+    @Test
+    fun toggleInSelection_canDropToTwoWhenThreeSelected() {
+        assertEquals(
+            setOf(MatchMode.BO5, MatchMode.BO10),
+            MatchMode.toggleInSelection(
+                setOf(MatchMode.BO3, MatchMode.BO5, MatchMode.BO10),
+                MatchMode.BO3,
+            ),
+        )
+    }
+
+    @Test
+    fun normalizeSelection_upgradesLegacySingleMode() {
+        assertEquals(
+            setOf(MatchMode.BO3, MatchMode.BO5),
+            MatchMode.normalizeSelection(setOf(MatchMode.BO3)),
+        )
+    }
+
+    @Test
     fun toggleInSelection_canSelectBoth() {
         assertEquals(
             setOf(MatchMode.BO3, MatchMode.BO5),

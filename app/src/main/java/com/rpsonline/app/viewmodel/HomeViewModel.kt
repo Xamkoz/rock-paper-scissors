@@ -545,9 +545,10 @@ class HomeViewModel(
                         ensurePreGameReadyLoop(match.id)
                     }
                     MatchStatus.ACTIVE -> {
-                        val shouldNavigate = !MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id) &&
+                        val shouldAutoNavigate = !MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id) &&
                             (inMatchmakingFlow || _uiState.value.preGameSync?.matchId == match.id)
-                        if (shouldNavigate) {
+                        if (shouldAutoNavigate) {
+                            beginAutoGameNavigation(match.id)
                             viewModelScope.launch {
                                 navigateToActiveMatchWhenServerReady(match.id)
                             }
@@ -639,6 +640,7 @@ class HomeViewModel(
                         )
                     }
                     if (serverMatch.status == MatchStatus.ACTIVE) {
+                        beginAutoGameNavigation(matchId)
                         navigateToActiveMatchWhenServerReady(matchId)
                         break
                     }
@@ -683,16 +685,13 @@ class HomeViewModel(
         matchId?.let { abandonedMatchId ->
             viewModelScope.launch(Dispatchers.IO) {
                 runCatching { matchRepository.confirmMatchReady(abandonedMatchId) }
-                runCatching { MatchSessionMonitor.refreshOnResume() }
+                runCatching { MatchSessionMonitor.refreshOnResume(forceServerSync = true) }
             }
         }
     }
 
-    private suspend fun navigateToActiveMatchWhenServerReady(matchId: String) {
+    private fun beginAutoGameNavigation(matchId: String) {
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
-        val serverMatch = matchRepository.getMatchFromServer(matchId) ?: return
-        if (serverMatch.status != MatchStatus.ACTIVE) return
-        MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)
         stopPreGameReadyLoop()
         awaitingMatchFromQueue = false
         awaitingMatchStartedAtMs = null
@@ -706,8 +705,16 @@ class HomeViewModel(
                 queueElapsedSeconds = 0,
                 matchmakingError = null,
                 preGameSync = null,
+                activeMatchId = null,
             )
         }
+    }
+
+    private suspend fun navigateToActiveMatchWhenServerReady(matchId: String) {
+        if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
+        val serverMatch = matchRepository.getMatchFromServer(matchId) ?: return
+        if (serverMatch.status != MatchStatus.ACTIVE) return
+        MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)
     }
 
     private fun stopPreGameReadyLoop() {
@@ -724,17 +731,23 @@ class HomeViewModel(
         loadMatchModePreferences(context)
         _uiState.value.preGameSync?.matchId?.let { ensurePreGameReadyLoop(it) }
         viewModelScope.launch {
-            if (_uiState.value.isInQueue || _uiState.value.isJoiningQueue) {
+            val reconcilingQueue = _uiState.value.isInQueue ||
+                _uiState.value.isJoiningQueue ||
+                MatchSessionMonitor.isMatchmakingInProgress()
+            if (reconcilingQueue) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
             }
-            runCatching { MatchSessionMonitor.refreshOnResume() }
+            runCatching {
+                MatchSessionMonitor.refreshOnResume(forceServerSync = reconcilingQueue)
+            }
             val uid = authRepository.currentUserId ?: return@launch
             runCatching { presenceRepository.touchPresence(uid, awaitServerAck = true) }
             userRepository.getUserProfile(uid)?.let { profile ->
                 _uiState.update { it.copy(profile = profile) }
             }
 
-            val serverJoinedAtMs = runCatching { matchRepository.getQueueJoinedAtMs() }.getOrNull()
+            val serverJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
+                ?.takeIf { MatchSessionMonitor.hasQueueEntry.value }
             val localJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
 
             if (serverJoinedAtMs != null) {

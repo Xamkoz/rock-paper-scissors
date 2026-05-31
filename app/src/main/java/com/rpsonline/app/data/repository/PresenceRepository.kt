@@ -37,11 +37,13 @@ class PresenceRepository(
         const val COLLECTION = "presence"
         /** Legacy profile activity window (match stats, guest cleanup). */
         const val ONLINE_WINDOW_MS = 2 * 60 * 1000L
-        /** Presence heartbeat window for the online counter (~4 missed beats at 20s). */
+        /** Presence heartbeat window for the online counter (~3 missed beats at 30s). */
         const val ONLINE_PRESENCE_WINDOW_MS = 90_000L
         /** Extra time before UI drops a player after their last heartbeat expires. */
         const val ONLINE_DISPLAY_GRACE_MS = 25_000L
-        const val HEARTBEAT_INTERVAL_MS = 20_000L
+        const val HEARTBEAT_INTERVAL_MS = 30_000L
+        /** Top-bar online count refresh cadence (~3× slower than presence heartbeats). */
+        const val ONLINE_COUNT_REFRESH_MS = 60_000L
         private const val PRESENCE_WRITE_TIMEOUT_MS = 8_000L
         private const val PRESENCE_SYNC_TIMEOUT_MS = 10_000L
         private const val PRESENCE_ACK_MAX_AGE_MS = 90_000L
@@ -49,6 +51,25 @@ class PresenceRepository(
         private const val ONLINE_QUERY_REFRESH_MS = 60_000L
         private const val ONLINE_POLLING_INTERVAL_MS = 30_000L
         private const val PRESENCE_WHERE_IN_CHUNK = 30
+
+        @Volatile
+        private var lastOnlineCountRequestAtMs = 0L
+
+        internal fun shouldRequestOnlineCount(
+            nowMs: Long,
+            lastRequestAtMs: Long = lastOnlineCountRequestAtMs,
+        ): Boolean {
+            if (lastRequestAtMs == 0L) return true
+            return nowMs - lastRequestAtMs >= ONLINE_COUNT_REFRESH_MS
+        }
+
+        internal fun markOnlineCountRequested(nowMs: Long = System.currentTimeMillis()) {
+            lastOnlineCountRequestAtMs = nowMs
+        }
+
+        internal fun resetOnlineCountRequestSchedule() {
+            lastOnlineCountRequestAtMs = 0L
+        }
 
         internal fun countOnlineUids(
             lastSeenByUid: Map<String, Long?>,
@@ -95,22 +116,32 @@ class PresenceRepository(
 
     fun clearOnlineCount() {
         _onlineCount.value = null
+        Companion.resetOnlineCountRequestSchedule()
     }
 
     /**
      * Writes [COLLECTION]/[uid] so other clients can count this player as online.
      * Prefers the [touchPresence] Cloud Function (server timestamp); falls back to Firestore.
      * Updates [onlineCount] when the callable returns [TouchPresenceResult.onlineCount].
+     *
+     * @param includeOnlineCount when null, requests a count on the first touch and then at
+     *   [ONLINE_COUNT_REFRESH_MS] intervals; pass true/false to override.
      */
     suspend fun touchPresence(
         uid: String,
         forceAuthRefresh: Boolean = false,
         awaitServerAck: Boolean = false,
+        includeOnlineCount: Boolean? = null,
     ) {
-        val touchResult = PresenceFunctions.tryTouchPresence()
+        val nowMs = System.currentTimeMillis()
+        val requestOnlineCount = includeOnlineCount ?: Companion.shouldRequestOnlineCount(nowMs)
+        val touchResult = PresenceFunctions.tryTouchPresence(includeOnlineCount = requestOnlineCount)
         if (touchResult != null) {
             updateServerTimeOffset(touchResult.serverTimeMs)
-            touchResult.onlineCount?.let { _onlineCount.value = it }
+            if (requestOnlineCount) {
+                Companion.markOnlineCountRequested(nowMs)
+                touchResult.onlineCount?.let { _onlineCount.value = it }
+            }
             return
         }
         touchPresenceViaFirestore(uid, forceAuthRefresh, awaitServerAck)

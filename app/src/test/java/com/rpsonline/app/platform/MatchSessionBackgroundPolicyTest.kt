@@ -122,4 +122,48 @@ class MatchSessionBackgroundPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun firstResume_alwaysSyncs() {
+        assertTrue(
+            computeShouldSyncFromServerOnResume(
+                nowMs = 60_000L,
+                lastSyncAtMs = 0L,
+                forceServerSync = false,
+            ),
+        )
+    }
+
+    @Test
+    fun recentResume_isThrottled() {
+        assertFalse(
+            computeShouldSyncFromServerOnResume(
+                nowMs = 50_000L,
+                lastSyncAtMs = 10_000L,
+                forceServerSync = false,
+            ),
+        )
+    }
+
+    @Test
+    fun staleResume_syncsAgain() {
+        assertTrue(
+            computeShouldSyncFromServerOnResume(
+                nowMs = 100_000L,
+                lastSyncAtMs = 10_000L,
+                forceServerSync = false,
+            ),
+        )
+    }
+
+    @Test
+    fun forcedResume_bypassesThrottle() {
+        assertTrue(
+            computeShouldSyncFromServerOnResume(
+                nowMs = 11_000L,
+                lastSyncAtMs = 10_000L,
+                forceServerSync = true,
+            ),
+        )
+    }
 }

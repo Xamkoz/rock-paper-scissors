@@ -96,6 +96,13 @@ object MatchmakingBackgroundCoordinator {
         return sessionNeedsBackgroundService()
     }
 
+    /**
+     * When true, [MatchmakingForegroundService] runs queue and presence heartbeats;
+     * foreground UI must not duplicate those writes.
+     */
+    fun foregroundServiceOwnsHeartbeats(context: Context, backgroundUsageEnabled: Boolean): Boolean =
+        backgroundUsageEnabled && shouldRunService(context)
+
     fun sync(context: Context) {
         MatchmakingForegroundService.sync(
             context.applicationContext,
@@ -136,3 +143,13 @@ internal fun computeSessionNeedsPresenceHeartbeat(
     }
     return appInForeground && userEngaged
 }
+
+/** Minimum gap between session [syncFromServer] runs from resume unless forced. */
+const val RESUME_SERVER_SYNC_MIN_INTERVAL_MS = 45_000L
+
+internal fun computeShouldSyncFromServerOnResume(
+    nowMs: Long,
+    lastSyncAtMs: Long,
+    forceServerSync: Boolean,
+    minIntervalMs: Long = RESUME_SERVER_SYNC_MIN_INTERVAL_MS,
+): Boolean = forceServerSync || lastSyncAtMs == 0L || nowMs - lastSyncAtMs >= minIntervalMs

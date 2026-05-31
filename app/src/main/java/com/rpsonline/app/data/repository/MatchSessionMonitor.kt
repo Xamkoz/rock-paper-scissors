@@ -7,6 +7,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.platform.computeShouldSyncFromServerOnResume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,6 +62,7 @@ object MatchSessionMonitor {
     private var queueListener: ListenerRegistration? = null
     private var listeningMatchId: String? = null
     private var attachedUid: String? = null
+    private var lastServerSyncAtMs = 0L
 
     fun ensureStarted() {
         if (authListener != null) return
@@ -73,15 +75,21 @@ object MatchSessionMonitor {
     }
 
     /**
-     * Reconnects snapshot listeners and pulls match from the server.
-     * Stale queue entries are cleared unless matchmaking is actively in progress.
+     * Reconnects snapshot listeners and optionally pulls session docs from the server.
+     * @return true when [syncFromServer] ran (queue/match state was server-refreshed).
      */
-    suspend fun refreshOnResume() {
+    suspend fun refreshOnResume(forceServerSync: Boolean = false): Boolean {
         ensureStarted()
-        val uid = auth.currentUser?.uid ?: return
+        val uid = auth.currentUser?.uid ?: return false
         FirestoreConnectivity.restoreOnResume()
         reattachListeners(uid)
+        val nowMs = System.currentTimeMillis()
+        if (!computeShouldSyncFromServerOnResume(nowMs, lastServerSyncAtMs, forceServerSync)) {
+            return false
+        }
         syncFromServer(uid)
+        lastServerSyncAtMs = nowMs
+        return true
     }
 
     fun setMatchmakingInProgress(active: Boolean) {
@@ -189,6 +197,7 @@ object MatchSessionMonitor {
 
         val previous = attachedUid
         attachedUid = uid
+        lastServerSyncAtMs = 0L
         clearFirestoreListeners()
         resetSessionUiState()
         if (previous != null && previous != uid) {

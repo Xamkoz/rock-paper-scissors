@@ -1488,12 +1488,17 @@ export const touchPresence = onCall(async (request) => {
   if (!uid) {
     throw new HttpsError("unauthenticated", "Sign in required.");
   }
+  const includeOnlineCount =
+    (request.data as { includeOnlineCount?: boolean } | undefined)?.includeOnlineCount === true;
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     db.collection("presence").doc(uid).set({ lastSeen: now }),
     db.collection("users").doc(uid).set({ lastSeen: now }, { merge: true }),
   ]);
   const serverTimeMs = Date.now();
+  if (!includeOnlineCount) {
+    return { ok: true, serverTimeMs };
+  }
   const presenceCutoff = Timestamp.fromMillis(serverTimeMs - ONLINE_PRESENCE_WINDOW_MS);
   const onlineSnap = await db.collection("presence")
     .where("lastSeen", ">=", presenceCutoff)

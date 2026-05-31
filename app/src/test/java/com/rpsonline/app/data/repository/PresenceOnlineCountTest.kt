@@ -1,6 +1,8 @@
 package com.rpsonline.app.data.repository
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PresenceOnlineCountTest {
@@ -72,6 +74,32 @@ class PresenceOnlineCountTest {
                 ),
                 lastOnlineEmittedAt = lastOnlineEmittedAt,
                 nowMs = nowMs,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldRequestOnlineCount_firstTouchAlwaysRequests() {
+        assertTrue(
+            PresenceRepository.shouldRequestOnlineCount(
+                nowMs = 60_000L,
+                lastRequestAtMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldRequestOnlineCount_throttlesUntilRefreshWindow() {
+        assertFalse(
+            PresenceRepository.shouldRequestOnlineCount(
+                nowMs = 70_000L,
+                lastRequestAtMs = 20_000L,
+            ),
+        )
+        assertTrue(
+            PresenceRepository.shouldRequestOnlineCount(
+                nowMs = 90_000L,
+                lastRequestAtMs = 20_000L,
             ),
         )
     }

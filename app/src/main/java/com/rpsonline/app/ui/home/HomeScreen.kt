@@ -54,10 +54,12 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import android.widget.Toast
 import com.rpsonline.app.BuildConfig
 import com.rpsonline.app.R
+import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.update.ReleaseChangelog
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.ui.components.AppUpdateDialogs
@@ -92,6 +94,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isServerConnected = LocalNetworkConnectionStatus.current.isServerConnected()
     val openingMatchId by viewModel.navigateToGameMatchId.collectAsState()
+    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
     val updateState by updateViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -275,7 +278,7 @@ fun HomeScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
         } else if (
-            (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null) &&
+            (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null || matchmakingInProgress) &&
             uiState.activeMatchId == null
         ) {
             HomeQueueStatusCard(
@@ -328,7 +331,7 @@ fun HomeScreen(
                     )
                 }
             }
-            uiState.activeMatchId != null -> {
+            uiState.activeMatchId != null && !matchmakingInProgress && openingMatchId == null -> {
                 Button(
                     onClick = { onReconnectToGame(uiState.activeMatchId!!) },
                     modifier = Modifier
