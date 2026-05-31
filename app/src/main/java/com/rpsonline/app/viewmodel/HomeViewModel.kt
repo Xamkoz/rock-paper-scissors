@@ -128,6 +128,7 @@ class HomeViewModel(
                                 user.uid,
                                 forceAuthRefresh = true,
                                 awaitServerAck = true,
+                                includeOnlineCount = true,
                             )
                         }
                     }
@@ -741,7 +742,7 @@ class HomeViewModel(
                 MatchSessionMonitor.refreshOnResume(forceServerSync = reconcilingQueue)
             }
             val uid = authRepository.currentUserId ?: return@launch
-            runCatching { presenceRepository.touchPresence(uid, awaitServerAck = true) }
+            runCatching { presenceRepository.touchPresence(uid, awaitServerAck = true, includeOnlineCount = true) }
             userRepository.getUserProfile(uid)?.let { profile ->
                 _uiState.update { it.copy(profile = profile) }
             }

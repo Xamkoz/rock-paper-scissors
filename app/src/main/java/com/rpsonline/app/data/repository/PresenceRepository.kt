@@ -139,8 +139,10 @@ class PresenceRepository(
         if (touchResult != null) {
             updateServerTimeOffset(touchResult.serverTimeMs)
             if (requestOnlineCount) {
-                Companion.markOnlineCountRequested(nowMs)
-                touchResult.onlineCount?.let { _onlineCount.value = it }
+                touchResult.onlineCount?.let { count ->
+                    _onlineCount.value = count
+                    Companion.markOnlineCountRequested(nowMs)
+                }
             }
             return
         }

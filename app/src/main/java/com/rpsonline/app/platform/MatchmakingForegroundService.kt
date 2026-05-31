@@ -106,6 +106,7 @@ class MatchmakingForegroundService : Service() {
                         presenceRepository.touchPresence(
                             uid,
                             awaitServerAck = presenceBeat == 1 || presenceBeat % 2 == 0,
+                            includeOnlineCount = presenceBeat == 1,
                         )
                     }.onSuccess {
                         presenceRepository.onlineCount.value?.let { count ->

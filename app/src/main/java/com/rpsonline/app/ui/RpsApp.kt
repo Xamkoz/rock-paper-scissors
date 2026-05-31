@@ -97,6 +97,8 @@ fun RpsApp() {
                     appInForeground = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
                 }
                 Lifecycle.Event.ON_RESUME -> {
+                    PresenceEngagementTracker.syncScreenInteractive(context)
+                    PresenceEngagementTracker.recordInteraction()
                     appInForeground = true
                     MatchmakingForegroundService.clearLaunchAlert()
                     MatchmakingForegroundService.refreshNotificationIfRunning()
@@ -199,27 +201,34 @@ fun RpsApp() {
                 context,
                 backgroundUsageEnabled,
             )
-        fun stopLocalPresence() {
+        fun stopLocalPresence(clearOnlineCount: Boolean) {
             presenceRepository.clearPresence(uid)
-            presenceRepository.clearOnlineCount()
+            if (clearOnlineCount) {
+                presenceRepository.clearOnlineCount()
+            }
         }
 
         if (!shouldMaintainPresence()) {
             if (!serviceOwnsHeartbeats()) {
-                stopLocalPresence()
+                stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
             }
             return@LaunchedEffect
         }
         if (serviceOwnsHeartbeats()) {
             return@LaunchedEffect
         }
-        presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
+        presenceRepository.touchPresence(
+            uid,
+            forceAuthRefresh = true,
+            awaitServerAck = true,
+            includeOnlineCount = true,
+        )
         var heartbeat = 0
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
                 if (!serviceOwnsHeartbeats()) {
-                    stopLocalPresence()
+                    stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
                 }
                 break
             }
@@ -249,7 +258,12 @@ fun RpsApp() {
             scope.launch {
                 runCatching { MatchSessionMonitor.refreshOnResume() }
                 runCatching {
-                    presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
+                    presenceRepository.touchPresence(
+                        uid,
+                        forceAuthRefresh = true,
+                        awaitServerAck = true,
+                        includeOnlineCount = true,
+                    )
                 }
             }
         }
