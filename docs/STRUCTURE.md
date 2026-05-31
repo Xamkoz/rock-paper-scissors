@@ -76,5 +76,6 @@ Security: [firestore.rules](../firestore.rules).
 
 ## Related docs
 
+- [GAME_RULES.md](GAME_RULES.md) — Gameplay, clocks, matchmaking, ELO
 - [scripts/ENABLE_AUTH.md](../scripts/ENABLE_AUTH.md) — Auth providers; App Check is Monitoring-only in Firebase (not in the app)
 - [scripts/deploy-backend.sh](../scripts/deploy-backend.sh) — Deploy functions + rules

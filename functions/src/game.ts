@@ -109,6 +109,57 @@ export function calculateElo(
   };
 }
 
+export type MatchEndReason = "normal" | "round_timeout" | "clock_timeout";
+
+export const ELO_MODE_MULTIPLIERS: Record<MatchMode, number> = {
+  BO3: 0.2,
+  BO5: 0.35,
+  BO10: 0.8,
+};
+
+export const ELO_DOMINATION_BONUS = 2;
+
+export interface MatchEloContext {
+  matchMode: MatchMode;
+  endReason: MatchEndReason;
+  winnerId: string;
+  player1: string;
+  player2: string;
+  player1Wins: number;
+  player2Wins: number;
+}
+
+/** Mode weight × optional 2× domination bonus when the opponent won no rounds. */
+export function eloMultiplierForMatch(ctx: MatchEloContext): number {
+  let multiplier = ELO_MODE_MULTIPLIERS[ctx.matchMode] ?? ELO_MODE_MULTIPLIERS.BO3;
+  const loserWins =
+    ctx.winnerId === ctx.player1 ? ctx.player2Wins : ctx.player1Wins;
+  if (loserWins === 0) {
+    multiplier *= ELO_DOMINATION_BONUS;
+  }
+  return multiplier;
+}
+
+export function calculateMatchElo(
+  ratingA: number,
+  ratingB: number,
+  scoreA: number,
+  ctx: MatchEloContext,
+  k = 32,
+): { newA: number; newB: number; deltaA: number; deltaB: number; multiplier: number } {
+  const base = calculateElo(ratingA, ratingB, scoreA, k);
+  const multiplier = eloMultiplierForMatch(ctx);
+  const deltaA = Math.round(base.deltaA * multiplier);
+  const deltaB = Math.round(base.deltaB * multiplier);
+  return {
+    newA: ratingA + deltaA,
+    newB: ratingB + deltaB,
+    deltaA,
+    deltaB,
+    multiplier,
+  };
+}
+
 export function isValidMove(value: string): value is Move {
   return value === "ROCK" || value === "PAPER" || value === "SCISSORS";
 }

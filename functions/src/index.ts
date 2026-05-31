@@ -7,7 +7,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import {
-  calculateElo,
+  calculateMatchElo,
   isValidMove,
   MatchMode,
   Move,
@@ -608,7 +608,6 @@ async function finalizeMatch(
   const p1Elo = (p1Snap.get("elo") as number) ?? 1000;
   const p2Elo = (p2Snap.get("elo") as number) ?? 1000;
   const p1Score = winnerId === match.player1 ? 1 : 0;
-  const elo = calculateElo(p1Elo, p2Elo, p1Score);
 
   let player1Wins = match.player1Wins;
   let player2Wins = match.player2Wins;
@@ -618,6 +617,15 @@ async function finalizeMatch(
   }
 
   const endReason: MatchEndReason = options?.endReason ?? "normal";
+  const elo = calculateMatchElo(p1Elo, p2Elo, p1Score, {
+    matchMode: parseMatchMode(match.matchMode),
+    endReason,
+    winnerId,
+    player1: match.player1,
+    player2: match.player2,
+    player1Wins,
+    player2Wins,
+  });
 
   const batch = db.batch();
   batch.update(matchRef, {

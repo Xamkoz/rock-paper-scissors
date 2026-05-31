@@ -39,7 +39,7 @@ Pre-built APKs are attached to [GitHub Releases](https://github.com/melkor217/ro
 | `shared/` | `game-rules.json` — round timeout, clocks, match formats (used by app + functions) |
 | `scripts/` | Deploy, auth, and environment helpers |
 
-See [docs/STRUCTURE.md](docs/STRUCTURE.md) for architecture and Firestore flow; [docs/UI.md](docs/UI.md) for UI conventions; [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for translation rules.
+See [docs/STRUCTURE.md](docs/STRUCTURE.md) for architecture and Firestore flow; [docs/GAME_RULES.md](docs/GAME_RULES.md) for full gameplay rules; [docs/UI.md](docs/UI.md) for UI conventions; [docs/LOCALIZATION.md](docs/LOCALIZATION.md) for translation rules.
 
 ## Build the app (local)
 
