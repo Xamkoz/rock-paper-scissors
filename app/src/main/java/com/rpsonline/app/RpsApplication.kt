@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 
@@ -20,6 +21,9 @@ class RpsApplication : Application() {
         MatchmakingBackgroundCoordinator.ensureObserving(this)
         MatchSessionMonitor.onSessionStateChanged = {
             MatchmakingBackgroundCoordinator.sync(this)
+        }
+        MatchSessionMonitor.onActiveMatchPublished = { match ->
+            MatchForegroundLaunchCoordinator.onMatchSessionChanged(this, match)
         }
     }
 }

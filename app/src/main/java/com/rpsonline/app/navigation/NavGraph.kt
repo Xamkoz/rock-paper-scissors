@@ -1,5 +1,6 @@
 package com.rpsonline.app.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,20 +63,25 @@ private fun MatchFoundNavigationEffect(navController: NavHostController) {
 
     LaunchedEffect(pendingMatchId, currentRoute) {
         val matchId = pendingMatchId ?: return@LaunchedEffect
-        if (currentRoute?.startsWith("game/") == true) {
+        if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) {
+            MatchSessionMonitor.consumeGameNavigation()
+            return@LaunchedEffect
+        }
+        if (currentRoute == Routes.game(matchId)) {
             MatchSessionMonitor.consumeGameNavigation()
             MatchSessionMonitor.setMatchmakingInProgress(false)
+            return@LaunchedEffect
+        }
+        if (currentRoute?.startsWith("game/") == true) {
             return@LaunchedEffect
         }
         // Play Again may still be closing the result screen while matchmaking assigns a game.
         if (currentRoute?.startsWith("result/") == true) {
             return@LaunchedEffect
         }
-        if (currentRoute?.startsWith("home") != true) {
-            return@LaunchedEffect
-        }
         navController.navigate(Routes.game(matchId)) {
-            popUpTo(Routes.HOME)
+            popUpTo(Routes.HOME) { inclusive = false }
+            launchSingleTop = true
         }
         MatchSessionMonitor.consumeGameNavigation()
         MatchSessionMonitor.setMatchmakingInProgress(false)
@@ -136,7 +142,10 @@ fun RpsNavGraph() {
                     autoStartMatchmaking = autoStartMatchmaking,
                     viewModel = homeViewModel,
                     onReconnectToGame = { matchId ->
-                        navController.navigate(Routes.game(matchId))
+                        MatchSessionMonitor.clearAutoGameNavigationSuppression(matchId)
+                        navController.navigate(Routes.game(matchId)) {
+                            launchSingleTop = true
+                        }
                     },
                     onLeaderboard = { navController.navigate(Routes.LEADERBOARD) },
                     onProfile = {
@@ -154,6 +163,10 @@ fun RpsNavGraph() {
             arguments = listOf(navArgument("matchId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val matchId = backStackEntry.arguments?.getString("matchId") ?: return@composable
+            BackHandler {
+                MatchSessionMonitor.suppressAutoGameNavigation(matchId)
+                navController.popBackStack()
+            }
             GameScreen(
                 matchId = matchId,
                 onMatchComplete = { completedMatchId ->

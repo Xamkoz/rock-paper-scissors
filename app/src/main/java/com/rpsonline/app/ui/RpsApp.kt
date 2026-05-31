@@ -95,15 +95,14 @@ fun RpsApp() {
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     appInForeground = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-                    AppForegroundTracker.setInForeground(appInForeground)
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     appInForeground = true
-                    AppForegroundTracker.setInForeground(true)
+                    MatchmakingForegroundService.clearLaunchAlert()
+                    MatchmakingForegroundService.refreshNotificationIfRunning()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     appInForeground = false
-                    AppForegroundTracker.setInForeground(false)
                     MatchmakingForegroundService.refreshNotificationIfRunning()
                 }
                 else -> Unit
@@ -111,7 +110,6 @@ fun RpsApp() {
         }
         lifecycle.addObserver(observer)
         appInForeground = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-        AppForegroundTracker.setInForeground(appInForeground)
         onDispose { lifecycle.removeObserver(observer) }
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -329,12 +327,14 @@ fun RpsApp() {
         activeMatch?.id,
         activeMatch?.status,
         matchFoundNotificationsEnabled,
+        backgroundUsageEnabled,
         user?.uid,
         appInForeground,
     ) {
         val match = activeMatch
         if (
             !matchFoundNotificationsEnabled ||
+            backgroundUsageEnabled ||
             match == null ||
             match.status != MatchStatus.LOBBY ||
             match.id == lastNotifiedMatchId ||
@@ -404,11 +404,13 @@ fun RpsApp() {
                                 } == true
                                 val inLobby = activeMatch?.status == MatchStatus.LOBBY
                                 val inMatch = activeMatch?.status == MatchStatus.ACTIVE || matchEndTransitionActive
+                                val inMatchInTopBar = inMatch &&
+                                    !(backgroundUsageEnabled && appInForeground)
                                 val inQueue = queueJoinedAtMs != null &&
                                     matchmakingInProgress &&
                                     !inMatch &&
                                     !inLobby
-                                val playerClockStopped = inMatch &&
+                                val playerClockStopped = inMatchInTopBar &&
                                     (matchEndTransitionActive ||
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)
                                 val resolutionPulseTrigger =
@@ -423,9 +425,9 @@ fun RpsApp() {
                                         } else {
                                             null
                                         },
-                                        inMatch = inMatch,
+                                        inMatch = inMatchInTopBar,
                                         inQueue = inQueue,
-                                        elapsedSeconds = if (inMatch) {
+                                        elapsedSeconds = if (inMatchInTopBar) {
                                             matchElapsedSeconds
                                         } else {
                                             queueElapsedSeconds

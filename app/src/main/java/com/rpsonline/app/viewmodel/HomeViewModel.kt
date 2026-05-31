@@ -27,6 +27,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -485,7 +486,12 @@ class HomeViewModel(
         MatchSessionMonitor.ensureStarted()
         activeMatchJob?.cancel()
         activeMatchJob = viewModelScope.launch {
-            MatchSessionMonitor.activeMatch.collect { match ->
+            combine(
+                MatchSessionMonitor.activeMatch,
+                MatchSessionMonitor.matchmakingInProgress,
+                MatchSessionMonitor.matchLaunchUiNudge,
+            ) { match, _, _ -> match }
+                .collect { match ->
                 val uid = authRepository.currentUserId
                 if (match == null || uid == null || !match.isParticipant(uid)) {
                     stopPreGameReadyLoop()
@@ -537,8 +543,8 @@ class HomeViewModel(
                         ensurePreGameReadyLoop(match.id)
                     }
                     MatchStatus.ACTIVE -> {
-                        val shouldNavigate = inMatchmakingFlow ||
-                            _uiState.value.preGameSync?.matchId == match.id
+                        val shouldNavigate = !MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id) &&
+                            (inMatchmakingFlow || _uiState.value.preGameSync?.matchId == match.id)
                         if (shouldNavigate) {
                             viewModelScope.launch {
                                 navigateToActiveMatchWhenServerReady(match.id)
@@ -566,6 +572,7 @@ class HomeViewModel(
             }
         }
     }
+
 
     private fun ensurePreGameReadyLoop(matchId: String) {
         if (preGameReadyJob?.isActive == true && preGameReadyMatchId == matchId) return
@@ -679,6 +686,7 @@ class HomeViewModel(
     }
 
     private suspend fun navigateToActiveMatchWhenServerReady(matchId: String) {
+        if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
         val serverMatch = matchRepository.getMatchFromServer(matchId) ?: return
         if (serverMatch.status != MatchStatus.ACTIVE) return
         MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)

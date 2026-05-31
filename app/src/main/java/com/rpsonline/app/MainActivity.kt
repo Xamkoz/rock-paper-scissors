@@ -9,6 +9,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import com.google.firebase.auth.FirebaseAuth
+import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.platform.AppForegroundTracker
+import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
+import com.rpsonline.app.platform.MatchLaunchHelper
+import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.PresenceEngagementTracker
 import com.rpsonline.app.ui.RpsApp
 import com.rpsonline.app.ui.util.enableImmersiveFullscreen
@@ -24,11 +31,51 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         PresenceEngagementTracker.syncScreenInteractive(this)
         PresenceEngagementTracker.recordInteraction()
+        handleMatchLaunchIntent(intent)
         enableEdgeToEdge()
         enableImmersiveFullscreen()
         setContent {
             RpsApp()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleMatchLaunchIntent(intent)
+    }
+
+    private fun handleMatchLaunchIntent(intent: Intent?) {
+        val matchId = MatchLaunchHelper.readMatchId(intent) ?: return
+        MatchSessionMonitor.ensureStarted()
+        MatchSessionMonitor.noteMatchLaunchIntent(matchId)
+        MatchForegroundLaunchCoordinator.noteLaunchAttempted(
+            matchId = matchId,
+            status = MatchSessionMonitor.activeMatch.value?.status,
+        )
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val match = MatchSessionMonitor.activeMatch.value
+        if (
+            match?.id == matchId &&
+            match.status == MatchStatus.ACTIVE &&
+            match.isParticipant(uid)
+        ) {
+            MatchSessionMonitor.requestGameNavigation(matchId)
+        } else {
+            MatchSessionMonitor.enqueueGameNavigationWhenReady(matchId)
+        }
+        MatchSessionMonitor.nudgeMatchLaunchUi()
+    }
+
+    override fun onStop() {
+        AppForegroundTracker.setInForeground(false)
+        val match = MatchSessionMonitor.activeMatch.value
+        if (match?.status == MatchStatus.LOBBY) {
+            MatchForegroundLaunchCoordinator.onMatchSessionChanged(this, match)
+        }
+        screenReceiver?.let { unregisterReceiver(it) }
+        screenReceiver = null
+        super.onStop()
     }
 
     override fun onStart() {
@@ -49,14 +96,11 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
-    override fun onStop() {
-        screenReceiver?.let { unregisterReceiver(it) }
-        screenReceiver = null
-        super.onStop()
-    }
-
     override fun onResume() {
         super.onResume()
+        AppForegroundTracker.setInForeground(true)
+        MatchmakingForegroundService.clearLaunchAlert()
+        MatchmakingForegroundService.refreshNotificationIfRunning()
         PresenceEngagementTracker.syncScreenInteractive(this)
         PresenceEngagementTracker.recordInteraction()
     }

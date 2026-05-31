@@ -13,6 +13,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -45,6 +47,13 @@ object MatchSessionMonitor {
     /** Pending navigation to game; survives HomeViewModel / back-stack lifecycle. */
     private val _pendingGameNavigationMatchId = MutableStateFlow<String?>(null)
     val pendingGameNavigationMatchId: StateFlow<String?> = _pendingGameNavigationMatchId.asStateFlow()
+
+    private val _matchLaunchUiNudge = MutableStateFlow(0)
+    val matchLaunchUiNudge: StateFlow<Int> = _matchLaunchUiNudge.asStateFlow()
+
+    private var pendingLaunchMatchId: String? = null
+    private var enqueueNavigationJob: Job? = null
+    private var autoGameNavigationSuppressedMatchId: String? = null
 
     private var authListener: FirebaseAuth.AuthStateListener? = null
     private var userListener: ListenerRegistration? = null
@@ -82,11 +91,64 @@ object MatchSessionMonitor {
     fun isMatchmakingInProgress(): Boolean = _matchmakingInProgress.value
 
     fun requestGameNavigation(matchId: String) {
+        if (isAutoGameNavigationSuppressed(matchId)) return
         _pendingGameNavigationMatchId.value = matchId
+    }
+
+    fun isAutoGameNavigationSuppressed(matchId: String): Boolean =
+        autoGameNavigationSuppressedMatchId == matchId
+
+    fun clearAutoGameNavigationSuppression(matchId: String) {
+        if (autoGameNavigationSuppressedMatchId == matchId) {
+            autoGameNavigationSuppressedMatchId = null
+        }
+    }
+
+    /** User left an active game via back; stay on home until they tap reconnect. */
+    fun suppressAutoGameNavigation(matchId: String) {
+        autoGameNavigationSuppressedMatchId = matchId
+        pendingLaunchMatchId = null
+        enqueueNavigationJob?.cancel()
+        enqueueNavigationJob = null
+        setMatchmakingInProgress(false)
+        consumeGameNavigation()
+    }
+
+    fun noteMatchLaunchIntent(matchId: String) {
+        autoGameNavigationSuppressedMatchId = null
+        pendingLaunchMatchId = matchId
+        _matchmakingInProgress.value = true
+        _matchLaunchUiNudge.value += 1
+    }
+
+    fun enqueueGameNavigationWhenReady(matchId: String) {
+        if (isAutoGameNavigationSuppressed(matchId)) return
+        pendingLaunchMatchId = matchId
+        enqueueNavigationJob?.cancel()
+        enqueueNavigationJob = sessionScope.launch {
+            repeat(40) {
+                if (isAutoGameNavigationSuppressed(matchId)) return@launch
+                val match = _activeMatch.value
+                val uid = auth.currentUser?.uid
+                if (
+                    match?.id == matchId &&
+                    uid != null &&
+                    match.status == MatchStatus.ACTIVE &&
+                    match.isParticipant(uid)
+                ) {
+                    requestGameNavigation(matchId)
+                    return@launch
+                }
+                delay(250)
+            }
+        }
     }
 
     fun consumeGameNavigation() {
         _pendingGameNavigationMatchId.value = null
+        pendingLaunchMatchId = null
+        enqueueNavigationJob?.cancel()
+        enqueueNavigationJob = null
     }
 
     /** Called when queue entry is confirmed (server or client join timestamp). */
@@ -144,6 +206,10 @@ object MatchSessionMonitor {
         _hasQueueEntry.value = false
         _matchmakingInProgress.value = false
         _pendingGameNavigationMatchId.value = null
+        pendingLaunchMatchId = null
+        autoGameNavigationSuppressedMatchId = null
+        enqueueNavigationJob?.cancel()
+        enqueueNavigationJob = null
     }
 
     private fun reattachListeners(uid: String) {
@@ -290,13 +356,20 @@ object MatchSessionMonitor {
         }
         _activeMatch.value = match
         val uid = auth.currentUser?.uid ?: return
+        if (match.isParticipant(uid) &&
+            (match.status == MatchStatus.LOBBY || match.status == MatchStatus.ACTIVE)
+        ) {
+            notifyActiveMatchPublished(match)
+        }
         if (
             match.status == MatchStatus.ACTIVE &&
             match.isParticipant(uid) &&
             _matchmakingInProgress.value &&
-            !fromCache
+            !isAutoGameNavigationSuppressed(match.id) &&
+            (!fromCache || pendingLaunchMatchId == match.id)
         ) {
             requestGameNavigation(match.id)
+            pendingLaunchMatchId = null
         }
     }
 
@@ -358,7 +431,20 @@ object MatchSessionMonitor {
     @Volatile
     var onSessionStateChanged: (() -> Unit)? = null
 
+    /** Invoked when [publishActiveMatch] commits a LOBBY/ACTIVE match (foreground launch). */
+    @Volatile
+    var onActiveMatchPublished: ((Match) -> Unit)? = null
+
+    /** Re-emits UI state for collectors after a background launch intent. */
+    fun nudgeMatchLaunchUi() {
+        _matchLaunchUiNudge.value += 1
+    }
+
     private fun notifySessionStateChanged() {
         onSessionStateChanged?.invoke()
+    }
+
+    private fun notifyActiveMatchPublished(match: Match) {
+        onActiveMatchPublished?.invoke(match)
     }
 }
