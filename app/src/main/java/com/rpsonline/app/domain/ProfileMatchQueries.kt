@@ -6,6 +6,7 @@ import com.rpsonline.app.data.repository.MatchRepository
 /** Shared Firestore match queries for profile weekly charts and opponents list. */
 object ProfileMatchQueries {
     const val MATCH_POOL_SIZE = 200
+    const val OPPONENTS_MATCH_POOL_SIZE = 100
 
     suspend fun fetchMatchPool(
         matchRepository: MatchRepository,

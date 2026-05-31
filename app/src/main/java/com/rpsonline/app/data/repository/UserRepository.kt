@@ -110,6 +110,25 @@ class UserRepository(
 
      */
 
+    internal suspend fun getLeaderboardPageFromCache(pageSize: Long): LeaderboardPage? {
+        require(pageSize > 0) { "pageSize must be > 0" }
+        val snapshot = runCatching {
+            firestore.collection("users")
+                .whereEqualTo("leaderboardVisible", true)
+                .orderBy("elo", Query.Direction.DESCENDING)
+                .limit(pageSize)
+                .get(Source.CACHE)
+                .await()
+        }.getOrNull() ?: return null
+        if (snapshot.documents.isEmpty()) return null
+        val docs = snapshot.documents
+        return LeaderboardPage(
+            entries = docs.map { it.toLeaderboardEntry() },
+            nextCursor = docs.lastOrNull(),
+            hasMoreFromFirestore = docs.size.toLong() == pageSize,
+        )
+    }
+
     internal suspend fun getLeaderboardPage(
 
         pageSize: Long,

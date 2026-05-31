@@ -37,9 +37,35 @@ data class OnlinePresenceRowStyle(
 fun rememberOnlineUids(uids: Collection<String>): Set<String> {
     val presenceRepository = remember { PresenceRepository() }
     val tracked = remember(uids) { uids.filter { it.isNotBlank() }.toSet() }
-    val onlineUids by presenceRepository.observeOnlineUids(tracked)
-        .collectAsStateWithLifecycle(initialValue = emptySet())
+    val onlineFlow = remember(tracked) { presenceRepository.observeOnlineUids(tracked) }
+    val onlineUids by onlineFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     return onlineUids
+}
+
+@Composable
+fun rememberAllOnlineUids(): Set<String> {
+    val presenceRepository = remember { PresenceRepository() }
+    val onlineFlow = remember { presenceRepository.observeAllOnlineUids() }
+    val onlineUids by onlineFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    return onlineUids
+}
+
+@Composable
+fun rememberOnlineUidsPolling(uids: Collection<String>): Set<String> {
+    val presenceRepository = remember { PresenceRepository() }
+    val tracked = remember(uids) { uids.filter { it.isNotBlank() }.toSet() }
+    val onlineFlow = remember(tracked) { presenceRepository.observeOnlineUidsPolling(tracked) }
+    val onlineUids by onlineFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    return onlineUids
+}
+
+@Composable
+fun ProvideOnlinePresencePolling(
+    uids: Collection<String>,
+    content: @Composable () -> Unit,
+) {
+    val onlineUids = rememberOnlineUidsPolling(uids)
+    CompositionLocalProvider(LocalOnlineUids provides onlineUids, content = content)
 }
 
 @Composable

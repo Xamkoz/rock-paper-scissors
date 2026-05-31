@@ -53,33 +53,64 @@ class LeaderboardViewModel(
     fun load() {
         loadJob?.cancel()
         appendJob?.cancel()
-        resetPagination()
+
+        val hasCachedEntries = _uiState.value.entries.isNotEmpty()
 
         loadJob = viewModelScope.launch {
-            val showFullScreenLoading = _uiState.value.entries.isEmpty()
-            _uiState.update {
-                it.copy(
-                    isLoading = showFullScreenLoading,
-                    isAppending = false,
-                    error = null,
-                    hasMore = true,
-                )
+            if (!hasCachedEntries) {
+                resetPagination()
+                _uiState.update {
+                    it.copy(
+                        isLoading = true,
+                        isAppending = false,
+                        error = null,
+                        hasMore = true,
+                    )
+                }
+                userRepository.getLeaderboardPageFromCache(PAGE_SIZE)?.let { cached ->
+                    nextCursor = cached.nextCursor
+                    hasMoreFromFirestore = cached.hasMoreFromFirestore
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            entries = cached.entries,
+                            currentUserId = authRepository.currentUserId,
+                            hasMore = cached.hasMore,
+                        )
+                    }
+                }
+            } else {
+                _uiState.update { it.copy(error = null) }
             }
+
             try {
                 val userId = authRepository.currentUserId
                 val page = userRepository.getLeaderboardPage(
                     pageSize = PAGE_SIZE,
                     startAfter = null,
                 )
-                nextCursor = page.nextCursor
-                hasMoreFromFirestore = page.hasMoreFromFirestore
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        entries = page.entries,
-                        currentUserId = userId,
-                        hasMore = page.hasMore,
-                    )
+                if (hasCachedEntries) {
+                    val tail = _uiState.value.entries
+                        .drop(page.entries.size)
+                        .filter { tailEntry -> page.entries.none { it.uid == tailEntry.uid } }
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            entries = appendEntries(page.entries, tail),
+                            currentUserId = userId,
+                        )
+                    }
+                } else {
+                    nextCursor = page.nextCursor
+                    hasMoreFromFirestore = page.hasMoreFromFirestore
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            entries = page.entries,
+                            currentUserId = userId,
+                            hasMore = page.hasMore,
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {

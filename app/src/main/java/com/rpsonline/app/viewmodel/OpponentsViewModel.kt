@@ -4,12 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.MatchRepository
-import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.ProfileMatchQueries
 import com.rpsonline.app.domain.WeeklyOpponentRow
-import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
-import com.rpsonline.app.domain.weeklyOpponentsFromMatches
+import com.rpsonline.app.domain.weeklyOpponentsFromMatchList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +22,6 @@ data class OpponentsUiState(
 
 class OpponentsViewModel(
     private val authRepository: AuthRepository = AuthRepository(),
-    private val userRepository: UserRepository = UserRepository(),
     private val matchRepository: MatchRepository = MatchRepository(),
 ) : ViewModel() {
 
@@ -33,25 +30,25 @@ class OpponentsViewModel(
 
     fun load() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            val showBlockingLoader = _uiState.value.opponents.isEmpty()
+            if (showBlockingLoader) {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
             try {
                 val viewerId = authRepository.currentUserId
                     ?: throw IllegalStateException("Not signed in")
-                val profile = userRepository.getUserProfile(viewerId)
-                    ?: throw IllegalStateException("Player not found")
                 val sinceMs = weeklyChartWindowStartMs()
                 val weeklyMatches = ProfileMatchQueries.fetchOwnWeeklyMatchPool(
                     matchRepository = matchRepository,
                     viewerId = viewerId,
                     sinceMs = sinceMs,
-                    limit = ProfileMatchQueries.MATCH_POOL_SIZE,
+                    limit = ProfileMatchQueries.OPPONENTS_MATCH_POOL_SIZE,
                 )
-                val enriched = enrichMatchHistoryWithOpponentElos(
-                    viewerId = viewerId,
-                    myCurrentElo = profile.elo,
+                val opponents = weeklyOpponentsFromMatchList(
                     matches = weeklyMatches,
+                    viewerId = viewerId,
+                    sinceMs = sinceMs,
                 )
-                val opponents = weeklyOpponentsFromMatches(enriched, sinceMs)
                 _uiState.update {
                     it.copy(
                         isLoading = false,

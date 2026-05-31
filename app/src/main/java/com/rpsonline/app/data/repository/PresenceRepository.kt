@@ -1,8 +1,10 @@
 package com.rpsonline.app.data.repository
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import java.util.Date
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
 class PresenceRepository(
@@ -43,6 +46,9 @@ class PresenceRepository(
         private const val PRESENCE_SYNC_TIMEOUT_MS = 10_000L
         private const val PRESENCE_ACK_MAX_AGE_MS = 90_000L
         private const val ONLINE_REEVALUATE_INTERVAL_MS = 5_000L
+        private const val ONLINE_QUERY_REFRESH_MS = 60_000L
+        private const val ONLINE_POLLING_INTERVAL_MS = 30_000L
+        private const val PRESENCE_WHERE_IN_CHUNK = 30
 
         internal fun countOnlineUids(
             lastSeenByUid: Map<String, Long?>,
@@ -190,4 +196,102 @@ class PresenceRepository(
             }
         }.distinctUntilChanged()
     }
+
+    /**
+     * Batched presence reads for large uid lists (e.g. leaderboard). Avoids one listener per uid.
+     */
+    fun observeOnlineUidsPolling(
+        uids: Collection<String>,
+        refreshIntervalMs: Long = ONLINE_POLLING_INTERVAL_MS,
+    ): Flow<Set<String>> = callbackFlow {
+        val tracked = uids.filter { it.isNotBlank() }.toSet()
+        if (tracked.isEmpty()) {
+            trySend(emptySet())
+            awaitClose { }
+            return@callbackFlow
+        }
+        val lastSeenByUid = mutableMapOf<String, Long?>()
+        val lastOnlineEmittedAt = mutableMapOf<String, Long>()
+
+        suspend fun refreshAndEmit() {
+            val nowMs = System.currentTimeMillis() + serverTimeOffsetMs
+            for (chunk in tracked.chunked(PRESENCE_WHERE_IN_CHUNK)) {
+                runCatching {
+                    firestore.collection(COLLECTION)
+                        .whereIn(FieldPath.documentId(), chunk)
+                        .get()
+                        .await()
+                }.getOrNull()?.documents?.forEach { doc ->
+                    lastSeenByUid[doc.id] = doc.getTimestamp("lastSeen")?.toDate()?.time
+                }
+            }
+            val online = onlineUidsFromLastSeen(
+                tracked = tracked,
+                lastSeenByUid = lastSeenByUid,
+                lastOnlineEmittedAt = lastOnlineEmittedAt,
+                nowMs = nowMs,
+            )
+            trySend(online)
+        }
+
+        val pollingJob = launch {
+            refreshAndEmit()
+            while (isActive) {
+                delay(refreshIntervalMs)
+                refreshAndEmit()
+            }
+        }
+        awaitClose { pollingJob.cancel() }
+    }.distinctUntilChanged()
+
+    /** Live set of all uids with fresh presence (collection query). */
+    fun observeAllOnlineUids(): Flow<Set<String>> = callbackFlow {
+        val lastSeenByUid = mutableMapOf<String, Long?>()
+        val lastOnlineEmittedAt = mutableMapOf<String, Long>()
+        var registration: ListenerRegistration? = null
+
+        fun emitOnline() {
+            val nowMs = System.currentTimeMillis() + serverTimeOffsetMs
+            val tracked = (lastSeenByUid.keys + lastOnlineEmittedAt.keys).toSet()
+            val online = onlineUidsFromLastSeen(
+                tracked = tracked,
+                lastSeenByUid = lastSeenByUid,
+                lastOnlineEmittedAt = lastOnlineEmittedAt,
+                nowMs = nowMs,
+            )
+            trySend(online)
+        }
+
+        fun attachQueryListener() {
+            registration?.remove()
+            val cutoffMs = System.currentTimeMillis() + serverTimeOffsetMs - ONLINE_PRESENCE_WINDOW_MS
+            registration = firestore.collection(COLLECTION)
+                .whereGreaterThanOrEqualTo("lastSeen", Timestamp(Date(cutoffMs)))
+                .addSnapshotListener { snapshot, _ ->
+                    snapshot?.documents?.forEach { doc ->
+                        lastSeenByUid[doc.id] = doc.getTimestamp("lastSeen")?.toDate()?.time
+                    }
+                    emitOnline()
+                }
+        }
+
+        attachQueryListener()
+        emitOnline()
+        val reevaluateJob = launch {
+            var lastQueryRefreshMs = System.currentTimeMillis()
+            while (isActive) {
+                delay(ONLINE_REEVALUATE_INTERVAL_MS)
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastQueryRefreshMs >= ONLINE_QUERY_REFRESH_MS) {
+                    attachQueryListener()
+                    lastQueryRefreshMs = nowMs
+                }
+                emitOnline()
+            }
+        }
+        awaitClose {
+            reevaluateJob.cancel()
+            registration?.remove()
+        }
+    }.distinctUntilChanged()
 }

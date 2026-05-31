@@ -20,6 +20,7 @@
     <string name="leave_queue">Leave Queue</string>
     <string name="find_match">Find Match</string>
     <string name="leaderboard">Leaderboard</string>
+    <string name="leaderboard_online_only">Online only</string>
     <string name="my_opponents">My Opponents</string>
     <string name="my_opponents_subtitle">ELO change from matches in the last 7 days</string>
     <string name="no_opponents_this_week">No opponents played this week.</string>

@@ -24,7 +24,9 @@ import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.data.model.UserProfile
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -565,22 +567,30 @@ class MatchRepository(
 
         val since = Timestamp(Date(sinceMs))
         val perSide = limit.coerceAtLeast(1)
-        val asPlayer1 = firestore.collection("matches")
-            .whereEqualTo("player1", userId)
-            .whereGreaterThanOrEqualTo("lastActivityAt", since)
-            .orderBy("lastActivityAt", Query.Direction.DESCENDING)
-            .limit(perSide.toLong())
-            .get()
-            .await()
-        val asPlayer2 = firestore.collection("matches")
-            .whereEqualTo("player2", userId)
-            .whereGreaterThanOrEqualTo("lastActivityAt", since)
-            .orderBy("lastActivityAt", Query.Direction.DESCENDING)
-            .limit(perSide.toLong())
-            .get()
-            .await()
-
-        val merged = mergeRecentMatches(asPlayer1.documents + asPlayer2.documents, limit)
+        val merged = coroutineScope {
+            val asPlayer1 = async {
+                firestore.collection("matches")
+                    .whereEqualTo("player1", userId)
+                    .whereGreaterThanOrEqualTo("lastActivityAt", since)
+                    .orderBy("lastActivityAt", Query.Direction.DESCENDING)
+                    .limit(perSide.toLong())
+                    .get()
+                    .await()
+            }
+            val asPlayer2 = async {
+                firestore.collection("matches")
+                    .whereEqualTo("player2", userId)
+                    .whereGreaterThanOrEqualTo("lastActivityAt", since)
+                    .orderBy("lastActivityAt", Query.Direction.DESCENDING)
+                    .limit(perSide.toLong())
+                    .get()
+                    .await()
+            }
+            mergeRecentMatches(
+                asPlayer1.await().documents + asPlayer2.await().documents,
+                limit,
+            )
+        }
         putCachedMatches(cacheKey, merged)
         return merged
     }

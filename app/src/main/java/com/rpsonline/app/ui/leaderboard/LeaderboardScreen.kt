@@ -2,6 +2,7 @@ package com.rpsonline.app.ui.leaderboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,6 +19,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -26,14 +34,64 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.LeaderboardEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.ui.components.HomeOutlinedButton
+import com.rpsonline.app.ui.components.LocalOnlineUids
 import com.rpsonline.app.ui.components.ProfileSummaryCard
-import com.rpsonline.app.ui.components.ProvideOnlinePresence
+import com.rpsonline.app.ui.components.ProvideOnlinePresencePolling
 import com.rpsonline.app.ui.components.RpsLoadingColumn
+import com.rpsonline.app.ui.components.rememberAllOnlineUids
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.viewmodel.LeaderboardViewModel
 
 private const val LeaderboardEntryContentType = 0
+private const val OnlineFilterMaxPageLoads = 40
+
+@Composable
+private fun LeaderboardOnlineFilterLoader(
+    enabled: Boolean,
+    onlineUids: Set<String>,
+    entries: List<LeaderboardEntry>,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isAppending: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    var pagesLoadedForFilter by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(enabled) {
+        pagesLoadedForFilter = 0
+    }
+
+    LaunchedEffect(enabled, onlineUids, entries.size, hasMore, isLoading, isAppending) {
+        if (!enabled || isLoading || isAppending || !hasMore) return@LaunchedEffect
+        if (entries.isEmpty()) return@LaunchedEffect
+        if (entries.any { it.uid in onlineUids }) {
+            pagesLoadedForFilter = 0
+            return@LaunchedEffect
+        }
+        if (pagesLoadedForFilter >= OnlineFilterMaxPageLoads) return@LaunchedEffect
+        pagesLoadedForFilter += 1
+        onLoadMore()
+    }
+}
+
+@Composable
+private fun LeaderboardPresenceScope(
+    onlineOnlyFilter: Boolean,
+    entryUids: List<String>,
+    content: @Composable (filterOnlineUids: Set<String>) -> Unit,
+) {
+    if (onlineOnlyFilter) {
+        val allOnlineUids = rememberAllOnlineUids()
+        CompositionLocalProvider(LocalOnlineUids provides allOnlineUids) {
+            content(allOnlineUids)
+        }
+    } else {
+        ProvideOnlinePresencePolling(uids = entryUids) {
+            content(emptySet())
+        }
+    }
+}
 
 @Composable
 fun LeaderboardScreen(
@@ -43,10 +101,15 @@ fun LeaderboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    var onlineOnlyFilter by remember { mutableStateOf(false) }
 
     LifecycleResumeEffect(Unit) {
         viewModel.load()
         onPauseOrDispose { }
+    }
+
+    LaunchedEffect(onlineOnlyFilter) {
+        listState.scrollToItem(0)
     }
 
     LaunchedEffect(
@@ -56,7 +119,9 @@ fun LeaderboardScreen(
         uiState.isLoading,
         uiState.isAppending,
         uiState.entries.size,
+        onlineOnlyFilter,
     ) {
+        if (onlineOnlyFilter) return@LaunchedEffect
         if (!uiState.hasMore || uiState.isLoading || uiState.isAppending) return@LaunchedEffect
         val layoutInfo = listState.layoutInfo
         if (layoutInfo.totalItemsCount == 0) return@LaunchedEffect
@@ -69,41 +134,82 @@ fun LeaderboardScreen(
     Column(
         modifier = Modifier.rpsScreenPadding(),
     ) {
-        Text(
-            text = stringResource(R.string.leaderboard),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.leaderboard),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.leaderboard_online_only),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Checkbox(
+                    checked = onlineOnlyFilter,
+                    onCheckedChange = { onlineOnlyFilter = it },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.outline,
+                        checkmarkColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
-        ProvideOnlinePresence(uids = uiState.entries.map { it.uid }) {
-            Column(modifier = Modifier.weight(1f)) {
-                when {
-                    uiState.isLoading -> {
-                        RpsLoadingColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
+        when {
+            uiState.isLoading -> {
+                RpsLoadingColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            }
+            uiState.error != null -> {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(text = uiState.error!!, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            else -> {
+                LeaderboardPresenceScope(
+                    onlineOnlyFilter = onlineOnlyFilter,
+                    entryUids = uiState.entries.map { it.uid },
+                ) { filterOnlineUids ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        LeaderboardOnlineFilterLoader(
+                            enabled = onlineOnlyFilter,
+                            onlineUids = filterOnlineUids,
+                            entries = uiState.entries,
+                            hasMore = uiState.hasMore,
+                            isLoading = uiState.isLoading,
+                            isAppending = uiState.isAppending,
+                            onLoadMore = viewModel::loadMore,
                         )
-                    }
-                    uiState.error != null -> {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Text(text = uiState.error!!, color = MaterialTheme.colorScheme.error)
+                        val displayedEntries = if (onlineOnlyFilter) {
+                            uiState.entries.filter { it.uid in filterOnlineUids }
+                        } else {
+                            uiState.entries
                         }
-                    }
-                    else -> {
                         LazyColumn(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             state = listState,
                         ) {
                             itemsIndexed(
-                                items = uiState.entries,
+                                items = displayedEntries,
                                 key = { _, entry -> entry.uid },
                                 contentType = { _, _ -> LeaderboardEntryContentType },
                             ) { index, entry ->
