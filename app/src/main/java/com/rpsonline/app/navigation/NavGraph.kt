@@ -263,7 +263,11 @@ fun RpsNavGraph() {
             val userId = backStackEntry.arguments?.getString("userId") ?: return@composable
             ProfileScreen(
                 userId = userId,
-                onHome = { navController.navigateToHome() },
+                onHome = {
+                    if (!navController.popBackStack()) {
+                        navController.navigateToHome()
+                    }
+                },
                 onPlayerProfile = { profileUserId ->
                     navController.navigate(Routes.profile(profileUserId))
                 },

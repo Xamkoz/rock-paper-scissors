@@ -4,6 +4,8 @@ package com.rpsonline.app.data.repository
 
 import com.google.firebase.firestore.DocumentSnapshot
 
+import com.google.firebase.firestore.FieldPath
+
 import com.google.firebase.firestore.FirebaseFirestore
 
 import com.google.firebase.firestore.Query
@@ -169,6 +171,45 @@ class UserRepository(
 
         )
 
+    }
+
+    /** Leaderboard rows for specific uids (no leaderboardVisible filter; includes guests). */
+    internal suspend fun getLeaderboardEntriesForUids(
+        uids: Collection<String>,
+    ): List<LeaderboardEntry> {
+        val tracked = uids.filter { it.isNotBlank() }.toSet()
+        if (tracked.isEmpty()) return emptyList()
+
+        val byUid = linkedMapOf<String, LeaderboardEntry>()
+        for (chunk in tracked.chunked(WHERE_IN_CHUNK_SIZE)) {
+            val snapshot = firestore.collection("users")
+                .whereIn(FieldPath.documentId(), chunk)
+                .get()
+                .await()
+            snapshot.documents.forEach { doc ->
+                byUid[doc.id] = doc.toLeaderboardEntry()
+            }
+        }
+
+        return tracked
+            .map { uid -> byUid[uid] ?: placeholderLeaderboardEntry(uid) }
+            .sortedWith(
+                compareByDescending<LeaderboardEntry> { it.elo }
+                    .thenBy { it.displayName.lowercase() },
+            )
+    }
+
+
+
+    private fun placeholderLeaderboardEntry(uid: String): LeaderboardEntry =
+        LeaderboardEntry(
+            uid = uid,
+            displayName = DisplayNames.resolve(null, uid),
+            elo = 1000,
+        )
+
+    private companion object {
+        private const val WHERE_IN_CHUNK_SIZE = 30
     }
 
 

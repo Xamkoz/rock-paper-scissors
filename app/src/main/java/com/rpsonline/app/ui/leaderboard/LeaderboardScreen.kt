@@ -21,7 +21,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,51 +43,26 @@ import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.viewmodel.LeaderboardViewModel
 
 private const val LeaderboardEntryContentType = 0
-private const val OnlineFilterMaxPageLoads = 40
-
-@Composable
-private fun LeaderboardOnlineFilterLoader(
-    enabled: Boolean,
-    onlineUids: Set<String>,
-    entries: List<LeaderboardEntry>,
-    hasMore: Boolean,
-    isLoading: Boolean,
-    isAppending: Boolean,
-    onLoadMore: () -> Unit,
-) {
-    var pagesLoadedForFilter by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(enabled) {
-        pagesLoadedForFilter = 0
-    }
-
-    LaunchedEffect(enabled, onlineUids, entries.size, hasMore, isLoading, isAppending) {
-        if (!enabled || isLoading || isAppending || !hasMore) return@LaunchedEffect
-        if (entries.isEmpty()) return@LaunchedEffect
-        if (entries.any { it.uid in onlineUids }) {
-            pagesLoadedForFilter = 0
-            return@LaunchedEffect
-        }
-        if (pagesLoadedForFilter >= OnlineFilterMaxPageLoads) return@LaunchedEffect
-        pagesLoadedForFilter += 1
-        onLoadMore()
-    }
-}
 
 @Composable
 private fun LeaderboardPresenceScope(
     onlineOnlyFilter: Boolean,
     entryUids: List<String>,
-    content: @Composable (filterOnlineUids: Set<String>) -> Unit,
+    onlineListUids: Set<String>,
+    onOnlineMembershipChanged: (Set<String>) -> Unit,
+    content: @Composable () -> Unit,
 ) {
     if (onlineOnlyFilter) {
         val allOnlineUids = rememberAllOnlineUids()
-        CompositionLocalProvider(LocalOnlineUids provides allOnlineUids) {
-            content(allOnlineUids)
+        LaunchedEffect(allOnlineUids) {
+            onOnlineMembershipChanged(allOnlineUids)
+        }
+        CompositionLocalProvider(LocalOnlineUids provides onlineListUids) {
+            content()
         }
     } else {
         ProvideOnlinePresencePolling(uids = entryUids) {
-            content(emptySet())
+            content()
         }
     }
 }
@@ -110,6 +84,9 @@ fun LeaderboardScreen(
 
     LaunchedEffect(onlineOnlyFilter) {
         listState.scrollToItem(0)
+        if (!onlineOnlyFilter) {
+            viewModel.onOnlineFilterDisabled()
+        }
     }
 
     LaunchedEffect(
@@ -166,14 +143,21 @@ fun LeaderboardScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         when {
-            uiState.isLoading -> {
+            uiState.isLoading && !onlineOnlyFilter -> {
                 RpsLoadingColumn(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                 )
             }
-            uiState.error != null -> {
+            onlineOnlyFilter && uiState.isLoadingOnline && uiState.onlineEntries.isEmpty() -> {
+                RpsLoadingColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            }
+            uiState.error != null && (!onlineOnlyFilter || uiState.onlineEntries.isEmpty()) -> {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -187,19 +171,14 @@ fun LeaderboardScreen(
                 LeaderboardPresenceScope(
                     onlineOnlyFilter = onlineOnlyFilter,
                     entryUids = uiState.entries.map { it.uid },
-                ) { filterOnlineUids ->
+                    onlineListUids = remember(uiState.onlineEntries) {
+                        uiState.onlineEntries.map { it.uid }.toSet()
+                    },
+                    onOnlineMembershipChanged = viewModel::syncOnlineEntries,
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        LeaderboardOnlineFilterLoader(
-                            enabled = onlineOnlyFilter,
-                            onlineUids = filterOnlineUids,
-                            entries = uiState.entries,
-                            hasMore = uiState.hasMore,
-                            isLoading = uiState.isLoading,
-                            isAppending = uiState.isAppending,
-                            onLoadMore = viewModel::loadMore,
-                        )
                         val displayedEntries = if (onlineOnlyFilter) {
-                            uiState.entries.filter { it.uid in filterOnlineUids }
+                            uiState.onlineEntries
                         } else {
                             uiState.entries
                         }
@@ -222,7 +201,7 @@ fun LeaderboardScreen(
                             }
 
                             item {
-                                if (uiState.isAppending) {
+                                if (uiState.isAppending && !onlineOnlyFilter) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
