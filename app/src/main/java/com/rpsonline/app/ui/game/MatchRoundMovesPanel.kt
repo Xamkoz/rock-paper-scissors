@@ -1,6 +1,5 @@
 package com.rpsonline.app.ui.game
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -49,7 +47,7 @@ import com.rpsonline.app.ui.components.MoveIconCard
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.moveBarFillColor
 import com.rpsonline.app.ui.components.moveSlotContentSize
-import com.rpsonline.app.ui.components.moveSlotShape
+import com.rpsonline.app.ui.components.moveSlotLockedSurface
 import com.rpsonline.app.ui.components.moveSlotSquareSide
 
 data class MatchRoundOutcome(
@@ -515,7 +513,7 @@ private fun PanelMoveIconCard(
         move = move,
         compact = slotCompact,
         large = true,
-        enabled = true,
+        enabled = false,
         squareSide = squareSide,
         modifier = modifier,
     )
@@ -526,17 +524,9 @@ private fun WaitingMovePlaceholder(
     squareSide: Dp,
     compact: Boolean,
 ) {
-    val shape = moveSlotShape(squareSide, compact)
     Box(
         modifier = Modifier
-            .size(squareSide)
-            .shadow(if (compact) 2.dp else 3.dp, shape)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f))
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                shape,
-            )
+            .moveSlotLockedSurface(squareSide, compact)
             .semantics { contentDescription = "Waiting" },
         contentAlignment = Alignment.Center,
     ) {
@@ -544,7 +534,7 @@ private fun WaitingMovePlaceholder(
         Icon(
             imageVector = Icons.Default.AccessTime,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(iconSize),
         )
     }
@@ -558,17 +548,9 @@ private fun SecretMovePlaceholder(
     onClick: (() -> Unit)? = null,
     contentDescription: String? = null,
 ) {
-    val shape = moveSlotShape(squareSide, compact)
     Box(
         modifier = Modifier
-            .size(squareSide)
-            .shadow(if (compact) 2.dp else 3.dp, shape)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f))
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-                shape,
-            )
+            .moveSlotLockedSurface(squareSide, compact)
             .then(
                 if (onClick != null) {
                     Modifier
@@ -590,7 +572,7 @@ private fun SecretMovePlaceholder(
             text = "?",
             fontSize = fontSize,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

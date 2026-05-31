@@ -94,7 +94,7 @@ private fun MoveChoiceColumn(
             },
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
-            color = style.labelColor.copy(alpha = if (enabled) 1f else 0.42f),
+            color = style.labelColor.copy(alpha = if (enabled) 1f else MoveSlotLockedAlpha),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = labelSpacing),

@@ -9,10 +9,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.domain.GameRules
+import com.rpsonline.app.ui.components.MoveSlotLockedAlpha
 
 @Composable
 fun CircularGameClock(
@@ -48,15 +50,15 @@ fun CircularGameClock(
         ProgressIndicatorDefaults.CircularStrokeWidth * 0.7f
     }
 
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier.alpha(if (isRunning) 1f else MoveSlotLockedAlpha),
+        contentAlignment = Alignment.Center,
+    ) {
         CircularProgressIndicator(
             progress = { progress },
             modifier = Modifier
                 .size(timerSize)
-                .graphicsLayer {
-                    scaleX = -1f
-                    alpha = if (isRunning) 1f else 0.75f
-                },
+                .graphicsLayer { scaleX = -1f },
             color = ringColor,
             trackColor = trackColor,
             strokeWidth = strokeWidth,

@@ -236,9 +236,11 @@ fun RpsApp() {
                 break
             }
             heartbeat++
+            val nowMs = System.currentTimeMillis()
             presenceRepository.touchPresence(
                 uid,
                 awaitServerAck = heartbeat % 2 == 0,
+                includeOnlineCount = PresenceRepository.shouldRequestOnlineCount(nowMs),
             )
         }
     }

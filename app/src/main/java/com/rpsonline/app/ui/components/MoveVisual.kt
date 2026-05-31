@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.data.model.Move
 
+/** Dimmed alpha for locked move picker, panel slots, and paused clocks. */
+const val MoveSlotLockedAlpha = 0.42f
+
 /** Minimum square move slot side (compact layouts). */
 val MovePickerCardHeightCompact = 72.dp
 
@@ -58,6 +61,34 @@ fun moveSlotCornerRadius(squareSide: Dp, compact: Boolean): Dp {
 
 fun moveSlotShape(squareSide: Dp, compact: Boolean) =
     RoundedCornerShape(moveSlotCornerRadius(squareSide, compact))
+
+/** Dimmed slot surface matching disabled [MoveIconCard]. */
+@Composable
+fun Modifier.moveSlotLockedSurface(
+    squareSide: Dp,
+    compact: Boolean,
+): Modifier {
+    val scheme = MaterialTheme.colorScheme
+    val shape = moveSlotShape(squareSide, compact)
+    return this
+        .size(squareSide)
+        .shadow(if (compact) 2.dp else 3.dp, shape)
+        .clip(shape)
+        .background(
+            Brush.verticalGradient(
+                colors = listOf(
+                    scheme.surfaceContainerHigh,
+                    scheme.surfaceContainer,
+                    scheme.surfaceContainerLow,
+                ),
+            ),
+        )
+        .alpha(MoveSlotLockedAlpha)
+        .border(
+            BorderStroke(1.dp, scheme.outline.copy(alpha = 0.35f)),
+            shape,
+        )
+}
 
 /** Icon / marker size for move cards and panel slots — up to a square inset in the card. */
 fun moveSlotContentSize(
@@ -146,7 +177,7 @@ private fun MoveIconCardContent(
     Box(
         modifier = modifier
             .size(squareSide)
-            .alpha(if (enabled) 1f else 0.42f)
+            .alpha(if (enabled) 1f else MoveSlotLockedAlpha)
             .shadow(if (compact) 2.dp else 3.dp, shape)
             .clip(shape)
             .background(style.gradient)

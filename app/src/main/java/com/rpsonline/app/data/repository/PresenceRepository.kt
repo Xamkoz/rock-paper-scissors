@@ -21,11 +21,14 @@ import kotlinx.coroutines.withTimeout
 class PresenceRepository(
     private val firestore: FirebaseFirestore = appFirestore(),
 ) {
-    private val _onlineCount = MutableStateFlow<Int?>(null)
-    val onlineCount: StateFlow<Int?> = _onlineCount.asStateFlow()
+    /** Shared across instances so the foreground service and [RpsApp] top bar stay in sync. */
+    val onlineCount: StateFlow<Int?> = Companion.onlineCount
 
     /** serverTimeMs - clientTimeMs; shared so all instances agree on the online window. */
     companion object {
+        private val _onlineCount = MutableStateFlow<Int?>(null)
+        val onlineCount: StateFlow<Int?> = _onlineCount.asStateFlow()
+
         @Volatile
         var serverTimeOffsetMs: Long = 0L
             private set
@@ -69,6 +72,15 @@ class PresenceRepository(
 
         internal fun resetOnlineCountRequestSchedule() {
             lastOnlineCountRequestAtMs = 0L
+        }
+
+        internal fun publishOnlineCount(count: Int) {
+            _onlineCount.value = count
+        }
+
+        fun clearOnlineCount() {
+            _onlineCount.value = null
+            resetOnlineCountRequestSchedule()
         }
 
         internal fun countOnlineUids(
@@ -115,8 +127,7 @@ class PresenceRepository(
     }
 
     fun clearOnlineCount() {
-        _onlineCount.value = null
-        Companion.resetOnlineCountRequestSchedule()
+        Companion.clearOnlineCount()
     }
 
     /**
@@ -140,7 +151,7 @@ class PresenceRepository(
             updateServerTimeOffset(touchResult.serverTimeMs)
             if (requestOnlineCount) {
                 touchResult.onlineCount?.let { count ->
-                    _onlineCount.value = count
+                    Companion.publishOnlineCount(count)
                     Companion.markOnlineCountRequested(nowMs)
                 }
             }
