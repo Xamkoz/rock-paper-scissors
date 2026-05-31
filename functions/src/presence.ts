@@ -1,5 +1,5 @@
 /** Matches client [PresenceRepository.ONLINE_PRESENCE_WINDOW_MS]. */
-export const ONLINE_PRESENCE_WINDOW_MS = 90_000;
+export const ONLINE_PRESENCE_WINDOW_MS = 120_000;
 
 export function countOnlinePresenceDocs(
   docs: Array<{ lastSeenMs: number | null }>,

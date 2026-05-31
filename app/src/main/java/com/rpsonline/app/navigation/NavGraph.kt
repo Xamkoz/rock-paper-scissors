@@ -1,6 +1,8 @@
 package com.rpsonline.app.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +25,7 @@ import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.ui.auth.SignInScreen
 import com.rpsonline.app.ui.changelog.ChangelogScreen
+import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.game.GameScreen
 import com.rpsonline.app.ui.home.HomeScreen
 import com.rpsonline.app.ui.leaderboard.LeaderboardScreen
@@ -65,22 +68,25 @@ private fun NavHostController.navigateToHomeAfterMatch(matchId: String) {
 private fun MatchFoundNavigationEffect(navController: NavHostController) {
     val pendingMatchId by MatchSessionMonitor.pendingGameNavigationMatchId
         .collectAsStateWithLifecycle()
+    val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val backStackEntries by navController.currentBackStack.collectAsStateWithLifecycle()
     val currentRoute = backStackEntries.lastOrNull()?.destination?.route
 
-    LaunchedEffect(pendingMatchId, currentRoute) {
+    LaunchedEffect(pendingMatchId, currentRoute, activeMatch?.id, activeMatch?.status) {
         val matchId = pendingMatchId ?: return@LaunchedEffect
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) {
             MatchSessionMonitor.consumeGameNavigation()
             return@LaunchedEffect
         }
-        val activeMatch = MatchSessionMonitor.activeMatch.value
-        if (
-            activeMatch?.id == matchId &&
-            activeMatch.status != MatchStatus.ACTIVE
-        ) {
-            MatchSessionMonitor.consumeGameNavigation()
-            return@LaunchedEffect
+        val sessionMatch = activeMatch
+        if (sessionMatch?.id == matchId) {
+            when (sessionMatch.status) {
+                MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
+                    MatchSessionMonitor.consumeGameNavigation()
+                    return@LaunchedEffect
+                }
+                else -> Unit
+            }
         }
         if (currentRoute == Routes.game(matchId)) {
             MatchSessionMonitor.consumeGameNavigation()
@@ -124,7 +130,15 @@ fun RpsNavGraph() {
         }
     }
 
-    val startDestination = if (authRepository.currentUser != null) Routes.home() else Routes.SIGN_IN
+    val startDestination = remember {
+        when {
+            authRepository.currentUser == null -> Routes.SIGN_IN
+            else -> {
+                val launchMatchId = MatchSessionMonitor.pendingGameLaunchMatchId()
+                if (launchMatchId != null) Routes.game(launchMatchId) else Routes.home()
+            }
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -152,7 +166,23 @@ fun RpsNavGraph() {
         ) { backStackEntry ->
             val autoStartMatchmaking = backStackEntry.arguments?.getBoolean("autoMatchmake") ?: false
             val homeViewModel: HomeViewModel = viewModel(backStackEntry)
+            val pendingGameNavigation by MatchSessionMonitor.pendingGameNavigationMatchId
+                .collectAsStateWithLifecycle()
+            val matchLaunchNudge by MatchSessionMonitor.matchLaunchUiNudge
+                .collectAsStateWithLifecycle()
+            val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
+            val deferHomeForGameLaunch = remember(
+                pendingGameNavigation,
+                matchLaunchNudge,
+                activeMatch?.id,
+                activeMatch?.status,
+            ) {
+                MatchSessionMonitor.pendingGameLaunchMatchId() != null
+            }
             if (isSignedIn) {
+                if (deferHomeForGameLaunch) {
+                    RpsLoadingColumn(modifier = Modifier.fillMaxSize())
+                } else {
                 HomeScreen(
                     autoStartMatchmaking = autoStartMatchmaking,
                     viewModel = homeViewModel,
@@ -174,6 +204,7 @@ fun RpsNavGraph() {
                     },
                     onChangelog = { navController.navigate(Routes.CHANGELOG) },
                 )
+                }
             }
         }
 
@@ -184,7 +215,12 @@ fun RpsNavGraph() {
             val matchId = backStackEntry.arguments?.getString("matchId") ?: return@composable
             BackHandler {
                 MatchSessionMonitor.suppressAutoGameNavigation(matchId)
-                navController.popBackStack()
+                if (!navController.popBackStack()) {
+                    navController.navigate(Routes.home()) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
             }
             GameScreen(
                 matchId = matchId,

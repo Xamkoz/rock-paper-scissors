@@ -57,8 +57,8 @@ class MainActivity : ComponentActivity() {
         val match = MatchSessionMonitor.activeMatch.value
         if (
             match?.id == matchId &&
-            match.status == MatchStatus.ACTIVE &&
-            match.isParticipant(uid)
+            match.isParticipant(uid) &&
+            (match.status == MatchStatus.ACTIVE || match.status == MatchStatus.LOBBY)
         ) {
             MatchSessionMonitor.requestGameNavigation(matchId)
         } else {

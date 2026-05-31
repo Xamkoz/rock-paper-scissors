@@ -16,7 +16,7 @@ class PresenceOnlineCountTest {
             PresenceRepository.countOnlineUids(
                 lastSeenByUid = mapOf(
                     "fresh" to nowMs - 30_000L,
-                    "stale" to nowMs - 120_000L,
+                    "stale" to nowMs - 130_000L,
                 ),
                 nowMs = nowMs,
                 selfUid = "me",
@@ -104,13 +104,13 @@ class PresenceOnlineCountTest {
     fun shouldRequestOnlineCount_throttlesUntilRefreshWindow() {
         assertFalse(
             PresenceRepository.shouldRequestOnlineCount(
-                nowMs = 70_000L,
+                nowMs = 45_000L,
                 lastRequestAtMs = 20_000L,
             ),
         )
         assertTrue(
             PresenceRepository.shouldRequestOnlineCount(
-                nowMs = 90_000L,
+                nowMs = 55_000L,
                 lastRequestAtMs = 20_000L,
             ),
         )

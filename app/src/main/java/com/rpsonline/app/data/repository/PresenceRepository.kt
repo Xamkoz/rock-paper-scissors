@@ -40,18 +40,18 @@ class PresenceRepository(
         const val COLLECTION = "presence"
         /** Legacy profile activity window (match stats, guest cleanup). */
         const val ONLINE_WINDOW_MS = 2 * 60 * 1000L
-        /** Presence heartbeat window for the online counter (~3 missed beats at 30s). */
-        const val ONLINE_PRESENCE_WINDOW_MS = 90_000L
+        /** Presence heartbeat window for the online counter (~4 missed beats at 30s). */
+        const val ONLINE_PRESENCE_WINDOW_MS = 120_000L
         /** Extra time before UI drops a player after their last heartbeat expires. */
         const val ONLINE_DISPLAY_GRACE_MS = 25_000L
         const val HEARTBEAT_INTERVAL_MS = 30_000L
-        /** Top-bar online count refresh cadence (~3× slower than presence heartbeats). */
-        const val ONLINE_COUNT_REFRESH_MS = 60_000L
+        /** Top-bar online count refresh cadence (every other presence heartbeat). */
+        const val ONLINE_COUNT_REFRESH_MS = 30_000L
         /** Delay before a resume-only online count refresh (UI loop, no background service). */
         const val ONLINE_COUNT_RESUME_REFRESH_DELAY_MS = 2_500L
         private const val PRESENCE_WRITE_TIMEOUT_MS = 8_000L
         private const val PRESENCE_SYNC_TIMEOUT_MS = 10_000L
-        private const val PRESENCE_ACK_MAX_AGE_MS = 90_000L
+        private const val PRESENCE_ACK_MAX_AGE_MS = 120_000L
         private const val ONLINE_REEVALUATE_INTERVAL_MS = 5_000L
         private const val ONLINE_QUERY_REFRESH_MS = 60_000L
         private const val ONLINE_POLLING_INTERVAL_MS = 30_000L

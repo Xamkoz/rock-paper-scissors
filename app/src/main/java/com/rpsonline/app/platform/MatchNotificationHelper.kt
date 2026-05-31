@@ -4,11 +4,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.rpsonline.app.MainActivity
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.segment.SegmentedNotificationStatus
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
@@ -31,14 +29,12 @@ object MatchNotificationHelper {
         manager.createNotificationChannel(channel)
     }
 
-    fun showMatchFound(context: Context, opponentName: String?) {
+    fun showMatchFound(context: Context, matchId: String, opponentName: String?) {
         ensureChannels(context)
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
+        val openAppIntent = MatchLaunchHelper.buildLaunchIntent(context, matchId)
         val pendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            matchId.hashCode(),
             openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

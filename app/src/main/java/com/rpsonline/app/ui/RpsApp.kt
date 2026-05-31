@@ -422,7 +422,7 @@ fun RpsApp() {
         }
         val uid = user?.uid ?: return@LaunchedEffect
         val opponentName = match.opponentName(uid)
-        MatchNotificationHelper.showMatchFound(context, opponentName)
+        MatchNotificationHelper.showMatchFound(context, match.id, opponentName)
         lastNotifiedMatchId = match.id
     }
 

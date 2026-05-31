@@ -9,7 +9,7 @@ describe("presence", () => {
       countOnlinePresenceDocs(
         [
           { lastSeenMs: nowMs - 30_000 },
-          { lastSeenMs: nowMs - 120_000 },
+          { lastSeenMs: nowMs - 130_000 },
         ],
         nowMs,
       ),

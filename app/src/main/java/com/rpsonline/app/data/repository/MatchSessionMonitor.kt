@@ -106,6 +106,12 @@ object MatchSessionMonitor {
     fun isAutoGameNavigationSuppressed(matchId: String): Boolean =
         autoGameNavigationSuppressedMatchId == matchId
 
+    /** Match id from a notification or background launch intent, if navigation is still allowed. */
+    fun pendingGameLaunchMatchId(): String? {
+        val matchId = _pendingGameNavigationMatchId.value ?: pendingLaunchMatchId ?: return null
+        return matchId.takeUnless { isAutoGameNavigationSuppressed(it) }
+    }
+
     fun clearAutoGameNavigationSuppression(matchId: String) {
         if (autoGameNavigationSuppressedMatchId == matchId) {
             autoGameNavigationSuppressedMatchId = null
@@ -141,8 +147,8 @@ object MatchSessionMonitor {
                 if (
                     match?.id == matchId &&
                     uid != null &&
-                    match.status == MatchStatus.ACTIVE &&
-                    match.isParticipant(uid)
+                    match.isParticipant(uid) &&
+                    (match.status == MatchStatus.ACTIVE || match.status == MatchStatus.LOBBY)
                 ) {
                     requestGameNavigation(matchId)
                     return@launch
