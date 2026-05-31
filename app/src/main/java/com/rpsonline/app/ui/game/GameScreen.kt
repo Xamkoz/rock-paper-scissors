@@ -18,7 +18,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +42,6 @@ import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.data.repository.MatchSessionMonitor
-import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.ui.LocalClockSoundMuted
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
@@ -52,7 +50,6 @@ import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
 import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun GameScreen(
@@ -75,8 +72,6 @@ fun GameScreen(
         else -> null
     }
 
-    val presenceRepository = remember { PresenceRepository() }
-    val scope = rememberCoroutineScope()
     var navigatedToResult by remember(matchId) { mutableStateOf(false) }
     var frozenEndTransition by remember(matchId) { mutableStateOf<MatchEndTransitionUi?>(null) }
     val endTransition = frozenEndTransition ?: run {
@@ -99,20 +94,8 @@ fun GameScreen(
     }
 
     LifecycleResumeEffect(matchId, userId) {
-        userId?.let { uid ->
-            scope.launch {
-                runCatching {
-                    presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
-                }
-            }
-        }
         viewModel.refreshOnResume()
         onPauseOrDispose { }
-    }
-
-    LaunchedEffect(userId) {
-        val uid = userId ?: return@LaunchedEffect
-        presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
     }
 
     LaunchedEffect(monitorMatch?.status, monitorMatch?.id, match?.status, matchId) {

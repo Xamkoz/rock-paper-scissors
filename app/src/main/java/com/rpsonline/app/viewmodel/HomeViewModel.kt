@@ -122,16 +122,6 @@ class HomeViewModel(
                         )
                     }
                 } else {
-                    viewModelScope.launch {
-                        runCatching {
-                            presenceRepository.touchPresence(
-                                user.uid,
-                                forceAuthRefresh = true,
-                                awaitServerAck = true,
-                                includeOnlineCount = true,
-                            )
-                        }
-                    }
                     if (_uiState.value.profile == null) {
                         _uiState.update {
                             it.copy(profile = authRepository.fallbackProfile(user), isLoading = false)
@@ -742,7 +732,6 @@ class HomeViewModel(
                 MatchSessionMonitor.refreshOnResume(forceServerSync = reconcilingQueue)
             }
             val uid = authRepository.currentUserId ?: return@launch
-            runCatching { presenceRepository.touchPresence(uid, awaitServerAck = true, includeOnlineCount = true) }
             userRepository.getUserProfile(uid)?.let { profile ->
                 _uiState.update { it.copy(profile = profile) }
             }

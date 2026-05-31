@@ -12,6 +12,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -176,6 +177,39 @@ fun RpsApp() {
         SegmentedNotificationState.setOnlineCount(onlinePlayerCount)
     }
 
+    var appForegroundGeneration by remember { mutableIntStateOf(0) }
+    LaunchedEffect(appInForeground) {
+        if (appInForeground) {
+            appForegroundGeneration++
+        }
+    }
+
+    LaunchedEffect(appForegroundGeneration, user?.uid, backgroundUsageEnabled) {
+        val uid = user?.uid ?: return@LaunchedEffect
+        if (
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                context,
+                backgroundUsageEnabled,
+            )
+        ) {
+            return@LaunchedEffect
+        }
+        PresenceRepository.prepareOnlineCountRefreshOnResume()
+        delay(PresenceRepository.ONLINE_COUNT_RESUME_REFRESH_DELAY_MS)
+        if (!appInForeground) return@LaunchedEffect
+        if (
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
+                context,
+                backgroundUsageEnabled,
+            )
+        ) {
+            return@LaunchedEffect
+        }
+        runCatching {
+            presenceRepository.touchPresence(uid, includeOnlineCount = true)
+        }
+    }
+
     LaunchedEffect(
         user?.uid,
         appInForeground,
@@ -259,14 +293,6 @@ fun RpsApp() {
             }
             scope.launch {
                 runCatching { MatchSessionMonitor.refreshOnResume() }
-                runCatching {
-                    presenceRepository.touchPresence(
-                        uid,
-                        forceAuthRefresh = true,
-                        awaitServerAck = true,
-                        includeOnlineCount = true,
-                    )
-                }
             }
         }
         onPauseOrDispose { }

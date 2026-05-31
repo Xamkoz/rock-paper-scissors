@@ -89,6 +89,18 @@ class PresenceOnlineCountTest {
     }
 
     @Test
+    fun prepareOnlineCountRefreshOnResume_resetsThrottle() {
+        PresenceRepository.markOnlineCountRequested(50_000L)
+        PresenceRepository.prepareOnlineCountRefreshOnResume()
+        assertTrue(
+            PresenceRepository.shouldRequestOnlineCount(
+                nowMs = 51_000L,
+                lastRequestAtMs = 0L,
+            ),
+        )
+    }
+
+    @Test
     fun shouldRequestOnlineCount_throttlesUntilRefreshWindow() {
         assertFalse(
             PresenceRepository.shouldRequestOnlineCount(

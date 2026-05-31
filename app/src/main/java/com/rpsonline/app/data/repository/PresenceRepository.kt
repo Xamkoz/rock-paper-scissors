@@ -47,6 +47,8 @@ class PresenceRepository(
         const val HEARTBEAT_INTERVAL_MS = 30_000L
         /** Top-bar online count refresh cadence (~3× slower than presence heartbeats). */
         const val ONLINE_COUNT_REFRESH_MS = 60_000L
+        /** Delay before a resume-only online count refresh (UI loop, no background service). */
+        const val ONLINE_COUNT_RESUME_REFRESH_DELAY_MS = 2_500L
         private const val PRESENCE_WRITE_TIMEOUT_MS = 8_000L
         private const val PRESENCE_SYNC_TIMEOUT_MS = 10_000L
         private const val PRESENCE_ACK_MAX_AGE_MS = 90_000L
@@ -72,6 +74,11 @@ class PresenceRepository(
 
         internal fun resetOnlineCountRequestSchedule() {
             lastOnlineCountRequestAtMs = 0L
+        }
+
+        /** Allows the next heartbeat or resume refresh to request an online count immediately. */
+        fun prepareOnlineCountRefreshOnResume() {
+            resetOnlineCountRequestSchedule()
         }
 
         internal fun publishOnlineCount(count: Int) {
