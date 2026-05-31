@@ -404,13 +404,11 @@ fun RpsApp() {
                                 } == true
                                 val inLobby = activeMatch?.status == MatchStatus.LOBBY
                                 val inMatch = activeMatch?.status == MatchStatus.ACTIVE || matchEndTransitionActive
-                                val inMatchInTopBar = inMatch &&
-                                    !(backgroundUsageEnabled && appInForeground)
                                 val inQueue = queueJoinedAtMs != null &&
                                     matchmakingInProgress &&
                                     !inMatch &&
                                     !inLobby
-                                val playerClockStopped = inMatchInTopBar &&
+                                val playerClockStopped = inMatch &&
                                     (matchEndTransitionActive ||
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)
                                 val resolutionPulseTrigger =
@@ -425,9 +423,9 @@ fun RpsApp() {
                                         } else {
                                             null
                                         },
-                                        inMatch = inMatchInTopBar,
+                                        inMatch = inMatch,
                                         inQueue = inQueue,
-                                        elapsedSeconds = if (inMatchInTopBar) {
+                                        elapsedSeconds = if (inMatch) {
                                             matchElapsedSeconds
                                         } else {
                                             queueElapsedSeconds
