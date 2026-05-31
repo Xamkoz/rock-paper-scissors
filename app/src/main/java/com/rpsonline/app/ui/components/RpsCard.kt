@@ -1,13 +1,19 @@
 package com.rpsonline.app.ui.components
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -21,31 +27,24 @@ fun RpsCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
-    val border = BorderStroke(borderWidth, borderColor)
-    val colors = CardDefaults.cardColors(
-        containerColor = containerColor,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    )
-    val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-
-    if (onClick != null) {
-        Card(
+    val interactionSource = remember { MutableInteractionSource() }
+    val clickableModifier = if (onClick != null) {
+        Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = ripple(color = MaterialTheme.colorScheme.primary),
+            role = Role.Button,
             onClick = onClick,
-            modifier = modifier,
-            shape = shape,
-            border = border,
-            colors = colors,
-            elevation = elevation,
-            content = content,
         )
     } else {
-        Card(
-            modifier = modifier,
-            shape = shape,
-            border = border,
-            colors = colors,
-            elevation = elevation,
-            content = content,
-        )
+        Modifier
     }
+
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(containerColor)
+            .border(borderWidth, borderColor, shape)
+            .then(clickableModifier),
+        content = content,
+    )
 }

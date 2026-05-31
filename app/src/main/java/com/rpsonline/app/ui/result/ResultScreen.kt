@@ -42,10 +42,12 @@ import com.rpsonline.app.ui.components.MatchEloChangeLabel
 import com.rpsonline.app.ui.components.MatchRecapCard
 import com.rpsonline.app.ui.components.MatchResolutionOutcomeHeader
 import com.rpsonline.app.ui.components.ProfileSummaryCard
+import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.ownProfileDisplayName
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.formatMatchScore
+import com.rpsonline.app.ui.components.profileStatValueColor
 import com.rpsonline.app.ui.components.rpsScreenPadding
 
 @Composable
@@ -132,7 +134,12 @@ fun ResultScreen(
             match = currentMatch,
             resolution = resolution,
         )
+        val presenceUids = buildSet {
+            userId?.let { add(it) }
+            opponentId?.let { add(it) }
+        }
 
+        ProvideOnlinePresence(uids = presenceUids) {
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -159,6 +166,7 @@ fun ResultScreen(
             ProfileSummaryCard(
                 displayName = ownProfileDisplayName(myDisplayName),
                 profile = myProfile,
+                playerUid = userId,
                 eloOverride = myCurrentElo,
                 emphasized = true,
                 onClick = { onOpponentProfile(userId) },
@@ -170,6 +178,7 @@ fun ResultScreen(
             ProfileSummaryCard(
                 displayName = opponentProfile?.displayName ?: opponentName,
                 profile = opponentProfile,
+                playerUid = opponentId,
                 eloOverride = opponentElo,
                 onClick = { onOpponentProfile(opponentId) },
             )
@@ -178,6 +187,7 @@ fun ResultScreen(
         if (recaps.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             MatchRecapCard(recaps = recaps)
+        }
         }
         }
 
@@ -218,14 +228,20 @@ private fun FinalScoreCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(
-                    R.string.final_score,
-                    formatMatchScore(myWins, opponentWins),
-                ),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${stringResource(R.string.final_score_label)} ",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = formatMatchScore(myWins, opponentWins),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = profileStatValueColor(),
+                )
+            }
             MatchEloChangeLabel(
                 postMatchElo = postMatchElo,
                 eloDelta = eloDelta,

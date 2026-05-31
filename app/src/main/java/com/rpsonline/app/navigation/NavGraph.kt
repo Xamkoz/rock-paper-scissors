@@ -26,6 +26,7 @@ import com.rpsonline.app.ui.changelog.ChangelogScreen
 import com.rpsonline.app.ui.game.GameScreen
 import com.rpsonline.app.ui.home.HomeScreen
 import com.rpsonline.app.ui.leaderboard.LeaderboardScreen
+import com.rpsonline.app.ui.opponents.OpponentsScreen
 import com.rpsonline.app.ui.profile.ProfileScreen
 import com.rpsonline.app.ui.result.ResultScreen
 import kotlinx.coroutines.delay
@@ -39,6 +40,7 @@ object Routes {
     const val GAME = "game/{matchId}"
     const val RESULT = "result/{matchId}"
     const val LEADERBOARD = "leaderboard"
+    const val OPPONENTS = "opponents"
     const val CHANGELOG = "changelog"
     const val PROFILE = "profile/{userId}"
 
@@ -161,10 +163,14 @@ fun RpsNavGraph() {
                         }
                     },
                     onLeaderboard = { navController.navigate(Routes.LEADERBOARD) },
+                    onMyOpponents = { navController.navigate(Routes.OPPONENTS) },
                     onProfile = {
                         authRepository.currentUserId?.let { uid ->
                             navController.navigate(Routes.profile(uid))
                         }
+                    },
+                    onPlayerProfile = { profileUserId ->
+                        navController.navigate(Routes.profile(profileUserId))
                     },
                     onChangelog = { navController.navigate(Routes.CHANGELOG) },
                 )
@@ -188,6 +194,9 @@ fun RpsNavGraph() {
                         popUpTo(Routes.HOME) { inclusive = false }
                         launchSingleTop = true
                     }
+                },
+                onOpponentProfile = { profileUserId ->
+                    navController.navigate(Routes.profile(profileUserId))
                 },
             )
         }
@@ -226,6 +235,15 @@ fun RpsNavGraph() {
             )
         }
 
+        composable(Routes.OPPONENTS) {
+            OpponentsScreen(
+                onHome = { navController.navigateToHome() },
+                onPlayerProfile = { userId ->
+                    navController.navigate(Routes.profile(userId))
+                },
+            )
+        }
+
         composable(Routes.CHANGELOG) {
             ChangelogScreen(
                 onHome = {
@@ -246,6 +264,9 @@ fun RpsNavGraph() {
             ProfileScreen(
                 userId = userId,
                 onHome = { navController.navigateToHome() },
+                onPlayerProfile = { profileUserId ->
+                    navController.navigate(Routes.profile(profileUserId))
+                },
             )
         }
     }

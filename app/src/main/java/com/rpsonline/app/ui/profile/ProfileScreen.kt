@@ -37,6 +37,7 @@ import com.rpsonline.app.ui.components.MatchRecapCard
 import com.rpsonline.app.ui.components.ProfileSummaryCard
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.MatchHistoryCardHeader
+import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.viewmodel.ProfileViewModel
@@ -45,6 +46,7 @@ import com.rpsonline.app.viewmodel.ProfileViewModel
 fun ProfileScreen(
     userId: String,
     onHome: () -> Unit,
+    onPlayerProfile: (String) -> Unit = {},
     viewModel: ProfileViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -71,7 +73,16 @@ fun ProfileScreen(
         }
     }
 
-    Column(modifier = Modifier.rpsScreenPadding()) {
+    val presenceUids = buildSet {
+        add(userId)
+        uiState.matchHistory.forEach { entry ->
+            if (entry.myUid.isNotBlank()) add(entry.myUid)
+            if (entry.opponentUid.isNotBlank()) add(entry.opponentUid)
+        }
+    }
+
+    ProvideOnlinePresence(uids = presenceUids) {
+        Column(modifier = Modifier.rpsScreenPadding()) {
         Text(
             text = profileTitle(
                 displayName = uiState.profile?.displayName,
@@ -112,7 +123,9 @@ fun ProfileScreen(
                         ProfileSummaryCard(
                             displayName = profile?.displayName ?: DisplayNames.DEFAULT,
                             profile = profile,
+                            playerUid = userId,
                             emphasized = uiState.isOwnProfile,
+                            onClick = if (uiState.isOwnProfile) null else ({ onPlayerProfile(userId) }),
                         )
                     }
                     item {
@@ -155,7 +168,10 @@ fun ProfileScreen(
                             items = uiState.matchHistory,
                             key = { it.matchId },
                         ) { entry ->
-                            MatchHistoryCard(entry = entry)
+                            MatchHistoryCard(
+                                entry = entry,
+                                onPlayerProfile = onPlayerProfile,
+                            )
                         }
                         if (uiState.isLoadingMore) {
                             item(key = "loading_more_matches") {
@@ -188,12 +204,14 @@ fun ProfileScreen(
             onClick = onHome,
             label = stringResource(R.string.back_to_home),
         )
+        }
     }
 }
 
 @Composable
 private fun MatchHistoryCard(
     entry: MatchHistoryEntry,
+    onPlayerProfile: (String) -> Unit,
 ) {
     RpsCard(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -205,6 +223,8 @@ private fun MatchHistoryCard(
             MatchHistoryCardHeader(
                 entry = entry,
                 lastActivityAt = entry.lastActivityAt,
+                onMyProfile = onPlayerProfile,
+                onOpponentProfile = onPlayerProfile,
             )
             if (entry.recaps.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

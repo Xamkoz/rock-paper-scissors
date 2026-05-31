@@ -63,6 +63,8 @@ import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.ui.components.AppUpdateDialogs
 import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
 import com.rpsonline.app.ui.components.ProfileSummaryCard
+import com.rpsonline.app.ui.components.PlayerDisplayNameText
+import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.isServerConnected
 import com.rpsonline.app.ui.components.ownProfileDisplayName
 import com.rpsonline.app.ui.components.RpsLoadingColumn
@@ -78,8 +80,10 @@ import com.rpsonline.app.viewmodel.PreGameSyncUiState
 @Composable
 fun HomeScreen(
     onReconnectToGame: (String) -> Unit,
+    onMyOpponents: () -> Unit,
     onLeaderboard: () -> Unit,
     onProfile: () -> Unit,
+    onPlayerProfile: (String) -> Unit = {},
     onChangelog: () -> Unit,
     autoStartMatchmaking: Boolean = false,
     viewModel: HomeViewModel = viewModel(),
@@ -186,6 +190,7 @@ fun HomeScreen(
         ProfileSummaryCard(
             displayName = ownProfileDisplayName(profile?.displayName),
             profile = profile,
+            playerUid = profile?.uid,
             emphasized = true,
             onClick = onProfile,
         )
@@ -259,10 +264,13 @@ fun HomeScreen(
         if (uiState.preGameSync != null) {
             val preGameSync = uiState.preGameSync!!
             val readySecondsRemaining = rememberPreGameReadySecondsRemaining(preGameSync.readyDeadlineAtMs)
-            PreGameSyncStatusCard(
-                state = preGameSync,
-                readySecondsRemaining = readySecondsRemaining,
-            )
+            ProvideOnlinePresence(uids = listOf(preGameSync.opponentUid)) {
+                PreGameSyncStatusCard(
+                    state = preGameSync,
+                    readySecondsRemaining = readySecondsRemaining,
+                    onPlayerProfile = onPlayerProfile,
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
         } else if (
             (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null) &&
@@ -356,6 +364,13 @@ fun HomeScreen(
         }
         Spacer(modifier = Modifier.weight(1f))
         OutlinedButton(
+            onClick = onMyOpponents,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.my_opponents))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
             onClick = onLeaderboard,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -415,6 +430,7 @@ private enum class QueueStatusPhase {
 private fun PreGameSyncStatusCard(
     state: PreGameSyncUiState,
     readySecondsRemaining: Int,
+    onPlayerProfile: (String) -> Unit,
 ) {
     val subtitleReference = stringResource(R.string.finding_opponent)
     val scheme = MaterialTheme.colorScheme
@@ -438,8 +454,10 @@ private fun PreGameSyncStatusCard(
             PreGameSyncPrimaryLine(
                 myDisplayName = state.myDisplayName,
                 opponentDisplayName = state.opponentDisplayName,
+                opponentUid = state.opponentUid,
                 myReady = state.myReady,
                 opponentReady = state.opponentReady,
+                onOpponentProfile = { onPlayerProfile(state.opponentUid) },
             )
             HomeQueueStatusSubtitleSlot(
                 text = if (readySecondsRemaining > 0) {
@@ -457,8 +475,10 @@ private fun PreGameSyncStatusCard(
 private fun PreGameSyncPrimaryLine(
     myDisplayName: String,
     opponentDisplayName: String,
+    opponentUid: String,
     myReady: Boolean,
     opponentReady: Boolean,
+    onOpponentProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val primaryColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -502,7 +522,9 @@ private fun PreGameSyncPrimaryLine(
                 )
                 PreGamePlayerReadyColumn(
                     displayName = opponentDisplayName,
+                    playerUid = opponentUid,
                     ready = opponentReady,
+                    onClick = onOpponentProfile,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -513,7 +535,9 @@ private fun PreGameSyncPrimaryLine(
 @Composable
 private fun PreGamePlayerReadyColumn(
     displayName: String,
+    playerUid: String? = null,
     ready: Boolean,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -524,17 +548,18 @@ private fun PreGamePlayerReadyColumn(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            text = displayName,
+        PlayerDisplayNameText(
+            name = displayName,
+            uid = playerUid,
             style = MaterialTheme.typography.bodySmall.copy(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 10.sp,
                 lineHeight = 12.sp,
             ),
-            color = scheme.onPrimaryContainer,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            defaultColor = scheme.onPrimaryContainer,
             textAlign = TextAlign.Center,
+            maxLines = 2,
+            onClick = onClick,
         )
         Icon(
             imageVector = if (ready) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,

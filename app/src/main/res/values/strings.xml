@@ -20,6 +20,9 @@
     <string name="leave_queue">Leave Queue</string>
     <string name="find_match">Find Match</string>
     <string name="leaderboard">Leaderboard</string>
+    <string name="my_opponents">My Opponents</string>
+    <string name="my_opponents_subtitle">ELO change from matches in the last 7 days</string>
+    <string name="no_opponents_this_week">No opponents played this week.</string>
     <string name="home">Home</string>
     <string name="back_to_home">Back</string>
     <string name="version_label">Version %1$s</string>
@@ -69,6 +72,7 @@
     <string name="queue_timer_idle">Queue timer</string>
     <string name="play_again">Play Again</string>
     <string name="final_score">Final score: %1$s</string>
+    <string name="final_score_label">Final score:</string>
     <string name="your_move">Your move</string>
     <string name="your_move_revealed">Your move: %1$s</string>
     <string name="your_move_hidden">Your move hidden</string>

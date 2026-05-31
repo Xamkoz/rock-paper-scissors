@@ -4,34 +4,33 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.LeaderboardEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.ui.components.HomeOutlinedButton
 import com.rpsonline.app.ui.components.ProfileSummaryCard
+import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
+import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.viewmodel.LeaderboardViewModel
 
 private const val LeaderboardEntryContentType = 0
@@ -77,52 +76,56 @@ fun LeaderboardScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        when {
-            uiState.isLoading -> {
-                RpsLoadingColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                )
-            }
-            uiState.error != null -> {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(text = uiState.error!!, color = MaterialTheme.colorScheme.error)
-                }
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    state = listState,
-                ) {
-                    itemsIndexed(
-                        items = uiState.entries,
-                        key = { _, entry -> entry.uid },
-                        contentType = { _, _ -> LeaderboardEntryContentType },
-                    ) { index, entry ->
-                        LeaderboardListItem(
-                            rank = index + 1,
-                            entry = entry,
-                            isCurrentUser = entry.uid == uiState.currentUserId,
-                            onClick = { onPlayerProfile(entry.uid) },
+        ProvideOnlinePresence(uids = uiState.entries.map { it.uid }) {
+            Column(modifier = Modifier.weight(1f)) {
+                when {
+                    uiState.isLoading -> {
+                        RpsLoadingColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                         )
                     }
+                    uiState.error != null -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(text = uiState.error!!, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            state = listState,
+                        ) {
+                            itemsIndexed(
+                                items = uiState.entries,
+                                key = { _, entry -> entry.uid },
+                                contentType = { _, _ -> LeaderboardEntryContentType },
+                            ) { index, entry ->
+                                LeaderboardListItem(
+                                    rank = index + 1,
+                                    entry = entry,
+                                    isCurrentUser = entry.uid == uiState.currentUserId,
+                                    onClick = { onPlayerProfile(entry.uid) },
+                                )
+                            }
 
-                    item {
-                        if (uiState.isAppending) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                CircularProgressIndicator()
+                            item {
+                                if (uiState.isAppending) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
                             }
                         }
                     }
@@ -153,6 +156,7 @@ private fun LeaderboardListItem(
     ProfileSummaryCard(
         displayName = nameLine,
         profile = entry.toUserProfile(),
+        playerUid = entry.uid,
         nameColor = if (isCurrentUser) {
             null
         } else {

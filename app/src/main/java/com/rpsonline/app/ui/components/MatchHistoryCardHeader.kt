@@ -38,12 +38,16 @@ fun MatchHistoryCardHeader(
     entry: MatchHistoryEntry,
     lastActivityAt: Long,
     modifier: Modifier = Modifier,
+    onMyProfile: ((String) -> Unit)? = null,
+    onOpponentProfile: ((String) -> Unit)? = null,
 ) {
     MatchHistoryCardHeaderContent(
         entry = entry,
         lastActivityAt = lastActivityAt,
         resolution = entry.resolution,
         modifier = modifier,
+        onMyProfile = onMyProfile,
+        onOpponentProfile = onOpponentProfile,
     )
 }
 
@@ -53,6 +57,8 @@ private fun MatchHistoryCardHeaderContent(
     lastActivityAt: Long,
     resolution: ViewerMatchResolution,
     modifier: Modifier = Modifier,
+    onMyProfile: ((String) -> Unit)? = null,
+    onOpponentProfile: ((String) -> Unit)? = null,
 ) {
     val outcomeLabel = viewerMatchResolutionLabel(resolution)
     val outcomeColor = viewerMatchResolutionColor(resolution)
@@ -113,13 +119,17 @@ private fun MatchHistoryCardHeaderContent(
 
             MatchupBottomRow(
                 myDisplayName = entry.myDisplayName,
+                myUid = entry.myUid,
                 opponentName = entry.opponentName,
+                opponentUid = entry.opponentUid,
                 myElo = entry.myElo,
                 opponentElo = entry.opponentElo,
                 nameStyle = playerNameStyle,
                 nameColor = playerNameColor,
                 vsColor = mutedColor,
                 compact = compactHeader,
+                onMyProfile = onMyProfile,
+                onOpponentProfile = onOpponentProfile,
             )
         }
     }
@@ -128,13 +138,17 @@ private fun MatchHistoryCardHeaderContent(
 @Composable
 private fun MatchupBottomRow(
     myDisplayName: String,
+    myUid: String,
     opponentName: String,
+    opponentUid: String,
     myElo: Int?,
     opponentElo: Int?,
     nameStyle: androidx.compose.ui.text.TextStyle,
     nameColor: androidx.compose.ui.graphics.Color,
     vsColor: androidx.compose.ui.graphics.Color,
     compact: Boolean,
+    onMyProfile: ((String) -> Unit)? = null,
+    onOpponentProfile: ((String) -> Unit)? = null,
 ) {
     val eloStyle = MaterialTheme.typography.labelSmall
     val vsPadding = if (compact) 4.dp else 6.dp
@@ -150,16 +164,18 @@ private fun MatchupBottomRow(
             if (myElo != null) {
                 EloRatingText(elo = myElo, style = eloStyle)
             }
-            Text(
-                text = myDisplayName.trim(),
+            PlayerDisplayNameText(
+                name = myDisplayName.trim(),
+                uid = myUid.takeIf { it.isNotBlank() },
                 modifier = Modifier
                     .weight(1f, fill = true)
                     .padding(start = if (myElo != null) 4.dp else 0.dp),
                 style = nameStyle,
-                color = nameColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                defaultColor = nameColor,
                 textAlign = TextAlign.Center,
+                onClick = myUid.takeIf { it.isNotBlank() }?.let { uid ->
+                    onMyProfile?.let { callback -> { callback(uid) } }
+                },
             )
         }
 
@@ -176,16 +192,18 @@ private fun MatchupBottomRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.End,
         ) {
-            Text(
-                text = opponentName.trim(),
+            PlayerDisplayNameText(
+                name = opponentName.trim(),
+                uid = opponentUid.takeIf { it.isNotBlank() },
                 modifier = Modifier
                     .weight(1f, fill = true)
                     .padding(end = if (opponentElo != null) 4.dp else 0.dp),
                 style = nameStyle,
-                color = nameColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                defaultColor = nameColor,
                 textAlign = TextAlign.Center,
+                onClick = opponentUid.takeIf { it.isNotBlank() }?.let { uid ->
+                    onOpponentProfile?.let { callback -> { callback(uid) } }
+                },
             )
             if (opponentElo != null) {
                 EloRatingText(elo = opponentElo, style = eloStyle)

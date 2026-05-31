@@ -2,7 +2,6 @@ package com.rpsonline.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.data.repository.AuthRepository
@@ -10,6 +9,7 @@ import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.DailyEloDelta
+import com.rpsonline.app.domain.ProfileMatchQueries
 import com.rpsonline.app.domain.weeklyEloDailyDeltas
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,13 +105,29 @@ class ProfileViewModel(
                 val historyPerspectiveElo = if (isOwnProfile) profile.elo else (viewerProfile?.elo ?: 1000)
                 cachedViewerId = viewerId
                 val sinceMs = weeklyChartWindowStartMs()
-                val matchPool = fetchMatchPool(
+                val matchPool = ProfileMatchQueries.fetchMatchPool(
+                    matchRepository = matchRepository,
                     isOwnProfile = isOwnProfile,
                     viewerId = viewerId,
                     profileUserId = userId,
                     limit = PROFILE_MATCH_POOL_SIZE,
                 )
-                val weeklyMatches = matchPool.filter { it.lastActivityAt >= sinceMs }
+                val weeklyMatches = if (isOwnProfile) {
+                    ProfileMatchQueries.fetchOwnWeeklyMatchPool(
+                        matchRepository = matchRepository,
+                        viewerId = viewerId,
+                        sinceMs = sinceMs,
+                        limit = PROFILE_MATCH_POOL_SIZE,
+                    )
+                } else {
+                    ProfileMatchQueries.fetchSharedWeeklyMatchPool(
+                        matchRepository = matchRepository,
+                        viewerId = viewerId,
+                        profileUserId = userId,
+                        sinceMs = sinceMs,
+                        limit = PROFILE_MATCH_POOL_SIZE,
+                    )
+                }
                 val weeklyEloChart = weeklyEloDailyDeltas(
                     enrichMatchHistoryWithOpponentElos(
                         viewerId = historyPerspectiveUserId,
@@ -175,7 +191,8 @@ class ProfileViewModel(
             try {
                 val profile = state.profile ?: return@launch
                 val nextLimit = state.matchHistory.size + MATCH_HISTORY_PAGE_SIZE
-                val matches = fetchMatchPool(
+                val matches = ProfileMatchQueries.fetchMatchPool(
+                    matchRepository = matchRepository,
                     isOwnProfile = state.isOwnProfile,
                     viewerId = currentViewerId,
                     profileUserId = userId,
@@ -211,24 +228,6 @@ class ProfileViewModel(
         }
     }
 
-    private suspend fun fetchMatchPool(
-        isOwnProfile: Boolean,
-        viewerId: String,
-        profileUserId: String,
-        limit: Int,
-    ): List<Match> = if (isOwnProfile) {
-        matchRepository.getRecentMatchesForUser(
-            userId = viewerId,
-            limit = limit,
-        )
-    } else {
-        matchRepository.getSharedMatchesBetween(
-            userId = viewerId,
-            opponentId = profileUserId,
-            limit = limit,
-        )
-    }
-
     override fun onCleared() {
         loadJob?.cancel()
         loadMoreJob?.cancel()
@@ -244,6 +243,6 @@ class ProfileViewModel(
          * includes the last seven days from this pool; very active players may have
          * incomplete chart data beyond this count.
          */
-        const val PROFILE_MATCH_POOL_SIZE = 200
+        const val PROFILE_MATCH_POOL_SIZE = ProfileMatchQueries.MATCH_POOL_SIZE
     }
 }

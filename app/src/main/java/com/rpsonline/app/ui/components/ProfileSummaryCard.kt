@@ -50,6 +50,7 @@ fun ProfileSummaryCard(
     modifier: Modifier = Modifier,
     eloOverride: Int? = null,
     nameColor: Color? = null,
+    playerUid: String? = null,
     onClick: (() -> Unit)? = null,
     emphasized: Boolean = false,
     accentStripeTop: Color? = null,
@@ -58,22 +59,40 @@ fun ProfileSummaryCard(
     val scheme = MaterialTheme.colorScheme
     val youColor = scheme.primary
     val otherStripeColor = scheme.outlineVariant
-    val containerColor = scheme.surfaceContainerHigh.copy(alpha = 0.92f)
+    val rowStyle = onlinePresenceRowStyle(
+        uid = playerUid,
+        emphasized = emphasized,
+    )
+    val containerColor = rowStyle.containerColor
     val borderColor = when {
         emphasized -> youColor.copy(alpha = 0.82f)
+        rowStyle.isOnline -> rowStyle.borderColor
         onClick != null -> scheme.outline.copy(alpha = 0.55f)
         else -> scheme.outline.copy(alpha = 0.55f)
     }
-    val borderWidth = if (onClick != null || emphasized) 2.dp else 1.dp
-    val stripeTop = accentStripeTop ?: if (emphasized) youColor else if (onClick != null) otherStripeColor else null
-    val stripeBottom = accentStripeBottom ?: accentStripeTop ?: if (emphasized) {
-        youColor
-    } else if (onClick != null) {
-        otherStripeColor
-    } else {
-        null
+    val borderWidth = when {
+        emphasized || rowStyle.isOnline -> 2.dp
+        onClick != null -> 2.dp
+        else -> 1.dp
     }
-    val resolvedNameColor = nameColor ?: if (emphasized) youColor else scheme.onSurface
+    val stripeTop = accentStripeTop ?: when {
+        emphasized -> youColor
+        rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
+        onClick != null -> otherStripeColor
+        else -> null
+    }
+    val stripeBottom = accentStripeBottom ?: accentStripeTop ?: when {
+        emphasized -> youColor
+        rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
+        onClick != null -> otherStripeColor
+        else -> null
+    }
+    val resolvedNameColor = when {
+        emphasized -> youColor
+        rowStyle.isOnline -> rowStyle.nameColor
+        nameColor != null -> nameColor
+        else -> scheme.onSurface
+    }
     val contentDescription = if (onClick != null) {
         "$displayName. ${stringResource(R.string.profile)}"
     } else {

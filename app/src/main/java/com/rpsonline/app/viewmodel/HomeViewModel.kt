@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 data class PreGameSyncUiState(
     val matchId: String,
     val myDisplayName: String,
+    val opponentUid: String,
     val opponentDisplayName: String,
     val myReady: Boolean,
     val opponentReady: Boolean,
@@ -533,6 +534,7 @@ class HomeViewModel(
                                 preGameSync = PreGameSyncUiState(
                                     matchId = match.id,
                                     myDisplayName = match.myName(uid),
+                                    opponentUid = match.opponentId(uid),
                                     opponentDisplayName = match.opponentName(uid),
                                     myReady = myReady,
                                     opponentReady = opponentReady,
@@ -621,6 +623,7 @@ class HomeViewModel(
                             preGameSync = PreGameSyncUiState(
                                 matchId = matchId,
                                 myDisplayName = serverMatch.myName(uid),
+                                opponentUid = serverMatch.opponentId(uid),
                                 opponentDisplayName = serverMatch.opponentName(uid),
                                 myReady = serverMatch.isPlayerReady(uid),
                                 opponentReady = serverMatch.isOpponentReady(uid),

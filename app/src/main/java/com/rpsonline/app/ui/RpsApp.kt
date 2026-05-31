@@ -182,6 +182,7 @@ fun RpsApp() {
         queueJoinedAtMs,
         activeMatch?.id,
         activeMatch?.status,
+        backgroundUsageEnabled,
     ) {
         val uid = user?.uid ?: return@LaunchedEffect
         fun shouldMaintainPresence(): Boolean =
@@ -193,9 +194,17 @@ fun RpsApp() {
                 hasQueueEntry = hasQueueEntry,
                 queueJoinedAtMs = queueJoinedAtMs,
             )
+        fun serviceMaintainsPresence(): Boolean =
+            backgroundUsageEnabled &&
+                MatchmakingBackgroundCoordinator.shouldRunService(context)
 
         if (!shouldMaintainPresence()) {
-            presenceRepository.clearPresence(uid)
+            if (!serviceMaintainsPresence()) {
+                presenceRepository.clearPresence(uid)
+            }
+            return@LaunchedEffect
+        }
+        if (serviceMaintainsPresence()) {
             return@LaunchedEffect
         }
         presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
@@ -203,7 +212,12 @@ fun RpsApp() {
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
-                presenceRepository.clearPresence(uid)
+                if (!serviceMaintainsPresence()) {
+                    presenceRepository.clearPresence(uid)
+                }
+                break
+            }
+            if (serviceMaintainsPresence()) {
                 break
             }
             heartbeat++

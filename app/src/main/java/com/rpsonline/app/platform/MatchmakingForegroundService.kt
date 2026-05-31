@@ -43,6 +43,7 @@ class MatchmakingForegroundService : Service() {
     private var sessionObserverJob: Job? = null
     private var clockSoundJob: Job? = null
     private val matchRepository by lazy { MatchRepository() }
+    private val presenceRepository by lazy { PresenceRepository() }
 
     override fun onCreate() {
         super.onCreate()
@@ -96,14 +97,28 @@ class MatchmakingForegroundService : Service() {
     private fun startHeartbeatLoop() {
         heartbeatJob?.cancel()
         heartbeatJob = serviceScope.launch {
-            var consecutiveFailures = 0
+            var queueFailures = 0
+            var presenceBeat = 0
             while (isActive) {
+                FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
+                    runCatching {
+                        presenceBeat++
+                        presenceRepository.touchPresence(
+                            uid,
+                            awaitServerAck = presenceBeat == 1 || presenceBeat % 2 == 0,
+                        )
+                    }.onSuccess {
+                        presenceRepository.onlineCount.value?.let { count ->
+                            SegmentedNotificationState.setOnlineCount(count)
+                        }
+                    }
+                }
                 if (MatchSessionMonitor.hasQueueEntry.value) {
                     if (matchRepository.sendQueueHeartbeat()) {
-                        consecutiveFailures = 0
+                        queueFailures = 0
                     } else {
-                        consecutiveFailures += 1
-                        if (consecutiveFailures >= 3) {
+                        queueFailures += 1
+                        if (queueFailures >= 3) {
                             MatchSessionMonitor.signalQueueDocLost()
                         }
                     }

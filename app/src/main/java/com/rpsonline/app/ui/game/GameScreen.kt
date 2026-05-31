@@ -1,11 +1,14 @@
 package com.rpsonline.app.ui.game
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +38,8 @@ import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.components.formatMatchModeCode
 import com.rpsonline.app.ui.components.MovePicker
+import com.rpsonline.app.ui.components.PlayerDisplayNameText
+import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.data.repository.MatchSessionMonitor
@@ -53,6 +58,7 @@ import kotlinx.coroutines.launch
 fun GameScreen(
     matchId: String,
     onMatchComplete: (String) -> Unit,
+    onOpponentProfile: (String) -> Unit = {},
     viewModel: GameViewModel = viewModel(factory = GameViewModel.factory(matchId)),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -164,6 +170,8 @@ fun GameScreen(
                 message = stringResource(R.string.waiting_for_opponent),
             )
         } else {
+        val opponentUid = match.opponentId(userId)
+        ProvideOnlinePresence(uids = listOf(opponentUid)) {
         val inMatchEndTransition = endTransition != null
         val screenMatch = if (inMatchEndTransition) endTransition!!.displayMatch else match
         val currentRound = screenMatch.currentRoundData()
@@ -362,16 +370,31 @@ fun GameScreen(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = stringResource(R.string.vs_user, screenMatch.opponentName(userId)),
-                style = if (compactLayout) {
-                    MaterialTheme.typography.titleLarge
-                } else {
-                    MaterialTheme.typography.headlineSmall
-                },
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.vs_label),
+                    style = if (compactLayout) {
+                        MaterialTheme.typography.titleLarge
+                    } else {
+                        MaterialTheme.typography.headlineSmall
+                    },
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                PlayerDisplayNameText(
+                    name = screenMatch.opponentName(userId),
+                    uid = opponentUid,
+                    style = if (compactLayout) {
+                        MaterialTheme.typography.titleLarge
+                    } else {
+                        MaterialTheme.typography.headlineSmall
+                    },
+                    modifier = Modifier.padding(start = 6.dp),
+                    onClick = { onOpponentProfile(opponentUid) },
+                )
+            }
             Spacer(modifier = Modifier.height(if (compactLayout) 4.dp else 8.dp))
             Text(
                 text = stringResource(
@@ -500,6 +523,7 @@ fun GameScreen(
                     openRound?.roundNumber
                 },
             )
+        }
         }
         }
     }

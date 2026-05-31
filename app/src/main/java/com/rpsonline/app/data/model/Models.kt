@@ -417,7 +417,9 @@ data class MatchResult(
 data class MatchHistoryEntry(
     val matchId: String,
     val matchMode: MatchMode = MatchMode.BO3,
+    val myUid: String = "",
     val myDisplayName: String,
+    val opponentUid: String = "",
     val opponentName: String,
     val myElo: Int? = null,
     val opponentElo: Int? = null,
@@ -457,7 +459,9 @@ fun Match.toHistoryEntry(userId: String): MatchHistoryEntry {
     return MatchHistoryEntry(
         matchId = id,
         matchMode = matchMode,
+        myUid = userId,
         myDisplayName = myName(userId),
+        opponentUid = opponentId(userId),
         opponentName = opponentName(userId),
         myElo = myElo(userId),
         opponentElo = opponentElo(userId),
