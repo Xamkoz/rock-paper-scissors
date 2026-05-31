@@ -1,6 +1,8 @@
 package com.rpsonline.app.domain
 
+import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchHistoryEntry
+import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.ViewerMatchResolution
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -49,8 +51,32 @@ class WeeklyOpponentsTest {
         assertEquals("opp-a", opponents[0].opponentUid)
         assertEquals(8, opponents[0].weeklyEloDelta)
         assertEquals(2, opponents[0].matchCount)
+        assertEquals(4, opponents[0].avgMyEloDeltaPerMatch())
         assertEquals("opp-b", opponents[1].opponentUid)
         assertEquals(7, opponents[1].weeklyEloDelta)
+        assertEquals(1, opponents[1].matchCount)
+        assertEquals(7, opponents[1].avgMyEloDeltaPerMatch())
+    }
+
+    @Test
+    fun weeklyOpponentsFromMatchList_computesAvgEloDeltaPerMatch() {
+        val viewerId = "me"
+        val matches = listOf(
+            match(
+                id = "m1",
+                player1 = viewerId,
+                player2 = "opp-a",
+                player1EloDelta = 10,
+                player2EloDelta = -10,
+                lastActivityAt = weekStartMs + 1_000,
+            ),
+        )
+
+        val opponents = weeklyOpponentsFromMatchList(matches, viewerId, weekStartMs)
+
+        assertEquals(1, opponents.size)
+        assertEquals(10, opponents.single().avgMyEloDeltaPerMatch())
+        assertEquals(1, opponents.single().matchCount)
     }
 
     private fun entry(
@@ -70,5 +96,23 @@ class WeeklyOpponentsTest {
         eloDelta = delta,
         lastActivityAt = lastActivityAt,
         recaps = emptyList(),
+    )
+
+    private fun match(
+        id: String,
+        player1: String,
+        player2: String,
+        player1EloDelta: Int?,
+        player2EloDelta: Int?,
+        lastActivityAt: Long,
+    ): Match = Match(
+        id = id,
+        player1 = player1,
+        player2 = player2,
+        status = MatchStatus.COMPLETED,
+        player1EloDelta = player1EloDelta,
+        player2EloDelta = player2EloDelta,
+        winnerId = player1,
+        lastActivityAt = lastActivityAt,
     )
 }

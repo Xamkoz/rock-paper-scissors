@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -79,6 +80,59 @@ fun rememberOnlineUidsPolling(uids: Collection<String>): Set<String> {
     val onlineFlow = remember(tracked) { presenceRepository.observeOnlineUidsPolling(tracked) }
     val onlineUids by onlineFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     return onlineUids
+}
+
+data class OnlineUidsPollSnapshot(
+    val onlineUids: Set<String>,
+    val hasPolled: Boolean,
+)
+
+/** Batched presence polling with stale-while-revalidate for stable online-filter UI. */
+@Composable
+fun rememberOnlineUidsPollSnapshot(uids: Collection<String>): OnlineUidsPollSnapshot {
+    val tracked = remember(uids) { uids.filter { it.isNotBlank() }.toSet() }
+    val selfUid = remember { AuthRepository().currentUserId }
+    val cachedSnapshot = remember { mutableStateOf(OnlineUidsPollSnapshot(emptySet(), false)) }
+
+    val seededInitial = remember(tracked, cachedSnapshot.value) {
+        cachedSnapshot.value.takeIf { it.hasPolled && tracked.isNotEmpty() }?.let { cached ->
+            OnlineUidsPollSnapshot(
+                onlineUids = cached.onlineUids.intersect(tracked),
+                hasPolled = true,
+            )
+        } ?: OnlineUidsPollSnapshot(emptySet(), tracked.isEmpty())
+    }
+
+    val current = produceState(
+        initialValue = seededInitial,
+        tracked,
+    ) {
+        if (tracked.isEmpty()) {
+            val empty = OnlineUidsPollSnapshot(emptySet(), true)
+            value = empty
+            cachedSnapshot.value = empty
+            return@produceState
+        }
+        PresenceRepository().observeOnlineUidsPolling(tracked).collect { liveOnlineUids ->
+            val next = OnlineUidsPollSnapshot(
+                onlineUids = displayOnlineUids(tracked, liveOnlineUids, selfUid),
+                hasPolled = true,
+            )
+            value = next
+            cachedSnapshot.value = next
+        }
+    }.value
+
+    return if (current.hasPolled) {
+        current
+    } else {
+        cachedSnapshot.value.takeIf { it.hasPolled && tracked.isNotEmpty() }?.let { cached ->
+            OnlineUidsPollSnapshot(
+                onlineUids = cached.onlineUids.intersect(tracked),
+                hasPolled = true,
+            )
+        } ?: current
+    }
 }
 
 @Composable

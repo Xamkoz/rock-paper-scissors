@@ -10,12 +10,15 @@ data class WeeklyOpponentRow(
     val weeklyEloDelta: Int,
     val matchCount: Int,
     val lastPlayedAt: Long,
-)
+) {
+    fun avgMyEloDeltaPerMatch(): Int =
+        if (matchCount > 0) weeklyEloDelta / matchCount else 0
+}
 
 private data class OpponentWeekMatchSlice(
     val opponentUid: String,
     val displayName: String,
-    val eloDelta: Int,
+    val myEloDelta: Int,
     val lastActivityAt: Long,
 )
 
@@ -28,7 +31,7 @@ private fun buildWeeklyOpponentRows(
         WeeklyOpponentRow(
             opponentUid = uid,
             displayName = latest.displayName,
-            weeklyEloDelta = matches.sumOf { it.eloDelta },
+            weeklyEloDelta = matches.sumOf { it.myEloDelta },
             matchCount = matches.size,
             lastPlayedAt = latest.lastActivityAt,
         )
@@ -49,7 +52,7 @@ fun weeklyOpponentsFromMatches(
             OpponentWeekMatchSlice(
                 opponentUid = entry.opponentUid,
                 displayName = entry.opponentName,
-                eloDelta = entry.eloDelta ?: 0,
+                myEloDelta = entry.eloDelta ?: 0,
                 lastActivityAt = entry.lastActivityAt,
             )
         },
@@ -70,7 +73,7 @@ fun weeklyOpponentsFromMatchList(
             OpponentWeekMatchSlice(
                 opponentUid = opponentUid,
                 displayName = match.opponentName(viewerId),
-                eloDelta = match.myEloDelta(viewerId) ?: 0,
+                myEloDelta = match.myEloDelta(viewerId) ?: 0,
                 lastActivityAt = match.lastActivityAt,
             )
         },

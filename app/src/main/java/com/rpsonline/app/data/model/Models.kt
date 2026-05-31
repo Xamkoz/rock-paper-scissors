@@ -234,6 +234,9 @@ data class Match(
     fun myEloDelta(userId: String): Int? =
         if (userId == player1) player1EloDelta else player2EloDelta
 
+    fun opponentEloDelta(userId: String): Int? =
+        if (userId == player1) player2EloDelta else player1EloDelta
+
     fun opponentElo(userId: String): Int? =
         if (userId == player1) player2Elo else player1Elo
 
@@ -427,6 +430,7 @@ data class MatchHistoryEntry(
     val opponentWins: Int,
     val resolution: ViewerMatchResolution,
     val eloDelta: Int?,
+    val opponentEloDelta: Int? = null,
     val lastActivityAt: Long,
     val recaps: List<RoundRecap>,
 )
@@ -469,6 +473,7 @@ fun Match.toHistoryEntry(userId: String): MatchHistoryEntry {
         opponentWins = opponentWins,
         resolution = resolution,
         eloDelta = myEloDelta(userId),
+        opponentEloDelta = opponentEloDelta(userId),
         lastActivityAt = lastActivityAt,
         recaps = resolvedRoundRecaps(userId),
     )

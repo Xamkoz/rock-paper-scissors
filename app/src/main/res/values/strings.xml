@@ -22,8 +22,11 @@
     <string name="leaderboard">Leaderboard</string>
     <string name="leaderboard_online_only">Online only</string>
     <string name="my_opponents">My Opponents</string>
-    <string name="my_opponents_subtitle">ELO change from matches in the last 7 days</string>
+    <string name="my_opponents_subtitle">Last 7 days</string>
     <string name="no_opponents_this_week">No opponents played this week.</string>
+    <string name="no_online_opponents_this_week">No online opponents played this week.</string>
+    <string name="elo_change_with_delta">ELO %1$s</string>
+    <string name="opponent_elo_avg_in">avg in\u0020</string>
     <string name="home">Home</string>
     <string name="back_to_home">Back</string>
     <string name="version_label">Version %1$s</string>

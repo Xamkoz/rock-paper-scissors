@@ -4,13 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -19,12 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,7 +37,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rpsonline.app.R
 import com.rpsonline.app.domain.WeeklyOpponentRow
 import com.rpsonline.app.ui.components.HomeOutlinedButton
-import com.rpsonline.app.ui.components.ProvideOnlinePresence
+import com.rpsonline.app.ui.components.LocalOnlineUids
+import com.rpsonline.app.ui.components.OnlineOnlyFilterControl
+import com.rpsonline.app.ui.components.rememberPersistedOnlineOnlyFilter
+import com.rpsonline.app.ui.components.rememberOnlineUidsPollSnapshot
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.formatEloDelta
@@ -49,6 +55,20 @@ fun OpponentsScreen(
     viewModel: OpponentsViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter()
+    val opponentUids = remember(uiState.opponents) { uiState.opponents.map { it.opponentUid } }
+    val presence = rememberOnlineUidsPollSnapshot(opponentUids)
+    val displayedOpponents = remember(uiState.opponents, onlineOnlyFilter, presence.onlineUids) {
+        if (onlineOnlyFilter) {
+            uiState.opponents.filter { it.opponentUid in presence.onlineUids }
+        } else {
+            uiState.opponents
+        }
+    }
+    val showInitialLoad = uiState.isLoading && uiState.opponents.isEmpty()
+    val showOnlineFilterInitialLoad = onlineOnlyFilter &&
+        uiState.opponents.isNotEmpty() &&
+        !presence.hasPolled
 
     LifecycleResumeEffect(Unit) {
         viewModel.load()
@@ -56,11 +76,21 @@ fun OpponentsScreen(
     }
 
     Column(modifier = Modifier.rpsScreenPadding()) {
-        Text(
-            text = stringResource(R.string.my_opponents),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.my_opponents),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            OnlineOnlyFilterControl(
+                checked = onlineOnlyFilter,
+                onCheckedChange = setOnlineOnlyFilter,
+            )
+        }
         Text(
             text = stringResource(R.string.my_opponents_subtitle),
             style = MaterialTheme.typography.bodyMedium,
@@ -69,13 +99,6 @@ fun OpponentsScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         when {
-            uiState.isLoading -> {
-                RpsLoadingColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                )
-            }
             uiState.error != null -> {
                 Column(
                     modifier = Modifier
@@ -89,7 +112,7 @@ fun OpponentsScreen(
                     )
                 }
             }
-            uiState.opponents.isEmpty() -> {
+            uiState.opponents.isEmpty() && !uiState.isLoading -> {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -104,30 +127,53 @@ fun OpponentsScreen(
                 }
             }
             else -> {
-                ProvideOnlinePresence(uids = uiState.opponents.map { it.opponentUid }) {
-                    val maxGain = remember(uiState.opponents) {
-                        uiState.opponents.maxOfOrNull { it.weeklyEloDelta.coerceAtLeast(0) }
-                            ?.coerceAtLeast(1) ?: 1
-                    }
-                    val maxLoss = remember(uiState.opponents) {
-                        uiState.opponents.maxOfOrNull { (-it.weeklyEloDelta).coerceAtLeast(0) }
-                            ?.coerceAtLeast(1) ?: 1
-                    }
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(
-                            items = uiState.opponents,
-                            key = { it.opponentUid },
-                        ) { opponent ->
-                            OpponentListItem(
-                                opponent = opponent,
-                                maxGain = maxGain,
-                                maxLoss = maxLoss,
-                                onClick = { onPlayerProfile(opponent.opponentUid) },
+                Box(modifier = Modifier.weight(1f)) {
+                    if (displayedOpponents.isEmpty() && onlineOnlyFilter && presence.hasPolled) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no_online_opponents_this_week),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    } else {
+                        CompositionLocalProvider(LocalOnlineUids provides presence.onlineUids) {
+                            val maxGain = remember(displayedOpponents) {
+                                displayedOpponents.maxOfOrNull { it.weeklyEloDelta.coerceAtLeast(0) }
+                                    ?.coerceAtLeast(1) ?: 1
+                            }
+                            val maxLoss = remember(displayedOpponents) {
+                                displayedOpponents.maxOfOrNull { (-it.weeklyEloDelta).coerceAtLeast(0) }
+                                    ?.coerceAtLeast(1) ?: 1
+                            }
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                items(
+                                    items = displayedOpponents,
+                                    key = { it.opponentUid },
+                                ) { opponent ->
+                                    OpponentListItem(
+                                        opponent = opponent,
+                                        maxGain = maxGain,
+                                        maxLoss = maxLoss,
+                                        onClick = { onPlayerProfile(opponent.opponentUid) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (showInitialLoad || showOnlineFilterInitialLoad) {
+                        RpsLoadingColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                        )
                     }
                 }
             }
@@ -177,41 +223,95 @@ private fun OpponentListItem(
                     weeklyEloDelta = opponent.weeklyEloDelta,
                     maxGain = maxGain,
                     maxLoss = maxLoss,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.matchParentSize(),
                 )
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        text = opponent.displayName,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable(onClick = onClick),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                        color = nameColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = formatEloDelta(opponent.weeklyEloDelta),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = when {
-                            opponent.weeklyEloDelta > 0 -> MaterialTheme.colorScheme.primary
-                            opponent.weeklyEloDelta < 0 -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(start = 12.dp),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = opponent.displayName,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClick = onClick),
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            color = nameColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.elo_change_with_delta,
+                                formatEloDelta(opponent.weeklyEloDelta),
+                            ),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = eloDeltaColor(opponent.weeklyEloDelta),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                    if (opponent.matchCount > 0) {
+                        OpponentEloPerMatchSummaryLine(
+                            avgEloDelta = opponent.avgMyEloDeltaPerMatch(),
+                            matchCount = opponent.matchCount,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun OpponentEloPerMatchSummaryLine(
+    avgEloDelta: Int,
+    matchCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val matchCountColor = MaterialTheme.colorScheme.primary
+    val textStyle = MaterialTheme.typography.bodyMedium
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "${formatEloDelta(avgEloDelta)} ",
+            style = textStyle.copy(fontWeight = FontWeight.SemiBold),
+            color = eloDeltaColor(avgEloDelta),
+        )
+        Text(
+            text = stringResource(R.string.opponent_elo_avg_in),
+            style = textStyle,
+            color = muted,
+        )
+        Text(
+            text = matchCount.toString(),
+            style = textStyle.copy(fontWeight = FontWeight.SemiBold),
+            color = matchCountColor,
+        )
+        Text(
+            text = " ${pluralStringResource(R.plurals.opponent_match_count_label, matchCount)}",
+            style = textStyle,
+            color = muted,
+        )
+    }
+}
+
+@Composable
+private fun eloDeltaColor(delta: Int) = when {
+    delta > 0 -> MaterialTheme.colorScheme.primary
+    delta < 0 -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable

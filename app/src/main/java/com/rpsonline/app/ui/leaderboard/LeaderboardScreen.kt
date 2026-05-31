@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,10 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,6 +29,8 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.LeaderboardEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.ui.components.HomeOutlinedButton
+import com.rpsonline.app.ui.components.OnlineOnlyFilterControl
+import com.rpsonline.app.ui.components.rememberPersistedOnlineOnlyFilter
 import com.rpsonline.app.ui.components.LocalOnlineUids
 import com.rpsonline.app.ui.components.ProfileSummaryCard
 import com.rpsonline.app.ui.components.ProvideOnlinePresencePolling
@@ -75,7 +73,7 @@ fun LeaderboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
-    var onlineOnlyFilter by remember { mutableStateOf(false) }
+    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter()
 
     LifecycleResumeEffect(Unit) {
         viewModel.load()
@@ -121,24 +119,10 @@ fun LeaderboardScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.leaderboard_online_only),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Checkbox(
-                    checked = onlineOnlyFilter,
-                    onCheckedChange = { onlineOnlyFilter = it },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.outline,
-                        checkmarkColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                )
-            }
+            OnlineOnlyFilterControl(
+                checked = onlineOnlyFilter,
+                onCheckedChange = setOnlineOnlyFilter,
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
 

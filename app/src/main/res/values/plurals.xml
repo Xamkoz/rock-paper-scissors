@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="opponent_match_count_label">
+        <item quantity="one">match</item>
+        <item quantity="other">matches</item>
+    </plurals>
+</resources>
