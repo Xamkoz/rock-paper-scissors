@@ -285,7 +285,7 @@ fun RpsApp() {
         matchmakingInProgress,
     ) {
         if (!backgroundUsageEnabled) return@LaunchedEffect
-        MatchmakingForegroundService.refreshNotificationIfRunning()
+        MatchmakingBackgroundCoordinator.sync(context)
     }
 
     LifecycleResumeEffect(backgroundUsageEnabled, user?.uid) {

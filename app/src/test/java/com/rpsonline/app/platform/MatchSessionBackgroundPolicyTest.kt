@@ -17,7 +17,6 @@ class MatchSessionBackgroundPolicyTest {
                 match = null,
                 hasQueueEntry = true,
                 queueJoinedAtMs = 1_000L,
-                matchmakingInProgress = true,
             ),
         )
     }
@@ -35,7 +34,6 @@ class MatchSessionBackgroundPolicyTest {
                 match = match,
                 hasQueueEntry = false,
                 queueJoinedAtMs = null,
-                matchmakingInProgress = true,
             ),
         )
     }
@@ -53,7 +51,6 @@ class MatchSessionBackgroundPolicyTest {
                 match = match,
                 hasQueueEntry = false,
                 queueJoinedAtMs = null,
-                matchmakingInProgress = true,
             ),
         )
     }
@@ -66,7 +63,6 @@ class MatchSessionBackgroundPolicyTest {
                 match = null,
                 hasQueueEntry = false,
                 queueJoinedAtMs = null,
-                matchmakingInProgress = false,
             ),
         )
     }

@@ -85,6 +85,7 @@ class MatchmakingForegroundService : Service() {
             SegmentedNotificationState.setOnContentChangedListener(null)
         }
         MatchClockSoundController.sync(false)
+        getSystemService(NotificationManager::class.java)?.cancel(FOREGROUND_NOTIFICATION_ID)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -209,11 +210,11 @@ class MatchmakingForegroundService : Service() {
         }
 
         val joinedAt = queueJoinedAt?.takeIf { it > 0L }
-        val matchmakingActive = MatchSessionMonitor.matchmakingInProgress.value
+        val inQueue = MatchSessionMonitor.hasQueueEntry.value || joinedAt != null
         return TopBarStatusRowSpec(
             status = SegmentedNotificationStatus.IN_QUEUE,
             onlineCount = SegmentedNotificationState.onlineCount,
-            showLiveTime = joinedAt != null || matchmakingActive,
+            showLiveTime = inQueue,
             elapsedSeconds = joinedAt?.let { ((now - it) / 1_000).coerceAtLeast(0L) } ?: 0L,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )

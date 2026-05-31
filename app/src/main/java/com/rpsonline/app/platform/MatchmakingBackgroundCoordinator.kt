@@ -87,7 +87,6 @@ object MatchmakingBackgroundCoordinator {
             match = match,
             hasQueueEntry = hasQueueEntry,
             queueJoinedAtMs = queueJoinedAtMs,
-            matchmakingInProgress = matchmakingInProgress,
         )
     }
 
@@ -113,7 +112,6 @@ internal fun computeSessionNeedsBackgroundService(
     match: Match?,
     hasQueueEntry: Boolean,
     queueJoinedAtMs: Long?,
-    matchmakingInProgress: Boolean,
 ): Boolean {
     if (match != null && match.isParticipant(uid)) {
         when (match.status) {
@@ -121,5 +119,5 @@ internal fun computeSessionNeedsBackgroundService(
             else -> Unit
         }
     }
-    return hasQueueEntry || matchmakingInProgress || queueJoinedAtMs != null
+    return hasQueueEntry || queueJoinedAtMs != null
 }
