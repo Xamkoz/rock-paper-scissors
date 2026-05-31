@@ -12,7 +12,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -151,8 +150,7 @@ fun RpsApp() {
     val user by authRepository.authStateFlow().collectAsStateWithLifecycle(initialValue = authRepository.currentUser)
 
     val presenceRepository = remember { PresenceRepository() }
-    var onlinePlayerCount by remember { mutableStateOf<Int?>(null) }
-    var onlineCountRefreshGeneration by remember { mutableIntStateOf(0) }
+    val onlinePlayerCount by presenceRepository.onlineCount.collectAsStateWithLifecycle()
     val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
     val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
@@ -168,35 +166,14 @@ fun RpsApp() {
         }
     }
 
-    LaunchedEffect(
-        user?.uid,
-        onlineCountRefreshGeneration,
-        appInForeground,
-        userEngaged,
-        hasQueueEntry,
-        queueJoinedAtMs,
-        activeMatch?.id,
-        activeMatch?.status,
-    ) {
-        val uid = user?.uid
-        if (uid == null) {
-            onlinePlayerCount = null
-            SegmentedNotificationState.setOnlineCount(null)
-            return@LaunchedEffect
+    LaunchedEffect(user?.uid) {
+        if (user?.uid == null) {
+            presenceRepository.clearOnlineCount()
         }
-        val countSelf =
-            computeSessionNeedsPresenceHeartbeat(
-                appInForeground = appInForeground,
-                userEngaged = userEngaged,
-                uid = uid,
-                match = activeMatch,
-                hasQueueEntry = hasQueueEntry,
-                queueJoinedAtMs = queueJoinedAtMs,
-            )
-        presenceRepository.observeOnlineCount(selfUid = if (countSelf) uid else null).collect { count ->
-            onlinePlayerCount = count
-            SegmentedNotificationState.setOnlineCount(count)
-        }
+    }
+
+    LaunchedEffect(onlinePlayerCount) {
+        SegmentedNotificationState.setOnlineCount(onlinePlayerCount)
     }
 
     LaunchedEffect(
@@ -251,14 +228,11 @@ fun RpsApp() {
             ) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
             }
-            onlineCountRefreshGeneration++
             scope.launch {
                 runCatching { MatchSessionMonitor.refreshOnResume() }
                 runCatching {
                     presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
                 }
-                runCatching { presenceRepository.fetchOnlineCountFromServer(selfUid = uid) }
-                    .onSuccess { count -> onlinePlayerCount = count }
             }
         }
         onPauseOrDispose { }
@@ -343,7 +317,6 @@ fun RpsApp() {
         hasQueueEntry,
         matchmakingInProgress,
     ) {
-        if (!backgroundUsageEnabled) return@LaunchedEffect
         MatchmakingBackgroundCoordinator.sync(context)
     }
 
@@ -429,8 +402,12 @@ fun RpsApp() {
                                     (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) &&
                                         roundResolutionPulseNotifier.isLiveMatch(match.id)
                                 } == true
+                                val inLobby = activeMatch?.status == MatchStatus.LOBBY
                                 val inMatch = activeMatch?.status == MatchStatus.ACTIVE || matchEndTransitionActive
-                                val inQueue = queueJoinedAtMs != null && !inMatch
+                                val inQueue = queueJoinedAtMs != null &&
+                                    matchmakingInProgress &&
+                                    !inMatch &&
+                                    !inLobby
                                 val playerClockStopped = inMatch &&
                                     (matchEndTransitionActive ||
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)

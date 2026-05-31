@@ -7,14 +7,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
+internal data class TouchPresenceResult(
+    val serverTimeMs: Long,
+    val onlineCount: Int?,
+)
+
 internal object PresenceFunctions {
     private const val TOUCH_CALLABLE = "touchPresence"
     private const val CALL_TIMEOUT_MS = 10_000L
 
-    /**
-     * Updates presence on the server. Returns server wall time (ms) when successful, else null.
-     */
-    suspend fun tryTouchPresence(): Long? {
+    /** Updates presence on the server. Returns server time and online count when successful. */
+    suspend fun tryTouchPresence(): TouchPresenceResult? {
         repeat(2) { attempt ->
             try {
                 awaitCallableAuth()
@@ -26,8 +29,10 @@ internal object PresenceFunctions {
                     functions.getHttpsCallable(TOUCH_CALLABLE).call(emptyMap<String, Any>()).await()
                 }
                 @Suppress("UNCHECKED_CAST")
-                val body = result.getData() as? Map<String, Any?> ?: return System.currentTimeMillis()
-                return (body["serverTimeMs"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                val body = result.getData() as? Map<String, Any?> ?: return null
+                val serverTimeMs = (body["serverTimeMs"] as? Number)?.toLong() ?: return null
+                val onlineCount = (body["onlineCount"] as? Number)?.toInt()
+                return TouchPresenceResult(serverTimeMs = serverTimeMs, onlineCount = onlineCount)
             } catch (e: FirebaseFunctionsException) {
                 if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
                     delay(400)

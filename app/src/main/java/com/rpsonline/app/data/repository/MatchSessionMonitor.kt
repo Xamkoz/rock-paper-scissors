@@ -91,9 +91,11 @@ object MatchSessionMonitor {
 
     /** Called when queue entry is confirmed (server or client join timestamp). */
     fun confirmQueueJoinedAt(joinedAtMs: Long) {
+        if (!_matchmakingInProgress.value) return
         _hasQueueEntry.value = true
         _matchmakingInProgress.value = true
         mergeQueueJoinedAtMs(joinedAtMs)
+        notifySessionStateChanged()
     }
 
     private fun mergeQueueJoinedAtMs(candidateMs: Long) {
@@ -160,9 +162,10 @@ object MatchSessionMonitor {
         }.getOrNull()
         val queueExists = queueSnap != null && queueSnap.exists()
         if (queueExists) {
-            _hasQueueEntry.value = true
-            _matchmakingInProgress.value = true
-            resolveQueueJoinedAtMs(queueSnap!!)?.let { mergeQueueJoinedAtMs(it) }
+            if (_matchmakingInProgress.value) {
+                _hasQueueEntry.value = true
+                resolveQueueJoinedAtMs(queueSnap!!)?.let { mergeQueueJoinedAtMs(it) }
+            }
         } else {
             _hasQueueEntry.value = false
             _queueJoinedAtMs.value = null
@@ -338,6 +341,7 @@ object MatchSessionMonitor {
     fun signalQueueDocLost() {
         _hasQueueEntry.value = false
         _queueJoinedAtMs.value = null
+        notifySessionStateChanged()
     }
 
     /** Local fallback when the user leaves matchmaking or auth/session resets. */
@@ -347,5 +351,14 @@ object MatchSessionMonitor {
         if (endMatchmaking) {
             _matchmakingInProgress.value = false
         }
+        notifySessionStateChanged()
+    }
+
+    /** Invoked after queue/match session markers change; used to stop background status UI. */
+    @Volatile
+    var onSessionStateChanged: (() -> Unit)? = null
+
+    private fun notifySessionStateChanged() {
+        onSessionStateChanged?.invoke()
     }
 }

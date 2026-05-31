@@ -18,5 +18,8 @@ class RpsApplication : Application() {
         MatchSessionMonitor.ensureStarted()
         MatchNotificationHelper.ensureChannels(this)
         MatchmakingBackgroundCoordinator.ensureObserving(this)
+        MatchSessionMonitor.onSessionStateChanged = {
+            MatchmakingBackgroundCoordinator.sync(this)
+        }
     }
 }

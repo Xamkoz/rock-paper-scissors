@@ -21,6 +21,7 @@ import {
   type MatchResolution,
 } from "./game";
 import { isQueueEntryActive, QUEUE_STALE_MS, shouldDropQueueForLiveMatch } from "./queue";
+import { ONLINE_PRESENCE_WINDOW_MS } from "./presence";
 import {
   applyClockIncrement,
   clockExpiry,
@@ -1492,7 +1493,12 @@ export const touchPresence = onCall(async (request) => {
     db.collection("presence").doc(uid).set({ lastSeen: now }),
     db.collection("users").doc(uid).set({ lastSeen: now }, { merge: true }),
   ]);
-  return { ok: true, serverTimeMs: Date.now() };
+  const serverTimeMs = Date.now();
+  const presenceCutoff = Timestamp.fromMillis(serverTimeMs - ONLINE_PRESENCE_WINDOW_MS);
+  const onlineSnap = await db.collection("presence")
+    .where("lastSeen", ">=", presenceCutoff)
+    .get();
+  return { ok: true, serverTimeMs, onlineCount: onlineSnap.size };
 });
 
 export const cleanupStale = onSchedule(
