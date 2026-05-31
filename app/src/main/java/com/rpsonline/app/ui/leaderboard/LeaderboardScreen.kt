@@ -235,8 +235,6 @@ private fun LeaderboardListItem(
         if (isCurrentUser) append(" · You")
     }
     val darkTheme = isRpsDarkTheme()
-    val youColor = MaterialTheme.colorScheme.primary
-    val otherStripeColor = MaterialTheme.colorScheme.outlineVariant
     val medalStripe = leaderboardPodiumStripeColor(rank, darkTheme)
     ProfileSummaryCard(
         displayName = nameLine,
@@ -248,17 +246,8 @@ private fun LeaderboardListItem(
             leaderboardPodiumRankLabelColor(rank, darkTheme)
         },
         emphasized = isCurrentUser,
-        accentStripeTop = when {
-            isCurrentUser && medalStripe != null -> medalStripe
-            isCurrentUser -> youColor
-            medalStripe != null -> medalStripe
-            else -> otherStripeColor
-        },
-        accentStripeBottom = when {
-            isCurrentUser -> youColor
-            medalStripe != null -> medalStripe
-            else -> otherStripeColor
-        },
+        accentStripeTop = medalStripe,
+        accentStripeBottom = medalStripe,
         onClick = onClick,
     )
 }

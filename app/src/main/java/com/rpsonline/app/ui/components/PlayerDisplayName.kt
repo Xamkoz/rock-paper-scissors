@@ -19,10 +19,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.PresenceRepository
 import kotlinx.coroutines.delay
 
 val LocalOnlineUids = staticCompositionLocalOf { emptySet<String>() }
+
+/** Signed-in user is online while their uid is tracked on this screen. */
+internal fun displayOnlineUids(
+    tracked: Set<String>,
+    liveOnlineUids: Set<String>,
+    selfUid: String?,
+): Set<String> {
+    if (selfUid.isNullOrBlank() || selfUid !in tracked) return liveOnlineUids
+    return liveOnlineUids + selfUid
+}
+
+@Composable
+private fun rememberDisplayOnlineUids(
+    tracked: Set<String>,
+    liveOnlineUids: Set<String>,
+): Set<String> {
+    val selfUid = remember { AuthRepository().currentUserId }
+    return remember(tracked, liveOnlineUids, selfUid) {
+        displayOnlineUids(tracked, liveOnlineUids, selfUid)
+    }
+}
 
 data class OnlinePresenceRowStyle(
     val isOnline: Boolean,
@@ -64,8 +86,10 @@ fun ProvideOnlinePresencePolling(
     uids: Collection<String>,
     content: @Composable () -> Unit,
 ) {
-    val onlineUids = rememberOnlineUidsPolling(uids)
-    CompositionLocalProvider(LocalOnlineUids provides onlineUids, content = content)
+    val tracked = remember(uids) { uids.filter { it.isNotBlank() }.toSet() }
+    val liveOnlineUids = rememberOnlineUidsPolling(tracked)
+    val displayOnlineUids = rememberDisplayOnlineUids(tracked, liveOnlineUids)
+    CompositionLocalProvider(LocalOnlineUids provides displayOnlineUids, content = content)
 }
 
 @Composable
@@ -73,8 +97,10 @@ fun ProvideOnlinePresence(
     uids: Collection<String>,
     content: @Composable () -> Unit,
 ) {
-    val onlineUids = rememberOnlineUids(uids)
-    CompositionLocalProvider(LocalOnlineUids provides onlineUids, content = content)
+    val tracked = remember(uids) { uids.filter { it.isNotBlank() }.toSet() }
+    val liveOnlineUids = rememberOnlineUids(tracked)
+    val displayOnlineUids = rememberDisplayOnlineUids(tracked, liveOnlineUids)
+    CompositionLocalProvider(LocalOnlineUids provides displayOnlineUids, content = content)
 }
 
 /** Live presence from Firestore listeners. */
@@ -120,6 +146,17 @@ fun onlinePresenceRowStyle(
     defaultNameColor: Color = MaterialTheme.colorScheme.onSurface,
 ): OnlinePresenceRowStyle {
     val scheme = MaterialTheme.colorScheme
+    val online = uid?.isNotBlank() == true && isPlayerUidOnline(uid)
+    if (online) {
+        return OnlinePresenceRowStyle(
+            isOnline = true,
+            containerColor = scheme.primaryContainer.copy(alpha = 0.88f),
+            borderColor = scheme.primary.copy(alpha = 0.78f),
+            borderWidth = 2.dp,
+            nameColor = scheme.primary,
+            accentStripeColor = scheme.primary.copy(alpha = 0.92f),
+        )
+    }
     if (emphasized) {
         return OnlinePresenceRowStyle(
             isOnline = false,
@@ -127,7 +164,7 @@ fun onlinePresenceRowStyle(
             borderColor = scheme.primary.copy(alpha = 0.82f),
             borderWidth = 2.dp,
             nameColor = scheme.primary,
-            accentStripeColor = null,
+            accentStripeColor = scheme.primary.copy(alpha = 0.92f),
         )
     }
     if (!isPlayerUidOnline(uid)) {

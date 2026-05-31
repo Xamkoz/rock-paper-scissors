@@ -197,10 +197,14 @@ fun RpsApp() {
         fun serviceMaintainsPresence(): Boolean =
             backgroundUsageEnabled &&
                 MatchmakingBackgroundCoordinator.shouldRunService(context)
+        fun stopLocalPresence() {
+            presenceRepository.clearPresence(uid)
+            presenceRepository.clearOnlineCount()
+        }
 
         if (!shouldMaintainPresence()) {
             if (!serviceMaintainsPresence()) {
-                presenceRepository.clearPresence(uid)
+                stopLocalPresence()
             }
             return@LaunchedEffect
         }
@@ -213,7 +217,7 @@ fun RpsApp() {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
                 if (!serviceMaintainsPresence()) {
-                    presenceRepository.clearPresence(uid)
+                    stopLocalPresence()
                 }
                 break
             }

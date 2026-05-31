@@ -65,8 +65,8 @@ fun ProfileSummaryCard(
     )
     val containerColor = rowStyle.containerColor
     val borderColor = when {
-        emphasized -> youColor.copy(alpha = 0.82f)
         rowStyle.isOnline -> rowStyle.borderColor
+        emphasized -> youColor.copy(alpha = 0.82f)
         onClick != null -> scheme.outline.copy(alpha = 0.55f)
         else -> scheme.outline.copy(alpha = 0.55f)
     }
@@ -76,20 +76,20 @@ fun ProfileSummaryCard(
         else -> 1.dp
     }
     val stripeTop = accentStripeTop ?: when {
-        emphasized -> youColor
         rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
+        emphasized -> youColor
         onClick != null -> otherStripeColor
         else -> null
     }
     val stripeBottom = accentStripeBottom ?: accentStripeTop ?: when {
-        emphasized -> youColor
         rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
+        emphasized -> youColor
         onClick != null -> otherStripeColor
         else -> null
     }
     val resolvedNameColor = when {
-        emphasized -> youColor
         rowStyle.isOnline -> rowStyle.nameColor
+        emphasized -> youColor
         nameColor != null -> nameColor
         else -> scheme.onSurface
     }

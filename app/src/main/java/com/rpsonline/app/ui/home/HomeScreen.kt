@@ -187,13 +187,15 @@ fun HomeScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        ProfileSummaryCard(
-            displayName = ownProfileDisplayName(profile?.displayName),
-            profile = profile,
-            playerUid = profile?.uid,
-            emphasized = true,
-            onClick = onProfile,
-        )
+        ProvideOnlinePresence(uids = listOfNotNull(profile?.uid)) {
+            ProfileSummaryCard(
+                displayName = ownProfileDisplayName(profile?.displayName),
+                profile = profile,
+                playerUid = profile?.uid,
+                emphasized = true,
+                onClick = onProfile,
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
