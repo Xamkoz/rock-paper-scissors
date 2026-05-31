@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.rpsonline.app.R
 import com.rpsonline.app.data.preferences.AppThemeStyle
 import com.rpsonline.app.ui.theme.colorSchemeFor
+import com.rpsonline.app.ui.theme.themeIconPreviewScheme
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -205,7 +206,7 @@ private fun AppearanceStyleRow(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scheme = colorSchemeFor(context, style)
+    val scheme = themeIconPreviewScheme(context, style)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -216,10 +217,12 @@ private fun AppearanceStyleRow(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ThemePreviewSwatch(
+            style = style,
             primary = scheme.primary,
             secondary = scheme.secondary,
             tertiary = scheme.tertiary,
             background = scheme.background,
+            surface = scheme.surface,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -228,7 +231,11 @@ private fun AppearanceStyleRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = if (style.isDark) "Dark" else "Light",
+                text = when (style) {
+                    AppThemeStyle.LIGHT -> "Light"
+                    AppThemeStyle.DARK -> "Dark"
+                    else -> if (style.isDark) "Dark" else "Light"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -246,21 +253,26 @@ private fun AppearanceStyleRow(
 
 @Composable
 private fun ThemePreviewSwatch(
+    style: AppThemeStyle,
     primary: Color,
     secondary: Color,
     tertiary: Color,
     background: Color,
+    surface: Color,
     modifier: Modifier = Modifier,
 ) {
+    val gradientColors = when (style) {
+        AppThemeStyle.LIGHT -> listOf(background, surface, primary.copy(alpha = 0.8f), secondary.copy(alpha = 0.8f))
+        AppThemeStyle.DARK -> listOf(background, surface, primary.copy(alpha = 0.85f), tertiary.copy(alpha = 0.85f))
+        else -> listOf(background, primary, secondary, tertiary)
+    }
     Box(
         modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), CircleShape)
             .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(background, primary, secondary, tertiary),
-                ),
+                brush = Brush.linearGradient(colors = gradientColors),
                 shape = CircleShape,
             ),
     )

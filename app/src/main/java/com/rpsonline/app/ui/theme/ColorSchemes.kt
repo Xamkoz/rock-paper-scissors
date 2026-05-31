@@ -10,6 +10,13 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import com.rpsonline.app.data.preferences.AppThemeStyle
 
+/** Menu swatch colors; canonical light/dark so previews match their labels on Android 12+. */
+internal fun themeIconPreviewScheme(context: Context, style: AppThemeStyle): ColorScheme = when (style) {
+    AppThemeStyle.LIGHT -> previewLightColorScheme()
+    AppThemeStyle.DARK -> previewDarkColorScheme()
+    else -> colorSchemeFor(context, style)
+}
+
 fun colorSchemeFor(context: Context, style: AppThemeStyle): ColorScheme = when (style) {
     AppThemeStyle.LIGHT -> systemLightColorScheme(context)
     AppThemeStyle.DARK -> systemDarkColorScheme(context)
@@ -118,6 +125,9 @@ private fun systemLightColorScheme(context: Context): ColorScheme {
     }
 }
 
+/** Static light palette for theme picker previews (dynamic wallpaper colors can look inverted in swatches). */
+private fun previewLightColorScheme(): ColorScheme = lightColorScheme()
+
 private fun systemDarkColorScheme(context: Context): ColorScheme {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         dynamicDarkColorScheme(context)
@@ -125,3 +135,6 @@ private fun systemDarkColorScheme(context: Context): ColorScheme {
         darkColorScheme()
     }
 }
+
+/** Static dark palette for theme picker previews. */
+private fun previewDarkColorScheme(): ColorScheme = darkColorScheme()
