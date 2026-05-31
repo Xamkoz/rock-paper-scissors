@@ -5,6 +5,7 @@ import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.platform.MatchNotificationHelper
+import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 
 class RpsApplication : Application() {
     override fun attachBaseContext(base: Context) {
@@ -16,5 +17,6 @@ class RpsApplication : Application() {
         FirebaseApp.initializeApp(this)
         MatchSessionMonitor.ensureStarted()
         MatchNotificationHelper.ensureChannels(this)
+        MatchmakingBackgroundCoordinator.ensureObserving(this)
     }
 }

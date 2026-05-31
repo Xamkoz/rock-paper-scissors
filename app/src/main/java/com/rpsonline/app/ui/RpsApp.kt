@@ -45,7 +45,7 @@ import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.SegmentedNotificationState
 import com.rpsonline.app.platform.BatteryOptimizationHelper
 import com.rpsonline.app.platform.MatchNotificationHelper
-import com.rpsonline.app.platform.MatchmakingForegroundService
+import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.NotificationPermissionHelper
 import com.rpsonline.app.navigation.RpsNavGraph
 import com.rpsonline.app.ui.components.AppearanceMenuButton
@@ -269,18 +269,13 @@ fun RpsApp() {
         onPauseOrDispose { }
     }
 
-    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
-    val shouldRunBackgroundService = backgroundUsageEnabled &&
-        user != null &&
-        (
-            hasQueueEntry ||
-                matchmakingInProgress ||
-                activeMatch?.status == MatchStatus.LOBBY ||
-                activeMatch?.status == MatchStatus.ACTIVE
-            )
+    LaunchedEffect(backgroundUsageEnabled) {
+        MatchmakingBackgroundCoordinator.sync(context)
+    }
 
-    LaunchedEffect(shouldRunBackgroundService) {
-        MatchmakingForegroundService.sync(context, shouldRunBackgroundService)
+    LifecycleResumeEffect(backgroundUsageEnabled, user?.uid) {
+        MatchmakingBackgroundCoordinator.sync(context)
+        onPauseOrDispose { }
     }
 
     LaunchedEffect(
@@ -401,10 +396,11 @@ fun RpsApp() {
                                         if (backgroundUsageEnabled) {
                                             backgroundUsageEnabled = false
                                             matchmakingPreferences.setBackgroundUsageEnabled(false)
-                                            MatchmakingForegroundService.sync(context, false)
+                                            MatchmakingBackgroundCoordinator.sync(context)
                                         } else {
                                             backgroundUsageEnabled = true
                                             matchmakingPreferences.setBackgroundUsageEnabled(true)
+                                            MatchmakingBackgroundCoordinator.sync(context)
                                             if (!BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
                                                 BatteryOptimizationHelper.openBatteryOptimizationSettings(context)
                                             }

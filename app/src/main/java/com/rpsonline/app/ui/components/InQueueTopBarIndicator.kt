@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,10 +38,11 @@ fun TopBarSegmentedQueueIndicator(
     }
 
     BoxWithConstraints(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer { clip = false },
     ) {
         val digitWidth = computeTopBarStatusDigitWidth(maxWidth)
-        val digitHeight = computeTopBarStatusDigitHeight(digitWidth)
         TopBarSegmentedStatusRow(
             onlineCount = onlineCount,
             inMatch = inMatch,
@@ -48,9 +50,8 @@ fun TopBarSegmentedQueueIndicator(
             elapsedSeconds = elapsedSeconds,
             playerClockStopped = playerClockStopped,
             digitWidth = digitWidth,
-            digitHeight = digitHeight,
+            digitHeight = TopBarSegmentedDigitHeight,
             modifier = Modifier
-                .fillMaxWidth()
                 .height(SegmentedDisplayHeight)
                 .semantics {
                     contentDescription = "$onlineDescription. $timerDescription"

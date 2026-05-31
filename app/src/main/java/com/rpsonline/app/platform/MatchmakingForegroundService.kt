@@ -46,6 +46,10 @@ class MatchmakingForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         MatchSessionMonitor.ensureStarted()
         val notification = buildForegroundNotification()
         ServiceCompat.startForeground(
@@ -117,6 +121,10 @@ class MatchmakingForegroundService : Service() {
     }
 
     private fun updateForegroundNotification() {
+        if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
+            stopSelf()
+            return
+        }
         val manager = getSystemService(NotificationManager::class.java) ?: return
         manager.notify(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification())
     }

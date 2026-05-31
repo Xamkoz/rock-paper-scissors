@@ -323,6 +323,11 @@ class GameViewModel(
             clockJob?.cancel()
             clockSyncMyRunning = false
             clockSyncOppRunning = false
+            val existing = _uiState.value
+            if (existing.myClockSeconds != null && existing.opponentClockSeconds != null) {
+                _uiState.update { it.copy(opponentHasSubmitted = true) }
+                return
+            }
             val maxClockSeconds = (GameRules.MAX_CLOCK_MS / 1_000).toInt()
             val mySeconds = ((match.myClockMs(userId) + 999) / 1000).toInt().coerceIn(0, maxClockSeconds)
             val oppSeconds = ((match.opponentClockMs(userId) + 999) / 1000).toInt().coerceIn(0, maxClockSeconds)
@@ -333,6 +338,11 @@ class GameViewModel(
                     opponentHasSubmitted = true,
                 )
             }
+            return
+        }
+        if (match.status == MatchStatus.ACTIVE && match.openRound() == null) {
+            // Final round resolved; waiting for match doc to finalize — keep displayed clocks.
+            clockJob?.cancel()
             return
         }
         if (match.status != MatchStatus.ACTIVE || match.openRound() == null) {
@@ -434,6 +444,11 @@ class GameViewModel(
             countdownJob?.cancel()
             roundCountdownRoundKey = null
             _uiState.update { it.copy(isResolvingTimeout = false) }
+            return
+        }
+        if (match?.status == MatchStatus.ACTIVE && match.openRound() == null) {
+            // Final round resolved; keep the last round timer visible until results.
+            countdownJob?.cancel()
             return
         }
         val openRound = match?.openRound()

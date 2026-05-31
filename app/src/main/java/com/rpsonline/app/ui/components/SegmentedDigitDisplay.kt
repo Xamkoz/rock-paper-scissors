@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -285,22 +286,24 @@ val SegmentedDigitHeight = 18.dp
 val SegmentedDisplayHeight = 36.dp
 /** Slightly narrower digits so the full top-bar row fits without clipping. */
 internal val TopBarSegmentedDigitWidth = 10.dp
+/** Fixed top-bar digit height — width scales to fill the ear; height stays compact. */
+internal val TopBarSegmentedDigitHeight = 16.dp
 internal val SegmentedDigitSpacing = 1.dp
 
 private fun colonSlotWidth(digitWidth: Dp): Dp =
     digitWidth * SevenSegmentColonLayout.WIDTH_RATIO
 
+/** Glow extends past digit bounds; keep the scaled row inside the top-bar ear. */
+private val TopBarSegmentGlowBleedDp = 2.dp
+
 /** Scale top-bar status digits to fill [containerWidth] while preserving layout ratios. */
 fun computeTopBarStatusDigitWidth(containerWidth: Dp): Dp {
     val spacing = SegmentedDigitSpacing
-    if (containerWidth <= spacing * 11) return TopBarSegmentedDigitWidth
-    return ((containerWidth - spacing * 11) / (11f + SevenSegmentColonLayout.WIDTH_RATIO))
+    val availableWidth = containerWidth - TopBarSegmentGlowBleedDp
+    if (availableWidth <= spacing * 11) return TopBarSegmentedDigitWidth
+    return ((availableWidth - spacing * 11) / (11f + SevenSegmentColonLayout.WIDTH_RATIO))
         .coerceAtLeast(TopBarSegmentedDigitWidth)
 }
-
-fun computeTopBarStatusDigitHeight(digitWidth: Dp): Dp =
-    (digitWidth * (SegmentedDigitHeight / TopBarSegmentedDigitWidth))
-        .coerceAtMost(SegmentedDisplayHeight)
 
 @Composable
 private fun SegmentedPulseSlotIndex(
@@ -762,7 +765,7 @@ private fun SevenSegmentDisplayWithPulse(
 ) {
     val fullLitColor = sevenSegmentLitColor()
     val halfLitColor = sevenSegmentHalfLitColor()
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.padding(horizontal = 1.dp)) {
         val layout = SevenSegmentGeometry.layout(size.width, size.height)
         layout
             .sortedWith(
