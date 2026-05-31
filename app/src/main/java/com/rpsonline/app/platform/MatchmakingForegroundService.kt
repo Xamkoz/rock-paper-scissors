@@ -136,6 +136,8 @@ class MatchmakingForegroundService : Service() {
                 .collect {
                     if (MatchmakingBackgroundCoordinator.shouldRunService(this@MatchmakingForegroundService)) {
                         updateForegroundNotification()
+                    } else {
+                        stopSelf()
                     }
                 }
         }

@@ -82,13 +82,13 @@ object MatchmakingBackgroundCoordinator {
         matchmakingInProgress: Boolean,
     ): Boolean {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return false
-        if (match != null && match.isParticipant(uid)) {
-            when (match.status) {
-                MatchStatus.LOBBY, MatchStatus.ACTIVE -> return true
-                else -> Unit
-            }
-        }
-        return hasQueueEntry || matchmakingInProgress || queueJoinedAtMs != null
+        return computeSessionNeedsBackgroundService(
+            uid = uid,
+            match = match,
+            hasQueueEntry = hasQueueEntry,
+            queueJoinedAtMs = queueJoinedAtMs,
+            matchmakingInProgress = matchmakingInProgress,
+        )
     }
 
     fun shouldRunService(context: Context): Boolean {
@@ -103,4 +103,23 @@ object MatchmakingBackgroundCoordinator {
             shouldRunService(context),
         )
     }
+}
+
+/**
+ * Background status notification while in queue, match-found lobby, or active match; off when idle.
+ */
+internal fun computeSessionNeedsBackgroundService(
+    uid: String,
+    match: Match?,
+    hasQueueEntry: Boolean,
+    queueJoinedAtMs: Long?,
+    matchmakingInProgress: Boolean,
+): Boolean {
+    if (match != null && match.isParticipant(uid)) {
+        when (match.status) {
+            MatchStatus.LOBBY, MatchStatus.ACTIVE -> return true
+            else -> Unit
+        }
+    }
+    return hasQueueEntry || matchmakingInProgress || queueJoinedAtMs != null
 }
