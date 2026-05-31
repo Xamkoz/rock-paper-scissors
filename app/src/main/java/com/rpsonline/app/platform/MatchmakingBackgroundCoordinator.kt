@@ -121,3 +121,18 @@ internal fun computeSessionNeedsBackgroundService(
     }
     return hasQueueEntry || queueJoinedAtMs != null
 }
+
+/** Presence heartbeats while foreground and engaged, or during an active queue/match session. */
+internal fun computeSessionNeedsPresenceHeartbeat(
+    appInForeground: Boolean,
+    userEngaged: Boolean,
+    uid: String,
+    match: Match?,
+    hasQueueEntry: Boolean,
+    queueJoinedAtMs: Long?,
+): Boolean {
+    if (computeSessionNeedsBackgroundService(uid, match, hasQueueEntry, queueJoinedAtMs)) {
+        return true
+    }
+    return appInForeground && userEngaged
+}

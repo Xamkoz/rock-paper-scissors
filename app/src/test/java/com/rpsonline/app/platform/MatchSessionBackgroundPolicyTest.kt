@@ -66,4 +66,60 @@ class MatchSessionBackgroundPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun foregroundEngagedIdle_needsPresenceHeartbeat() {
+        assertTrue(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = true,
+                userEngaged = true,
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+            ),
+        )
+    }
+
+    @Test
+    fun foregroundUnattended_doesNotNeedPresenceHeartbeat() {
+        assertFalse(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = true,
+                userEngaged = false,
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+            ),
+        )
+    }
+
+    @Test
+    fun backgroundIdle_doesNotNeedPresenceHeartbeat() {
+        assertFalse(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = false,
+                userEngaged = false,
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+            ),
+        )
+    }
+
+    @Test
+    fun backgroundQueue_needsPresenceHeartbeat() {
+        assertTrue(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = false,
+                userEngaged = false,
+                uid = uid,
+                match = null,
+                hasQueueEntry = true,
+                queueJoinedAtMs = 1_000L,
+            ),
+        )
+    }
 }

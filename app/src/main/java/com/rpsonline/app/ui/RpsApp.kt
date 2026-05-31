@@ -46,6 +46,8 @@ import com.rpsonline.app.platform.SegmentedNotificationState
 import com.rpsonline.app.platform.BatteryOptimizationHelper
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
+import com.rpsonline.app.platform.PresenceEngagementTracker
+import com.rpsonline.app.platform.computeSessionNeedsPresenceHeartbeat
 import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.NotificationPermissionHelper
 import com.rpsonline.app.navigation.RpsNavGraph
@@ -151,26 +153,84 @@ fun RpsApp() {
     val presenceRepository = remember { PresenceRepository() }
     var onlinePlayerCount by remember { mutableStateOf<Int?>(null) }
     var onlineCountRefreshGeneration by remember { mutableIntStateOf(0) }
+    val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
+    val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
+    val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
+    var userEngaged by remember { mutableStateOf(PresenceEngagementTracker.isEngaged()) }
 
-    LaunchedEffect(user?.uid, onlineCountRefreshGeneration) {
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(PresenceEngagementTracker.ENGAGEMENT_POLL_MS)
+            val engaged = PresenceEngagementTracker.isEngaged()
+            if (engaged != userEngaged) {
+                userEngaged = engaged
+            }
+        }
+    }
+
+    LaunchedEffect(
+        user?.uid,
+        onlineCountRefreshGeneration,
+        appInForeground,
+        userEngaged,
+        hasQueueEntry,
+        queueJoinedAtMs,
+        activeMatch?.id,
+        activeMatch?.status,
+    ) {
         val uid = user?.uid
         if (uid == null) {
             onlinePlayerCount = null
             SegmentedNotificationState.setOnlineCount(null)
             return@LaunchedEffect
         }
-        presenceRepository.observeOnlineCount(selfUid = uid).collect { count ->
+        val countSelf =
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = appInForeground,
+                userEngaged = userEngaged,
+                uid = uid,
+                match = activeMatch,
+                hasQueueEntry = hasQueueEntry,
+                queueJoinedAtMs = queueJoinedAtMs,
+            )
+        presenceRepository.observeOnlineCount(selfUid = if (countSelf) uid else null).collect { count ->
             onlinePlayerCount = count
             SegmentedNotificationState.setOnlineCount(count)
         }
     }
 
-    LaunchedEffect(user?.uid) {
+    LaunchedEffect(
+        user?.uid,
+        appInForeground,
+        userEngaged,
+        hasQueueEntry,
+        queueJoinedAtMs,
+        activeMatch?.id,
+        activeMatch?.status,
+    ) {
         val uid = user?.uid ?: return@LaunchedEffect
+        fun shouldMaintainPresence(): Boolean =
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = appInForeground,
+                userEngaged = userEngaged,
+                uid = uid,
+                match = activeMatch,
+                hasQueueEntry = hasQueueEntry,
+                queueJoinedAtMs = queueJoinedAtMs,
+            )
+
+        if (!shouldMaintainPresence()) {
+            presenceRepository.clearPresence(uid)
+            return@LaunchedEffect
+        }
         presenceRepository.touchPresence(uid, forceAuthRefresh = true, awaitServerAck = true)
         var heartbeat = 0
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
+            if (!shouldMaintainPresence()) {
+                presenceRepository.clearPresence(uid)
+                break
+            }
             heartbeat++
             presenceRepository.touchPresence(
                 uid,
@@ -180,6 +240,8 @@ fun RpsApp() {
     }
 
     LifecycleResumeEffect(user?.uid) {
+        PresenceEngagementTracker.recordInteraction()
+        userEngaged = true
         val uid = user?.uid
         if (uid != null) {
             if (
@@ -201,9 +263,6 @@ fun RpsApp() {
         }
         onPauseOrDispose { }
     }
-    val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
-    val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
-    val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
     val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
     var queueElapsedSeconds by remember(queueJoinedAtMs) {
         mutableStateOf(
