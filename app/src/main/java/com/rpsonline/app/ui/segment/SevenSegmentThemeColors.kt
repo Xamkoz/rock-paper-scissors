@@ -10,10 +10,6 @@ import com.rpsonline.app.ui.theme.colorSchemeFor
 
 /** Theme-aware seven-segment colors for notifications and other non-Compose surfaces. */
 object SevenSegmentThemeColors {
-    fun paletteFor(context: Context): SevenSegmentPalette {
-        return paletteFor(notificationThemeStyle(context))
-    }
-
     /** Light system UI uses the light palette so segments stay readable on the notification shade. */
     private fun notificationThemeStyle(context: Context): AppThemeStyle {
         val isSystemDark =
@@ -25,8 +21,12 @@ object SevenSegmentThemeColors {
         return ThemePreferences(context).get()
     }
 
-    fun paletteFor(style: AppThemeStyle): SevenSegmentPalette {
-        val scheme = colorSchemeFor(style)
+    fun paletteFor(context: Context): SevenSegmentPalette {
+        return paletteFor(context, notificationThemeStyle(context))
+    }
+
+    fun paletteFor(context: Context, style: AppThemeStyle): SevenSegmentPalette {
+        val scheme = colorSchemeFor(context, style)
         val isDark = style.isDark
         val ghost = if (isDark) {
             lerp(

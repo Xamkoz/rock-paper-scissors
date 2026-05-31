@@ -8,9 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import com.google.firebase.auth.FirebaseAuth
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -32,14 +30,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MatchmakingForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var heartbeatJob: Job? = null
     private var notificationUpdateJob: Job? = null
+    private var sessionObserverJob: Job? = null
     private var clockSoundJob: Job? = null
     private val matchRepository by lazy { MatchRepository() }
 
@@ -69,6 +69,7 @@ class MatchmakingForegroundService : Service() {
         )
         startHeartbeatLoop()
         startNotificationUpdateLoop()
+        startSessionObserver()
         startClockSoundLoop()
         repostForegroundNotification()
         return START_STICKY
@@ -77,8 +78,8 @@ class MatchmakingForegroundService : Service() {
     override fun onDestroy() {
         heartbeatJob?.cancel()
         notificationUpdateJob?.cancel()
+        sessionObserverJob?.cancel()
         clockSoundJob?.cancel()
-        mainHandler.removeCallbacksAndMessages(null)
         if (runningInstance === this) {
             runningInstance = null
             SegmentedNotificationState.setOnContentChangedListener(null)
@@ -115,8 +116,28 @@ class MatchmakingForegroundService : Service() {
         notificationUpdateJob = serviceScope.launch {
             while (isActive) {
                 updateForegroundNotification()
-                delay(1_000)
+                delay(NOTIFICATION_TICK_MS)
             }
+        }
+    }
+
+    private fun startSessionObserver() {
+        sessionObserverJob?.cancel()
+        sessionObserverJob = serviceScope.launch {
+            combine(
+                MatchSessionMonitor.activeMatch,
+                MatchSessionMonitor.queueJoinedAtMs,
+                MatchSessionMonitor.hasQueueEntry,
+                MatchSessionMonitor.matchmakingInProgress,
+            ) { match, joinedAt, hasQueueEntry, matchmakingInProgress ->
+                listOf(match?.id, match?.status, joinedAt, hasQueueEntry, matchmakingInProgress)
+            }
+                .distinctUntilChanged()
+                .collect {
+                    if (MatchmakingBackgroundCoordinator.shouldRunService(this@MatchmakingForegroundService)) {
+                        updateForegroundNotification()
+                    }
+                }
         }
     }
 
@@ -140,10 +161,16 @@ class MatchmakingForegroundService : Service() {
         manager.notify(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification())
     }
 
-    /** RemoteViews often miss the first bind; repost on the main thread right after [startForeground]. */
+    /** RemoteViews can miss early binds; repost quickly on a background thread after [startForeground]. */
     private fun repostForegroundNotification() {
-        mainHandler.post { updateForegroundNotification() }
-        mainHandler.postDelayed({ updateForegroundNotification() }, 250L)
+        serviceScope.launch {
+            updateForegroundNotification()
+            for (delayMs in REPOST_DELAYS_MS) {
+                delay(delayMs)
+                if (!isActive) return@launch
+                updateForegroundNotification()
+            }
+        }
     }
 
     private fun resolveNotificationDisplay(): TopBarStatusRowSpec {
@@ -180,10 +207,11 @@ class MatchmakingForegroundService : Service() {
         }
 
         val joinedAt = queueJoinedAt?.takeIf { it > 0L }
+        val matchmakingActive = MatchSessionMonitor.matchmakingInProgress.value
         return TopBarStatusRowSpec(
             status = SegmentedNotificationStatus.IN_QUEUE,
             onlineCount = SegmentedNotificationState.onlineCount,
-            showLiveTime = joinedAt != null,
+            showLiveTime = joinedAt != null || matchmakingActive,
             elapsedSeconds = joinedAt?.let { ((now - it) / 1_000).coerceAtLeast(0L) } ?: 0L,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
@@ -232,6 +260,8 @@ class MatchmakingForegroundService : Service() {
     companion object {
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
+        private const val NOTIFICATION_TICK_MS = 500L
+        private val REPOST_DELAYS_MS = longArrayOf(50L, 150L, 350L)
 
         @Volatile
         private var runningInstance: MatchmakingForegroundService? = null

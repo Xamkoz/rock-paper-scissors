@@ -204,6 +204,7 @@ fun RpsApp() {
     val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
     val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
+    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
     var queueElapsedSeconds by remember(queueJoinedAtMs) {
         mutableStateOf(
             queueJoinedAtMs?.let { joinedAt ->
@@ -273,6 +274,18 @@ fun RpsApp() {
 
     LaunchedEffect(backgroundUsageEnabled) {
         MatchmakingBackgroundCoordinator.sync(context)
+    }
+
+    LaunchedEffect(
+        backgroundUsageEnabled,
+        activeMatch?.id,
+        activeMatch?.status,
+        queueJoinedAtMs,
+        hasQueueEntry,
+        matchmakingInProgress,
+    ) {
+        if (!backgroundUsageEnabled) return@LaunchedEffect
+        MatchmakingForegroundService.refreshNotificationIfRunning()
     }
 
     LifecycleResumeEffect(backgroundUsageEnabled, user?.uid) {

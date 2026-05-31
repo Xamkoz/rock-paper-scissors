@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.rpsonline.app.R
 import com.rpsonline.app.data.preferences.AppThemeStyle
 import com.rpsonline.app.ui.theme.colorSchemeFor
@@ -106,7 +107,8 @@ private fun ThemeSelectorKnob(
     ghostColor: Color,
     modifier: Modifier = Modifier,
 ) {
-    val scheme = colorSchemeFor(currentStyle)
+    val context = LocalContext.current
+    val scheme = colorSchemeFor(context, currentStyle)
     val styles = AppThemeStyle.entries
     val styleIndex = styles.indexOf(currentStyle).coerceAtLeast(0)
     val slotCount = styles.size
@@ -202,7 +204,8 @@ private fun AppearanceStyleRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val scheme = colorSchemeFor(style)
+    val context = LocalContext.current
+    val scheme = colorSchemeFor(context, style)
     Row(
         modifier = Modifier
             .fillMaxWidth()

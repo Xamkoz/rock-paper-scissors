@@ -24,23 +24,48 @@ object MatchmakingBackgroundCoordinator {
         MatchSessionMonitor.ensureStarted()
         val appContext = context.applicationContext
         observeJob = scope.launch {
+            var serviceRunning = false
             combine(
                 MatchSessionMonitor.activeMatch,
                 MatchSessionMonitor.hasQueueEntry,
                 MatchSessionMonitor.queueJoinedAtMs,
                 MatchSessionMonitor.matchmakingInProgress,
             ) { match, hasQueueEntry, queueJoinedAtMs, matchmakingInProgress ->
-                sessionNeedsBackgroundService(
-                    match = match,
-                    hasQueueEntry = hasQueueEntry,
+                SessionNotificationSnapshot(
+                    shouldRun = sessionNeedsBackgroundService(
+                        match = match,
+                        hasQueueEntry = hasQueueEntry,
+                        queueJoinedAtMs = queueJoinedAtMs,
+                        matchmakingInProgress = matchmakingInProgress,
+                    ) && MatchmakingPreferences(appContext).isBackgroundUsageEnabled() &&
+                        FirebaseAuth.getInstance().currentUser?.uid != null,
+                    matchId = match?.id,
+                    matchStatus = match?.status,
                     queueJoinedAtMs = queueJoinedAtMs,
+                    hasQueueEntry = hasQueueEntry,
                     matchmakingInProgress = matchmakingInProgress,
                 )
             }
                 .distinctUntilChanged()
-                .collect { sync(appContext) }
+                .collect { snapshot ->
+                    if (snapshot.shouldRun != serviceRunning) {
+                        serviceRunning = snapshot.shouldRun
+                        MatchmakingForegroundService.sync(appContext, snapshot.shouldRun)
+                    } else if (snapshot.shouldRun) {
+                        MatchmakingForegroundService.refreshNotificationIfRunning()
+                    }
+                }
         }
     }
+
+    private data class SessionNotificationSnapshot(
+        val shouldRun: Boolean,
+        val matchId: String?,
+        val matchStatus: MatchStatus?,
+        val queueJoinedAtMs: Long?,
+        val hasQueueEntry: Boolean,
+        val matchmakingInProgress: Boolean,
+    )
 
     fun sessionNeedsBackgroundService(): Boolean =
         sessionNeedsBackgroundService(

@@ -1,16 +1,18 @@
 package com.rpsonline.app.ui.theme
 
+import android.content.Context
+import android.os.Build
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import com.rpsonline.app.data.preferences.AppThemeStyle
 
-private val GreenPrimary = Color(0xFF2E7D32)
-private val GreenOnPrimary = Color(0xFFFFFFFF)
-private val GreenPrimaryContainer = Color(0xFFC8E6C9)
-private val GreenOnPrimaryContainer = Color(0xFF1B5E20)
-
-fun colorSchemeFor(style: AppThemeStyle) = when (style) {
+fun colorSchemeFor(context: Context, style: AppThemeStyle): ColorScheme = when (style) {
+    AppThemeStyle.LIGHT -> systemLightColorScheme(context)
+    AppThemeStyle.DARK -> systemDarkColorScheme(context)
     AppThemeStyle.CYBERPUNK -> darkColorScheme(
         primary = NeonCyan,
         onPrimary = Color(0xFF001820),
@@ -41,64 +43,6 @@ fun colorSchemeFor(style: AppThemeStyle) = when (style) {
         onError = Color(0xFF2A0008),
         errorContainer = Color(0xFF5C1020),
         onErrorContainer = Color(0xFFFFB8C8),
-    )
-
-    AppThemeStyle.LIGHT -> lightColorScheme(
-        primary = GreenPrimary,
-        onPrimary = GreenOnPrimary,
-        primaryContainer = GreenPrimaryContainer,
-        onPrimaryContainer = GreenOnPrimaryContainer,
-        secondary = Color(0xFF388E3C),
-        onSecondary = GreenOnPrimary,
-        secondaryContainer = Color(0xFFE8F5E9),
-        onSecondaryContainer = GreenOnPrimaryContainer,
-        tertiary = Color(0xFF81C784),
-        onTertiary = Color(0xFF1B5E20),
-        tertiaryContainer = Color(0xFFE8F5E9),
-        onTertiaryContainer = GreenOnPrimaryContainer,
-        background = Color(0xFFF7FBF7),
-        onBackground = Color(0xFF1A1C19),
-        surface = Color(0xFFF7FBF7),
-        onSurface = Color(0xFF1A1C19),
-        surfaceVariant = Color(0xFFDEE5DE),
-        onSurfaceVariant = Color(0xFF424940),
-        surfaceContainer = Color(0xFFEBF2EB),
-        surfaceContainerHigh = Color(0xFFE3EAE3),
-        surfaceContainerHighest = Color(0xFFDEE5DE),
-        outline = Color(0xFF727970),
-        error = Color(0xFFBA1A1A),
-        onError = Color(0xFFFFFFFF),
-        errorContainer = Color(0xFFFFDAD6),
-        onErrorContainer = Color(0xFF410002),
-    )
-
-    AppThemeStyle.DARK -> darkColorScheme(
-        primary = Color(0xFF9CCC9A),
-        onPrimary = Color(0xFF0A390F),
-        primaryContainer = Color(0xFF1B5E20),
-        onPrimaryContainer = GreenPrimaryContainer,
-        secondary = Color(0xFFA5D6A7),
-        onSecondary = Color(0xFF0A390F),
-        secondaryContainer = Color(0xFF2E4A30),
-        onSecondaryContainer = Color(0xFFC8E6C9),
-        tertiary = Color(0xFF81C784),
-        onTertiary = Color(0xFF0A390F),
-        tertiaryContainer = Color(0xFF2E4A30),
-        onTertiaryContainer = Color(0xFFC8E6C9),
-        background = Color(0xFF101410),
-        onBackground = Color(0xFFE2E3DD),
-        surface = Color(0xFF101410),
-        onSurface = Color(0xFFE2E3DD),
-        surfaceVariant = Color(0xFF424940),
-        onSurfaceVariant = Color(0xFFC2C9BE),
-        surfaceContainer = Color(0xFF1A1F1A),
-        surfaceContainerHigh = Color(0xFF242924),
-        surfaceContainerHighest = Color(0xFF2F342F),
-        outline = Color(0xFF8C9388),
-        error = Color(0xFFFFB4AB),
-        onError = Color(0xFF690005),
-        errorContainer = Color(0xFF93000A),
-        onErrorContainer = Color(0xFFFFDAD6),
     )
 
     AppThemeStyle.COSMOS -> darkColorScheme(
@@ -164,4 +108,20 @@ fun colorSchemeFor(style: AppThemeStyle) = when (style) {
         errorContainer = Color(0xFF6D1020),
         onErrorContainer = Color(0xFFFFDAD6),
     )
+}
+
+private fun systemLightColorScheme(context: Context): ColorScheme {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        dynamicLightColorScheme(context)
+    } else {
+        lightColorScheme()
+    }
+}
+
+private fun systemDarkColorScheme(context: Context): ColorScheme {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        dynamicDarkColorScheme(context)
+    } else {
+        darkColorScheme()
+    }
 }

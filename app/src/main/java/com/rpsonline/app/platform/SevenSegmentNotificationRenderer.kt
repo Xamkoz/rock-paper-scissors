@@ -38,13 +38,14 @@ object SevenSegmentNotificationRenderer {
         state: TopBarStatusRowSpec,
         accessibilitySummary: String,
     ) {
+        val remoteViews = buildRemoteViews(context, state)
         builder
             .setContentTitle(statusHeader(context, state.status))
             .setContentText(accessibilitySummary)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(buildRemoteViews(context, state))
-            .setCustomBigContentView(buildRemoteViews(context, state))
-            .setCustomHeadsUpContentView(buildRemoteViews(context, state))
+            .setCustomContentView(remoteViews)
+            .setCustomBigContentView(remoteViews)
+            .setCustomHeadsUpContentView(remoteViews)
     }
 
     fun statusHeader(context: Context, status: SegmentedNotificationStatus): String {

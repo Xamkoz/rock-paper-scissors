@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import com.rpsonline.app.data.preferences.AppThemeStyle
 
@@ -19,7 +20,8 @@ fun RpsTheme(
     style: AppThemeStyle,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = colorSchemeFor(style)
+    val context = LocalContext.current
+    val colorScheme = colorSchemeFor(context, style)
     val typography = Typography()
     val shapes = Shapes()
 

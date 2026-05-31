@@ -1,5 +1,6 @@
 package com.rpsonline.app.ui.theme
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -17,16 +18,12 @@ fun Modifier.appBackground(style: AppThemeStyle): Modifier = when (style) {
     AppThemeStyle.FIRE -> fireBackground()
     AppThemeStyle.LIGHT,
     AppThemeStyle.DARK,
-    -> plainBackground(style)
+    -> plainBackground()
 }
 
 @Composable
-private fun Modifier.plainBackground(style: AppThemeStyle): Modifier {
-    val base = when (style) {
-        AppThemeStyle.LIGHT -> Color(0xFFF7FBF7)
-        AppThemeStyle.DARK -> Color(0xFF101410)
-        else -> CyberDeepBg
-    }
+private fun Modifier.plainBackground(): Modifier {
+    val base = MaterialTheme.colorScheme.background
     return drawBehind { drawRect(base) }
 }
 
