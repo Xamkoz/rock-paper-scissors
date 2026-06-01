@@ -14,8 +14,6 @@ import androidx.compose.runtime.setValue
 
 import com.rpsonline.app.data.model.Match
 
-import com.rpsonline.app.data.model.Move
-
 import com.rpsonline.app.data.model.RoundResult
 
 import com.rpsonline.app.data.model.MatchStatus
@@ -40,17 +38,8 @@ fun roundResolutionKey(resolved: RoundResult, matchId: String) =
 
 
 
-/** Increments on each resolution-sound beat so the top-bar segmented display can pulse in sync. */
-
+/** Tracks round-resolution sound feedback and match-end navigation gating. */
 class RoundResolutionPulseNotifier {
-
-    var pulseTrigger by mutableIntStateOf(0)
-
-        private set
-
-    var activePulseMove by mutableStateOf(Move.ROCK)
-
-        private set
 
     var liveSessionGeneration by mutableIntStateOf(0)
 
@@ -67,20 +56,6 @@ class RoundResolutionPulseNotifier {
     private var inFlightKeys by mutableStateOf(setOf<RoundResolutionKey>())
 
 
-
-    fun pulse(move: Move) {
-
-        activePulseMove = move
-
-        pulseTrigger++
-
-    }
-
-
-
-    fun resetPulseTrigger() {
-        pulseTrigger = 0
-    }
 
     fun isLiveMatch(matchId: String): Boolean = matchId in liveMatchIds
 
@@ -211,12 +186,6 @@ class RoundResolutionPulseNotifier {
 
 
 val LocalRoundResolutionPulse = compositionLocalOf<RoundResolutionPulseNotifier?> { null }
-
-
-
-/** Active move pattern for the current resolution burst (from [RoundResolutionPulseNotifier]). */
-
-val LocalSegmentedDisplayPulseMove = compositionLocalOf { Move.ROCK }
 
 
 

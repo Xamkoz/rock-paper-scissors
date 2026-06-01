@@ -50,7 +50,7 @@ fun roundResolutionRepetitions(resolved: RoundResult, userId: String): Int =
 
 /**
 
- * Plays move sounds and triggers segmented-display pulses when a round resolves.
+ * Plays move sounds when a round resolves.
 
  */
 
@@ -201,9 +201,6 @@ fun RoundResolutionFeedbackEffect(
         try {
 
             repeat(repetitions) { index ->
-
-                pulseNotifier.pulse(move)
-
                 if (muted) {
 
                     delay(ROUND_RESOLUTION_MUTED_BEAT_MS)

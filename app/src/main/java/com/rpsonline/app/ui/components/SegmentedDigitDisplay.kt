@@ -1,9 +1,5 @@
 package com.rpsonline.app.ui.components
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +14,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,7 +28,6 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.monitoring.NetworkDataActivityKind
 import com.rpsonline.app.ui.segment.SegmentLayout
 import com.rpsonline.app.ui.segment.SegmentedSpinnerSteps
@@ -42,28 +36,14 @@ import com.rpsonline.app.ui.segment.SevenSegmentGeometry
 import com.rpsonline.app.ui.segment.SevenSegmentPainter
 import com.rpsonline.app.ui.segment.asSevenSegmentTarget
 import com.rpsonline.app.ui.theme.isRpsDarkTheme
-import com.rpsonline.app.ui.util.LocalSegmentedDisplayPulseMove
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** Current half-lit pulse blend for round-resolution bursts (0 = normal). */
-val LocalResolutionPulseAlpha = compositionLocalOf { 0f }
-
-/** Fill progress for round-resolution bursts. */
-val LocalResolutionPulseFill = compositionLocalOf { 0f }
 
 /** Active Firebase I/O kinds for static bridge-slot segment overlays. */
 val LocalNetworkActivityKinds = compositionLocalOf { emptySet<NetworkDataActivityKind>() }
 
-/** Connection probe lights the connection pattern on bridge slot 4 when no queue I/O is active. */
+/** Connection probe tiles the connection pattern on all digit slots when no queue I/O is active. */
 val LocalConnectionProbeActive = compositionLocalOf { false }
-
-/** @deprecated Use [LocalResolutionPulseAlpha]. */
-val LocalSegmentedDisplayPulseAlpha = LocalResolutionPulseAlpha
-
-/** @deprecated Use [LocalResolutionPulseFill]. */
-val LocalSegmentedDisplayPulseFill = LocalResolutionPulseFill
 
 /** Index of the current slot in the 12-position top-bar row (-1 = sync all slots). */
 val LocalSegmentedDisplayPulseSlotIndex = compositionLocalOf { -1 }
@@ -79,268 +59,57 @@ const val TopBarSegmentedSlotCount = 12
 const val TopBarOnlineCountSlotStart = 0
 const val TopBarOnlineCountSlotEnd = 3
 
-/** Network I/O half-lit overlays: blank, spinner, blank (digits 5–7). */
-val TopBarNetworkActivitySlotIndices: Set<Int> = setOf(4, 5, 6)
-
 const val TopBarTimerDigitsSlotStart = 7
+const val TopBarColonSlotIndex = TopBarTimerDigitsSlotStart + 2
+/** Bridge spinner digit — network bursts never overlay this slot. */
+const val TopBarSpinnerDigitSlotIndex = 5
+
+/** Network I/O half-lit overlays on every digit slot (4 + 3 + 4), excluding the colon. */
+val TopBarNetworkActivitySlotIndices: Set<Int> =
+    (0 until TopBarSegmentedSlotCount).filter { it != TopBarColonSlotIndex }.toSet()
+
+/** Burst overlay slots: all digit slots except the colon and bridge spinner. */
+val TopBarNetworkBurstSlotIndices: Set<Int> =
+    TopBarNetworkActivitySlotIndices.filter { it != TopBarSpinnerDigitSlotIndex }.toSet()
+
+fun isNetworkBurstSlot(slotIndex: Int): Boolean = slotIndex in TopBarNetworkBurstSlotIndices
 
 /** @deprecated Use [TopBarNetworkActivitySlotIndices]. */
 val TopBarDataBridgeSlotIndices: Set<Int> = TopBarNetworkActivitySlotIndices
 
-private const val ResolutionPulseDurationMs = 520
-/** Fill sequence completes quickly so segments reach half-lit sooner. */
-private const val ResolutionPulseFillCompleteAtMs = 240
-private const val ResolutionPulseAlphaPeakAtMs = 180
-private const val ResolutionPulseHoldUntilMs = 400
-
-private fun resolutionPulseFillAnimationSpec(move: Move) = keyframes {
-    durationMillis = ResolutionPulseDurationMs
-    val stepCount = resolutionBurstFillSequence(move).size
-    if (stepCount <= 1) {
-        0f at 0
-        1f at ResolutionPulseFillCompleteAtMs
-        1f at ResolutionPulseDurationMs
-        return@keyframes
-    }
-    for (index in 0 until stepCount) {
-        val progress = index.toFloat() / (stepCount - 1)
-        val stepStartMs = (ResolutionPulseFillCompleteAtMs * index / (stepCount - 1)).toInt()
-        val stepEndMs = if (index < stepCount - 1) {
-            (ResolutionPulseFillCompleteAtMs * (index + 1) / (stepCount - 1)).toInt() - 1
-        } else {
-            ResolutionPulseDurationMs
-        }
-        progress at stepStartMs
-        if (index < stepCount - 1) {
-            progress at stepEndMs.coerceAtLeast(stepStartMs)
-        }
-    }
-    1f at ResolutionPulseDurationMs
-}
-
-private val allSevenSegments = setOf('a', 'b', 'c', 'd', 'e', 'f', 'g')
-
-private fun cumulativeFillSteps(additions: List<Set<Char>>): List<Set<Char>> {
-    var accumulated = emptySet<Char>()
-    return additions.map { step ->
-        accumulated = accumulated + step
-        accumulated
-    }
-}
-
-/** Move-specific fill steps; each step adds segments until all are lit at peak. */
-fun resolutionBurstFillSequence(move: Move): List<Set<Char>> = when (move) {
-    Move.ROCK -> cumulativeFillSteps(
-        listOf(
-            setOf('g'),
-            setOf('a', 'd'),
-            setOf('f'),
-            setOf('b'),
-            setOf('e'),
-            setOf('c'),
-        ),
-    )
-    Move.PAPER -> cumulativeFillSteps(
-        listOf(
-            setOf('a'),
-            setOf('f', 'b'),
-            setOf('g'),
-            setOf('d'),
-            setOf('e'),
-            setOf('c'),
-        ),
-    )
-    Move.SCISSORS -> cumulativeFillSteps(
-        listOf(
-            setOf('f', 'b'),
-            setOf('e', 'c'),
-            setOf('g'),
-            setOf('a'),
-            setOf('d'),
-        ),
-    )
-}
-
-/**
- * Move-specific activation order across the 12 top-bar slots.
- * 0–3 count, 4 blank, 5 spinner, 6 blank, 7–8 MM, 9 colon, 10–11 SS.
- */
-fun resolutionBurstSlotActivationOrder(move: Move): List<Int> = when (move) {
-    Move.ROCK -> listOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
-    Move.PAPER -> listOf(5, 6, 4, 7, 3, 8, 2, 9, 1, 10, 0, 11)
-    Move.SCISSORS -> listOf(0, 11, 1, 10, 2, 9, 3, 8, 4, 7, 5, 6)
-}
-
-private val cachedBurstFillSequenceByMove =
-    Move.entries.associateWith(::resolutionBurstFillSequence)
-
-private val cachedBurstSlotActivationOrderByMove =
-    Move.entries.associateWith(::resolutionBurstSlotActivationOrder)
-
-/** slotIndex → position in activation order (-1 if not in sweep). */
-private val cachedBurstSlotPositionByMove: Map<Move, IntArray> =
-    Move.entries.associateWith { move ->
-        val order = cachedBurstSlotActivationOrderByMove.getValue(move)
-        IntArray(TopBarSegmentedSlotCount) { slotIndex -> order.indexOf(slotIndex) }
-    }
-
-private const val ResolutionPulseInactiveThreshold = 0.001f
-
-/** Per-slot fill progress for a global burst progress in [0, 1]. */
-fun resolutionBurstSlotFillProgress(
-    globalFillProgress: Float,
-    slotIndex: Int,
-    move: Move,
-): Float {
-    if (globalFillProgress <= 0f) return 0f
-    if (globalFillProgress >= 1f) return 1f
-
-    val fillComplete = ResolutionPulseFillCompleteAtMs.toFloat() / ResolutionPulseDurationMs
-    if (globalFillProgress >= fillComplete) return 1f
-
-    val orderSize = cachedBurstSlotActivationOrderByMove.getValue(move).size
-    val position = if (slotIndex in 0 until TopBarSegmentedSlotCount) {
-        cachedBurstSlotPositionByMove.getValue(move)[slotIndex]
-    } else {
-        -1
-    }
-    if (position < 0) return globalFillProgress / fillComplete
-
-    val normalizedGlobal = (globalFillProgress / fillComplete).coerceIn(0f, 1f)
-    val slotCenter = (position + 0.5f) / orderSize
-    val slotWidth = 1.55f / orderSize
-    val distance = kotlin.math.abs(normalizedGlobal - slotCenter)
-    return (1f - distance / slotWidth).coerceIn(0f, 1f)
-}
-
-/** Effective segment fill progress for one display slot. */
-fun resolutionBurstEffectiveFillProgress(
-    globalFillProgress: Float,
-    slotIndex: Int,
-    move: Move,
-): Float {
-    if (slotIndex < 0) return globalFillProgress.coerceIn(0f, 1f)
-    val slotProgress = resolutionBurstSlotFillProgress(globalFillProgress, slotIndex, move)
-    if (slotProgress <= 0f) return 0f
-    if (slotProgress >= 1f) return 1f
-    val sequence = cachedBurstFillSequenceByMove.getValue(move)
-    val phase = (slotIndex % sequence.size) / sequence.size.toFloat() * 0.22f
-    return (slotProgress + phase).coerceIn(0f, 1f)
-}
-
-/** Segments lit at burst fill progress in [0, 1]; peak uses all segments. */
-fun resolutionBurstSegmentsAtProgress(
-    move: Move,
-    fillProgress: Float,
-    slotIndex: Int = -1,
-): Set<Char> {
-    if (fillProgress <= 0f) return emptySet()
-    if (fillProgress >= 1f) return allSevenSegments
-
-    val sequence = cachedBurstFillSequenceByMove.getValue(move)
-    val fillCompleteProgress = ResolutionPulseFillCompleteAtMs.toFloat() / ResolutionPulseDurationMs
-
-    if (slotIndex < 0 && fillProgress >= fillCompleteProgress) {
-        return sequence.last()
-    }
-
-    val effectiveProgress = resolutionBurstEffectiveFillProgress(fillProgress, slotIndex, move)
-    if (effectiveProgress <= 0f) return emptySet()
-    if (effectiveProgress >= 1f || fillProgress >= fillCompleteProgress) {
-        return sequence.last()
-    }
-
-    val index = (effectiveProgress * (sequence.size - 1))
-        .toInt()
-        .coerceIn(0, sequence.lastIndex)
-    return sequence[index]
-}
-
-/** Burst segments that may be half-lit without touching protected full-lit segments. */
-fun resolutionBurstSegmentsExcluding(
-    move: Move,
-    progress: Float,
-    protectedSegments: Set<Char>,
-    slotIndex: Int = -1,
-): Set<Char> = resolutionBurstSegmentsAtProgress(move, progress, slotIndex) - protectedSegments
-
 fun isBridgePulseSlot(slotIndex: Int): Boolean = slotIndex in TopBarNetworkActivitySlotIndices
 
-/** Mirror outer-blank segments (f↔b, e↔c; a and g stay on both sides). */
-private fun mirrorOuterSegments(left: Set<Char>): Set<Char> =
-    left.map { segment ->
-        when (segment) {
-            'f' -> 'b'
-            'e' -> 'c'
-            else -> segment
-        }
-    }.toSet()
+/** Side verticals — upper pair (`f`/`b`) and lower pair (`e`/`c`) in [SevenSegmentGeometry]. */
+val NetworkBurstVerticalSegments: Set<Char> = setOf('b', 'c', 'e', 'f')
 
-/** Blank | spinner | blank — center-symmetric; spinner never uses top/bottom/middle (`a`/`d`/`g`). */
-private const val TopBarNetworkLeftSlot = 4
-private const val TopBarNetworkSpinnerSlot = 5
-private const val TopBarNetworkRightSlot = 6
+/** Top, middle, and bottom bars (`a` top; `g` middle; `d` bottom in [SevenSegmentGeometry]). */
+val NetworkBurstHorizontalSegments: Set<Char> = setOf('a', 'g', 'd')
 
-private val spinnerForbiddenSegments = setOf('a', 'd', 'g')
-private val spinnerAllowedSegments = setOf('b', 'c', 'e', 'f')
-private val spinnerLeftVerts = setOf('f', 'e')
-private val spinnerRightVerts = setOf('b', 'c')
+private const val BurstTopBar = 'a'
+private const val BurstMiddleBar = 'g'
+private const val BurstBottomBar = 'd'
 
-/** Left (`f`/`e`) and right (`b`/`c`) verticals on the spinner light as pairs. */
-fun ensureSpinnerSideVertsTogether(segments: Set<Char>): Set<Char> {
-    var result = segments
-    if (result.any { it in spinnerLeftVerts }) {
-        result += spinnerLeftVerts
-    }
-    if (result.any { it in spinnerRightVerts }) {
-        result += spinnerRightVerts
-    }
-    return result
-}
-
-/** Spinner digit: only side verticals; `a`/`d`/`g` belong on outer digits only. */
-private fun resolveSpinnerBurstSegments(raw: Set<Char>): Set<Char> =
-    ensureSpinnerSideVertsTogether(raw - spinnerForbiddenSegments)
-
-private data class NetworkActivitySignature(
-    /** Spinner slot: subset of `b`/`c`/`e`/`f` (center-symmetric pairs). */
-    val spinner: Set<Char>,
-    /** Left outer slot; right outer mirrors (`f`↔`b`, `e`↔`c`). May include `a`/`d`/`g`. */
-    val leftOuter: Set<Char>,
-)
-
-private fun symmetricNetworkSlotPattern(signature: NetworkActivitySignature): Map<Int, Set<Char>> {
-    val left = signature.leftOuter
-    return mapOf(
-        TopBarNetworkLeftSlot to left,
-        TopBarNetworkSpinnerSlot to signature.spinner,
-        TopBarNetworkRightSlot to mirrorOuterSegments(left),
-    )
-}
+/** Per-digit burst segments; identical on every burst digit slot except the colon and spinner. */
+fun networkActivityBurstSegments(kind: NetworkDataActivityKind): Set<Char> =
+    networkActivityBurstSegmentsByKind[kind].orEmpty()
 
 /**
- * Per-slot half-lit segments for each network I/O kind on slots 4–6 (digits 5–7).
- * Center-symmetric outers; spinner uses only `b`/`c`/`e`/`f`. Four patterns partition the
- * 14-segment burst universe with pairwise overlap of exactly two (slot, segment) pairs.
+ * Symmetric bar + vertical combinations (no left/right mirroring):
+ * - Connection: top bar
+ * - Match: bottom bar
+ * - Presence: middle bar
+ * - Queue: all vertical bars
  */
-private val networkActivitySlotPatterns: Map<NetworkDataActivityKind, Map<Int, Set<Char>>> = mapOf(
-    NetworkDataActivityKind.Queue to symmetricNetworkSlotPattern(
-        NetworkActivitySignature(spinner = setOf('b', 'c', 'e', 'f'), leftOuter = setOf('a', 'd', 'e', 'f')),
-    ),
-    NetworkDataActivityKind.Match to symmetricNetworkSlotPattern(
-        NetworkActivitySignature(spinner = emptySet(), leftOuter = setOf('a', 'g')),
-    ),
-    NetworkDataActivityKind.Presence to symmetricNetworkSlotPattern(
-        NetworkActivitySignature(spinner = emptySet(), leftOuter = setOf('d', 'g')),
-    ),
-    NetworkDataActivityKind.Connection to symmetricNetworkSlotPattern(
-        NetworkActivitySignature(spinner = emptySet(), leftOuter = setOf('e', 'g')),
-    ),
+private val networkActivityBurstSegmentsByKind: Map<NetworkDataActivityKind, Set<Char>> = mapOf(
+    NetworkDataActivityKind.Connection to setOf(BurstTopBar),
+    NetworkDataActivityKind.Match to setOf(BurstBottomBar),
+    NetworkDataActivityKind.Presence to setOf(BurstMiddleBar),
+    NetworkDataActivityKind.Queue to NetworkBurstVerticalSegments,
 )
 
-/** Union of all segments this kind lights across digits 5–7 (resolved per slot). */
+/** Union of all segments this kind lights across every overlay digit slot. */
 fun networkActivityHalfLitSegments(kind: NetworkDataActivityKind): Set<Char> =
-    TopBarNetworkActivitySlotIndices
+    TopBarNetworkBurstSlotIndices
         .flatMap { slot -> networkActivitySlotHalfLitSegments(kind, slot) }
         .toSet()
 
@@ -348,12 +117,8 @@ fun networkActivitySlotHalfLitSegments(
     kind: NetworkDataActivityKind,
     slotIndex: Int,
 ): Set<Char> {
-    val raw = networkActivitySlotPatterns[kind]?.get(slotIndex).orEmpty()
-    return if (slotIndex == TopBarNetworkSpinnerSlot) {
-        resolveSpinnerBurstSegments(raw)
-    } else {
-        raw
-    }
+    if (!isNetworkBurstSlot(slotIndex)) return emptySet()
+    return networkActivityBurstSegments(kind)
 }
 
 fun bridgeSlotNetworkHalfLitSegments(
@@ -361,89 +126,45 @@ fun bridgeSlotNetworkHalfLitSegments(
     activeKinds: Set<NetworkDataActivityKind>,
     connectionProbeActive: Boolean,
 ): Set<Char> {
-    if (slotIndex !in TopBarNetworkActivitySlotIndices) return emptySet()
-    val segments = mutableSetOf<Char>()
-    for (kind in activeKinds) {
-        segments += networkActivitySlotHalfLitSegments(kind, slotIndex)
+    if (!isNetworkBurstSlot(slotIndex)) return emptySet()
+    val kinds = activeNetworkBurstKinds(activeKinds, connectionProbeActive)
+    if (kinds.isEmpty()) return emptySet()
+
+    val kindsBySegment = mutableMapOf<Char, MutableSet<NetworkDataActivityKind>>()
+    for (kind in kinds) {
+        for (segment in networkActivityBurstSegments(kind)) {
+            kindsBySegment.getOrPut(segment) { mutableSetOf() }.add(kind)
+        }
     }
-    if (
-        connectionProbeActive &&
-        NetworkDataActivityKind.Queue !in activeKinds &&
-        NetworkDataActivityKind.Connection !in activeKinds
-    ) {
-        segments += networkActivitySlotHalfLitSegments(NetworkDataActivityKind.Connection, slotIndex)
-    }
-    return segments
+    return kindsBySegment.filterValues { it.size == 1 }.keys
 }
 
-/** Final move-specific shape one step before the all-segment peak. */
-fun resolutionBurstSegments(move: Move): Set<Char> =
-    resolutionBurstFillSequence(move).let { sequence ->
-        if (sequence.size < 2) sequence.lastOrNull().orEmpty() else sequence[sequence.lastIndex - 1]
+/** Active burst kinds for a slot, including connection probe when eligible. */
+fun activeNetworkBurstKinds(
+    activeKinds: Set<NetworkDataActivityKind>,
+    connectionProbeActive: Boolean,
+): Set<NetworkDataActivityKind> {
+    val kinds = activeKinds.toMutableSet()
+    if (
+        connectionProbeActive &&
+        NetworkDataActivityKind.Queue !in kinds &&
+        NetworkDataActivityKind.Connection !in kinds
+    ) {
+        kinds += NetworkDataActivityKind.Connection
     }
+    return kinds
+}
 
-/** Drives segmented pulses: resolution (all slots), network overlays (digits 5–7), connection probe. */
+/** Provides network I/O overlays for bridge slots on the top-bar segmented display. */
 @Composable
 fun SegmentedDisplayPulseEffect(
-    resolutionPulseTrigger: Int,
-    pulseMove: Move,
     activeNetworkKinds: Set<NetworkDataActivityKind> = emptySet(),
     connectionProbeActive: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    var resolutionAlpha by remember { mutableFloatStateOf(0f) }
-    var resolutionFill by remember { mutableFloatStateOf(0f) }
-    var lastPulseTrigger by remember {
-        mutableIntStateOf(resolutionPulseConsumptionStart(resolutionPulseTrigger))
-    }
-
-    LaunchedEffect(resolutionPulseTrigger) {
-        if (!shouldConsumeResolutionPulse(lastPulseTrigger, resolutionPulseTrigger)) {
-            return@LaunchedEffect
-        }
-        while (lastPulseTrigger < resolutionPulseTrigger) {
-            lastPulseTrigger++
-            try {
-                resolutionAlpha = 0f
-                resolutionFill = 0f
-                coroutineScope {
-                    val fillJob = launch {
-                        animate(
-                            initialValue = 0f,
-                            targetValue = 0f,
-                            animationSpec = resolutionPulseFillAnimationSpec(pulseMove),
-                        ) { value, _ ->
-                            resolutionFill = value
-                        }
-                    }
-                    animate(
-                        initialValue = 0f,
-                        targetValue = 0f,
-                        animationSpec = keyframes {
-                            durationMillis = ResolutionPulseDurationMs
-                            0f at 0
-                            1f at ResolutionPulseAlphaPeakAtMs using LinearOutSlowInEasing
-                            1f at ResolutionPulseHoldUntilMs
-                            0f at ResolutionPulseDurationMs using FastOutSlowInEasing
-                        },
-                    ) { value, _ ->
-                        resolutionAlpha = value
-                    }
-                    fillJob.join()
-                }
-            } finally {
-                resolutionAlpha = 0f
-                resolutionFill = 0f
-            }
-        }
-    }
-
     CompositionLocalProvider(
-        LocalResolutionPulseAlpha provides resolutionAlpha,
-        LocalResolutionPulseFill provides resolutionFill,
         LocalNetworkActivityKinds provides activeNetworkKinds,
         LocalConnectionProbeActive provides connectionProbeActive,
-        LocalSegmentedDisplayPulseMove provides pulseMove,
     ) {
         content()
     }
@@ -913,47 +634,6 @@ private fun QueueTimerDigitsSegmentedDisplay(
     }
 }
 
-private data class AppliedSlotBurst(
-    val segments: Set<Char>,
-    val strength: Float,
-    val uniformAlpha: Float = 0f,
-)
-
-@Composable
-private fun resolveResolutionSlotBurst(
-    slotIndex: Int,
-    protectedSegments: Set<Char>,
-): AppliedSlotBurst {
-    val resolutionAlpha = LocalResolutionPulseAlpha.current
-    if (resolutionAlpha <= ResolutionPulseInactiveThreshold) {
-        return AppliedSlotBurst(emptySet(), 0f)
-    }
-    val resolutionFill = LocalResolutionPulseFill.current
-    if (resolutionFill <= ResolutionPulseInactiveThreshold) {
-        return AppliedSlotBurst(emptySet(), 0f)
-    }
-    val fill = resolutionFill.coerceIn(0f, 1f)
-    val pulseMove = LocalSegmentedDisplayPulseMove.current
-    val slotProgress = if (slotIndex >= 0) {
-        resolutionBurstSlotFillProgress(fill, slotIndex, pulseMove)
-    } else {
-        1f
-    }
-    val strength = (resolutionAlpha * slotProgress).coerceIn(0f, 1f)
-    if (strength <= ResolutionPulseInactiveThreshold) {
-        return AppliedSlotBurst(emptySet(), 0f)
-    }
-    return AppliedSlotBurst(
-        segments = resolutionBurstSegmentsExcluding(
-            pulseMove,
-            fill,
-            protectedSegments,
-            slotIndex,
-        ),
-        strength = strength,
-    )
-}
-
 @Composable
 private fun SegmentedDisplayPulseSlot(
     offColor: Color,
@@ -975,19 +655,11 @@ private fun SegmentedDisplayPulseSlot(
         emptySet()
     }
     val combinedHalfLit = (halfLitSegments + networkHalfLit) - fullLitSegments
-    val protectedSegments = if (dimAllSegments) {
-        fullLitSegments
-    } else {
-        fullLitSegments + combinedHalfLit
-    }
-    val resolutionBurst = resolveResolutionSlotBurst(slotIndex, protectedSegments)
 
     SevenSegmentDisplayWithPulse(
         fullLitSegments = fullLitSegments,
         halfLitSegments = combinedHalfLit,
         dimAllSegments = dimAllSegments,
-        burstSegments = resolutionBurst.segments,
-        burstAlpha = resolutionBurst.strength,
         offColor = offColor,
         modifier = modifier.size(digitWidth, digitHeight),
     )
@@ -1004,35 +676,11 @@ private fun SegmentedColonPulseSlot(
     slotIndex: Int = -1,
 ) {
     val colonWidth = colonSlotWidth(digitWidth)
-    val resolutionAlpha = LocalResolutionPulseAlpha.current
-    val burstStrength = if (
-        slotIndex >= 0 &&
-        resolutionAlpha > ResolutionPulseInactiveThreshold
-    ) {
-        val resolutionFill = LocalResolutionPulseFill.current
-        if (resolutionFill > ResolutionPulseInactiveThreshold) {
-            val pulseMove = LocalSegmentedDisplayPulseMove.current
-            resolutionBurstSlotFillProgress(
-                resolutionFill.coerceIn(0f, 1f),
-                slotIndex,
-                pulseMove,
-            ) * resolutionAlpha
-        } else {
-            0f
-        }
-    } else {
-        0f
-    }
-    val halfLitColor = sevenSegmentHalfLitColor()
-    val pipColor = when {
-        burstStrength > 0.001f -> lerp(offColor, halfLitColor, burstStrength.coerceIn(0f, 1f))
-        lit -> litColor
-        else -> offColor
-    }
+    val pipColor = if (lit) litColor else offColor
     WithOptionalPulseSlotIndex(slotIndex) {
         SevenSegmentTimeColon(
             color = pipColor,
-            lit = lit || burstStrength > 0.001f,
+            lit = lit,
             digitHeight = digitHeight,
             modifier = modifier.size(width = colonWidth, height = digitHeight),
         )
@@ -1044,8 +692,6 @@ private fun SevenSegmentDisplayWithPulse(
     fullLitSegments: Set<Char>,
     halfLitSegments: Set<Char>,
     dimAllSegments: Boolean,
-    burstSegments: Set<Char>,
-    burstAlpha: Float,
     offColor: Color,
     modifier: Modifier = Modifier,
 ) {
@@ -1058,12 +704,6 @@ private fun SevenSegmentDisplayWithPulse(
             when {
                 segment.id in fullLitSegments -> drawSevenSegmentLit(segment, fullLitColor)
                 segment.id in halfLitSegments -> drawSevenSegment(segment, halfLitColor)
-                segment.id in burstSegments && burstAlpha > 0.001f -> {
-                    drawSevenSegment(
-                        segment,
-                        lerp(offColor, halfLitColor, burstAlpha),
-                    )
-                }
                 dimAllSegments -> drawSevenSegment(segment, dimColor)
                 else -> drawSevenSegment(segment, offColor)
             }
@@ -1152,16 +792,10 @@ private fun SpinningSevenSegmentPulseSlot(
             step = currentStep
         }
     }
-    val slotIndex = LocalSegmentedDisplayPulseSlotIndex.current
-    val networkHalfLit = bridgeSlotNetworkHalfLitSegments(
-        slotIndex = slotIndex,
-        activeKinds = LocalNetworkActivityKinds.current,
-        connectionProbeActive = LocalConnectionProbeActive.current,
-    )
     val spinnerHalfLit = if (animate) steps[step] else emptySet()
     SegmentedDisplayPulseSlot(
         offColor = offColor,
-        halfLitSegments = spinnerHalfLit + networkHalfLit,
+        halfLitSegments = spinnerHalfLit,
         digitWidth = digitWidth,
         digitHeight = digitHeight,
         modifier = modifier,

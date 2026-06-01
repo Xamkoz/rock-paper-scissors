@@ -1,10 +1,8 @@
 package com.rpsonline.app.ui.util
 
 import com.rpsonline.app.data.model.MatchStatus
-import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.model.RoundResult
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,18 +25,6 @@ class RoundResolutionPulseNotifierTest {
         notifier.markFeedbackComplete(resolved, "match-1")
 
         assertFalse(notifier.shouldSuppressClockTickFor(resolved, "match-1"))
-    }
-
-    @Test
-    fun resetPulseTrigger_clearsPendingBursts() {
-        val notifier = RoundResolutionPulseNotifier()
-        notifier.pulse(Move.ROCK)
-        notifier.pulse(Move.PAPER)
-        assertTrue(notifier.pulseTrigger >= 2)
-
-        notifier.resetPulseTrigger()
-
-        assertEquals(0, notifier.pulseTrigger)
     }
 
     @Test

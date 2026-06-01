@@ -24,7 +24,7 @@ enum class NetworkDataActivityKind {
  * Each [bump] lights a move-specific segment pattern on its bridge slot (half-lit, no animation).
  */
 object NetworkDataActivityTracker {
-    private const val DEFAULT_ACTIVE_MS = 450L
+    private const val DEFAULT_ACTIVE_MS = 250L
 
     private val activeUntilByKind = NetworkDataActivityKind.entries.associateWith { AtomicLong(0L) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
