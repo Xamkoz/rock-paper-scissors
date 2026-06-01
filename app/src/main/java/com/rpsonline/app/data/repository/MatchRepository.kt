@@ -475,6 +475,9 @@ class MatchRepository(
     }
 
     suspend fun requestRoundTimeout(matchId: String, roundNumber: Int) {
+        if (RoundTimeoutRequestDeduper.wasSent(matchId, roundNumber)) {
+            return
+        }
         // Auto-id doc: rules only allow create (not update). Reusing uid doc breaks tie replays.
         firestore.collection("matches")
             .document(matchId)
@@ -488,6 +491,7 @@ class MatchRepository(
                 ),
             )
             .await()
+        RoundTimeoutRequestDeduper.markSent(matchId, roundNumber)
     }
 
     /**

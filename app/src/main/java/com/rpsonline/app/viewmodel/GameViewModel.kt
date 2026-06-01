@@ -11,6 +11,9 @@ import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.GameFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.data.repository.RoundTimeoutRequestDeduper
+import com.rpsonline.app.data.repository.isQuotaExceededError
+import com.rpsonline.app.data.repository.quotaExceededUserMessage
 import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.domain.LiveEloPreview
 import com.rpsonline.app.domain.liveEloPreview
@@ -626,7 +629,9 @@ class GameViewModel(
                     return@launch
                 }
                 try {
-                    matchRepository.requestRoundTimeout(matchId, roundNumber)
+                    if (!RoundTimeoutRequestDeduper.wasSent(matchId, roundNumber)) {
+                        matchRepository.requestRoundTimeout(matchId, roundNumber)
+                    }
                     if (pollMatchAfterTimeoutRequest(roundNumber)) {
                         return@launch
                     }
@@ -637,6 +642,10 @@ class GameViewModel(
                         matchSnapshotAtTimeoutRequest = null
                         _uiState.update { it.copy(isResolvingTimeout = false, error = null) }
                         return@launch
+                    }
+                    if (isQuotaExceededError(e) && attempt < 5) {
+                        delay(3_000)
+                        return@repeat
                     }
                     _uiState.update {
                         it.copy(
@@ -953,13 +962,15 @@ private fun isIgnorableFirestoreRace(error: Throwable): Boolean {
 }
 
 private fun userFacingGameError(error: Throwable, fallback: String): String {
+    if (isQuotaExceededError(error)) return quotaExceededUserMessage()
     if (error is FirebaseFirestoreException) {
         return when (error.code) {
             FirebaseFirestoreException.Code.UNAVAILABLE,
             FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
             -> "Connection issue. Check your network and try again."
+            FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED -> quotaExceededUserMessage()
             else -> fallback
         }
     }
-    return error.message?.takeIf { it.isNotBlank() } ?: fallback
+    return error.message?.takeIf { it.isNotBlank() && !isQuotaExceededError(error) } ?: fallback
 }

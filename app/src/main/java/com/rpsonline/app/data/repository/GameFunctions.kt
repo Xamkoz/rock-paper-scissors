@@ -32,15 +32,22 @@ internal object GameFunctions {
                 return
             } catch (e: FirebaseFunctionsException) {
                 lastError = e
-                if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
+                if (isQuotaExceededError(e) && attempt == 0) {
+                    delay(2_000)
+                } else if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
                     delay(400)
                 } else {
                     throw e
                 }
             } catch (e: Exception) {
                 lastError = e
-                if (attempt > 0) throw e
-                delay(400)
+                if (isQuotaExceededError(e) && attempt == 0) {
+                    delay(2_000)
+                } else if (attempt > 0) {
+                    throw e
+                } else {
+                    delay(400)
+                }
             }
         }
         throw lastError ?: IllegalStateException("Could not submit move via server")
@@ -68,6 +75,7 @@ internal object GameFunctions {
 
     fun toSubmitErrorMessage(error: Throwable): String? {
         if (isRecoverableViaFirestore(error)) return null
+        if (isQuotaExceededError(error)) return quotaExceededUserMessage()
         val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
         return when (functionsError?.code) {
             FirebaseFunctionsException.Code.UNAUTHENTICATED ->
