@@ -268,9 +268,14 @@ class MatchmakingForegroundService : Service() {
         val queueChannel = NotificationChannel(
             FOREGROUND_CHANNEL_ID,
             getString(R.string.background_usage_notification_channel),
-            NotificationManager.IMPORTANCE_LOW,
+            NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
             description = getString(R.string.background_usage_notification_channel_desc)
+            setShowBadge(false)
+            enableLights(false)
+            enableVibration(false)
+            setSound(null, null)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         val matchChannel = NotificationChannel(
             FOREGROUND_ALERT_CHANNEL_ID,
@@ -328,11 +333,19 @@ class MatchmakingForegroundService : Service() {
         } else {
             FOREGROUND_CHANNEL_ID
         }
+        val statusBarIcon = if (needsLaunchAlert) {
+            R.drawable.ic_stat_match_found
+        } else {
+            R.drawable.ic_stat_rps_session
+        }
         val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_stat_match_found)
+            .setSmallIcon(statusBarIcon)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setContentIntent(pendingIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (needsLaunchAlert) {
             builder.setPriority(NotificationCompat.PRIORITY_HIGH)
             builder.setCategory(NotificationCompat.CATEGORY_CALL)
@@ -340,7 +353,10 @@ class MatchmakingForegroundService : Service() {
                 builder.setFullScreenIntent(pendingIntent, true)
             }
         } else {
-            builder.setSilent(true)
+            builder
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setSilent(true)
         }
         SevenSegmentNotificationRenderer.applySegmentedStatusViews(
             builder = builder,
@@ -352,7 +368,8 @@ class MatchmakingForegroundService : Service() {
     }
 
     companion object {
-        private const val FOREGROUND_CHANNEL_ID = "matchmaking_background"
+        /** New id so existing installs pick up [NotificationManager.IMPORTANCE_DEFAULT] for the status bar icon. */
+        private const val FOREGROUND_CHANNEL_ID = "matchmaking_background_status"
         private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
         private const val NOTIFICATION_TICK_MS = 500L

@@ -135,7 +135,7 @@
     <string name="match_found_notifications_enabled">Match found notifications, on</string>
     <string name="match_found_notifications_disabled">Match found notifications, off</string>
     <string name="background_usage_notification_channel">Background matchmaking</string>
-    <string name="background_usage_notification_channel_desc">Keeps queue heartbeats running while the app is in the background.</string>
+    <string name="background_usage_notification_channel_desc">Shows a status bar icon and keeps queue heartbeats running while the app is in the background.</string>
     <string name="background_usage_notification_title">Matchmaking in background</string>
     <string name="background_usage_notification_body">Staying connected while you wait for a match.</string>
     <string name="match_found_notification_channel">Match found</string>
