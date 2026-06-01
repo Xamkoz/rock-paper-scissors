@@ -42,6 +42,13 @@ object MatchSessionMonitor {
     private val _queueJoinedAtMs = MutableStateFlow<Long?>(null)
     val queueJoinedAtMs: StateFlow<Long?> = _queueJoinedAtMs.asStateFlow()
 
+    /** Stable queue timer start; kept across transient queue-doc loss during background search. */
+    private val _queueTimerAnchorMs = MutableStateFlow<Long?>(null)
+    val queueTimerAnchorMs: StateFlow<Long?> = _queueTimerAnchorMs.asStateFlow()
+
+    /** Elapsed-time anchor for queue UI; survives [signalQueueDocLost] until matchmaking ends. */
+    fun queueElapsedAnchorMs(): Long? = _queueTimerAnchorMs.value ?: _queueJoinedAtMs.value
+
     /** Queue doc exists locally; heartbeats run while this is true. */
     private val _hasQueueEntry = MutableStateFlow(false)
     val hasQueueEntry: StateFlow<Boolean> = _hasQueueEntry.asStateFlow()
@@ -133,13 +140,17 @@ object MatchSessionMonitor {
 
     fun setMatchmakingInProgress(active: Boolean) {
         _matchmakingInProgress.value = active
+        if (!active) {
+            clearQueueTimerAnchor()
+        }
     }
 
     fun isMatchmakingInProgress(): Boolean = _matchmakingInProgress.value
 
     /** True while the client should keep queue heartbeats (listener doc or confirmed join). */
     fun shouldSendQueueHeartbeats(): Boolean =
-        _hasQueueEntry.value || (_matchmakingInProgress.value && _queueJoinedAtMs.value != null)
+        _hasQueueEntry.value ||
+            (_matchmakingInProgress.value && queueElapsedAnchorMs() != null)
 
     fun hasPendingGameNavigation(): Boolean = _pendingGameNavigationMatchId.value != null
 
@@ -246,11 +257,22 @@ object MatchSessionMonitor {
         _hasQueueEntry.value = true
         _matchmakingInProgress.value = true
         mergeQueueJoinedAtMs(joinedAtMs)
+        ensureQueueTimerAnchor(joinedAtMs)
         notifySessionStateChanged()
     }
 
     private fun mergeQueueJoinedAtMs(candidateMs: Long) {
         _queueJoinedAtMs.value = mergeQueueJoinedAtMs(_queueJoinedAtMs.value, candidateMs)
+        ensureQueueTimerAnchor(candidateMs)
+    }
+
+    private fun ensureQueueTimerAnchor(candidateMs: Long) {
+        if (candidateMs <= 0L || _queueTimerAnchorMs.value != null) return
+        _queueTimerAnchorMs.value = candidateMs
+    }
+
+    private fun clearQueueTimerAnchor() {
+        _queueTimerAnchorMs.value = null
     }
 
     private fun attachForUser(uid: String?) {
@@ -293,6 +315,7 @@ object MatchSessionMonitor {
     private fun resetSessionUiState() {
         _activeMatch.value = null
         _queueJoinedAtMs.value = null
+        clearQueueTimerAnchor()
         _hasQueueEntry.value = false
         _matchmakingInProgress.value = false
         _pendingGameNavigationMatchId.value = null
@@ -324,8 +347,9 @@ object MatchSessionMonitor {
             }
         } else {
             _hasQueueEntry.value = false
-            _queueJoinedAtMs.value = null
             if (!_matchmakingInProgress.value) {
+                _queueJoinedAtMs.value = null
+                clearQueueTimerAnchor()
                 runCatching { matchRepository.clearStaleSessionQueue(uid) }
             }
         }
@@ -395,6 +419,7 @@ object MatchSessionMonitor {
         if (!matchmaking) {
             _hasQueueEntry.value = false
             _queueJoinedAtMs.value = null
+            clearQueueTimerAnchor()
             return
         }
         if (QueueSnapshotPolicy.shouldRetainSessionOnListenerError(matchmaking, error)) {
@@ -609,7 +634,6 @@ object MatchSessionMonitor {
      */
     fun signalQueueDocLost() {
         _hasQueueEntry.value = false
-        _queueJoinedAtMs.value = null
         notifySessionStateChanged()
         if (_matchmakingInProgress.value) {
             requestQueueRecovery()
@@ -628,6 +652,7 @@ object MatchSessionMonitor {
     fun clearQueueState(endMatchmaking: Boolean = true) {
         _hasQueueEntry.value = false
         _queueJoinedAtMs.value = null
+        clearQueueTimerAnchor()
         if (endMatchmaking) {
             _matchmakingInProgress.value = false
             pendingRecoveryMatchModes = null

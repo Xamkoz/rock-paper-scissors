@@ -222,7 +222,7 @@ class MatchmakingForegroundService : Service() {
 
     private fun resolveNotificationDisplay(): TopBarStatusRowSpec {
         val match = MatchSessionMonitor.activeMatch.value
-        val queueJoinedAt = MatchSessionMonitor.queueJoinedAtMs.value
+        val queueJoinedAt = MatchSessionMonitor.queueElapsedAnchorMs()
         val now = System.currentTimeMillis()
         val uid = FirebaseAuth.getInstance().currentUser?.uid
 

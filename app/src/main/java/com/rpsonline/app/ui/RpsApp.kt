@@ -159,6 +159,7 @@ fun RpsApp() {
     val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
     val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
+    val queueTimerAnchorMs by MatchSessionMonitor.queueTimerAnchorMs.collectAsStateWithLifecycle()
     var userEngaged by remember { mutableStateOf(PresenceEngagementTracker.isEngaged()) }
 
     LaunchedEffect(Unit) {
@@ -305,23 +306,17 @@ fun RpsApp() {
         }
         onPauseOrDispose { }
     }
-    var queueElapsedSeconds by remember(queueJoinedAtMs) {
-        mutableStateOf(
-            queueJoinedAtMs?.let { joinedAt ->
-                ((System.currentTimeMillis() - joinedAt) / 1_000).coerceAtLeast(0L)
-            } ?: 0L,
-        )
-    }
+    var queueElapsedSeconds by remember { mutableStateOf(0L) }
     var matchElapsedSeconds by remember(activeMatch?.id) { mutableStateOf(0L) }
 
-    LaunchedEffect(queueJoinedAtMs) {
+    LaunchedEffect(queueTimerAnchorMs, matchmakingInProgress) {
         while (true) {
-            val joinedAt = queueJoinedAtMs
-            if (joinedAt == null) {
+            val anchor = queueTimerAnchorMs
+            if (anchor == null || !matchmakingInProgress) {
                 queueElapsedSeconds = 0L
                 return@LaunchedEffect
             }
-            queueElapsedSeconds = ((System.currentTimeMillis() - joinedAt) / 1_000).coerceAtLeast(0L)
+            queueElapsedSeconds = ((System.currentTimeMillis() - anchor) / 1_000).coerceAtLeast(0L)
             delay(1_000)
         }
     }

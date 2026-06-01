@@ -373,21 +373,24 @@ class HomeViewModel(
             kotlinx.coroutines.flow.combine(
                 MatchSessionMonitor.hasQueueEntry,
                 MatchSessionMonitor.queueJoinedAtMs,
-            ) { hasEntry, joinedAtMs -> hasEntry to joinedAtMs }
-                .collect { (hasEntry, joinedAtMs) ->
-                if (joinedAtMs != null && !hasEntry && MatchSessionMonitor.isMatchmakingInProgress()) {
+                MatchSessionMonitor.queueTimerAnchorMs,
+            ) { hasEntry, joinedAtMs, timerAnchorMs -> Triple(hasEntry, joinedAtMs, timerAnchorMs) }
+                .collect { (hasEntry, joinedAtMs, timerAnchorMs) ->
+                val elapsedAnchorMs = timerAnchorMs ?: joinedAtMs
+                if (elapsedAnchorMs != null && !hasEntry && MatchSessionMonitor.isMatchmakingInProgress()) {
+                    syncConfirmedQueueUi()
                     viewModelScope.launch {
                         when (
                             runCatching { matchRepository.queueEntryExistsOnServer() }.getOrNull()
                         ) {
-                            true -> MatchSessionMonitor.confirmQueueJoinedAt(joinedAtMs)
+                            true -> MatchSessionMonitor.confirmQueueJoinedAt(elapsedAnchorMs)
                             false -> MatchSessionMonitor.signalQueueDocLost()
                             null -> Unit
                         }
                     }
                     return@collect
                 }
-                if (joinedAtMs == null) {
+                if (elapsedAnchorMs == null) {
                     val joinInFlight = _uiState.value.isJoiningQueue ||
                         MatchSessionMonitor.isQueueEntryPending()
                     if (joinInFlight && MatchSessionMonitor.isMatchmakingInProgress()) {
@@ -421,7 +424,7 @@ class HomeViewModel(
                             queueElapsedSeconds = 0,
                         )
                     }
-                } else if (hasEntry) {
+                } else {
                     syncConfirmedQueueUi()
                 }
             }
@@ -434,7 +437,7 @@ class HomeViewModel(
     }
 
     private fun syncConfirmedQueueUi() {
-        val joinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value ?: return
+        val joinedAtMs = MatchSessionMonitor.queueElapsedAnchorMs() ?: return
         val elapsed = ((System.currentTimeMillis() - joinedAtMs) / 1_000).coerceAtLeast(0)
         awaitingMatchFromQueue = true
         awaitingMatchStartedAtMs = System.currentTimeMillis()
@@ -449,13 +452,13 @@ class HomeViewModel(
         ensureQueueElapsedTicker()
     }
 
-    /** Single ticker; always reads [MatchSessionMonitor.queueJoinedAtMs] so resume cannot spawn competing timers. */
+    /** Single ticker; reads [MatchSessionMonitor.queueElapsedAnchorMs] so background recovery cannot reset elapsed time. */
     private fun ensureQueueElapsedTicker() {
         if (queueTimerJob?.isActive == true) return
         queueTimerJob = viewModelScope.launch {
             while (isActive) {
-                val joinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value ?: break
-                val elapsed = ((System.currentTimeMillis() - joinedAtMs) / 1_000).coerceAtLeast(0)
+                val anchorMs = MatchSessionMonitor.queueElapsedAnchorMs() ?: break
+                val elapsed = ((System.currentTimeMillis() - anchorMs) / 1_000).coerceAtLeast(0)
                 _uiState.update { it.copy(queueElapsedSeconds = elapsed) }
                 delay(1_000)
             }
@@ -781,7 +784,7 @@ class HomeViewModel(
 
             val serverJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
                 ?.takeIf { MatchSessionMonitor.hasQueueEntry.value }
-            val localJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
+            val localJoinedAtMs = MatchSessionMonitor.queueElapsedAnchorMs()
 
             if (serverJoinedAtMs != null) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
