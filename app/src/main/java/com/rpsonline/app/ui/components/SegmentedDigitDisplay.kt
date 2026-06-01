@@ -393,10 +393,14 @@ fun SegmentedDisplayPulseEffect(
 ) {
     var resolutionAlpha by remember { mutableFloatStateOf(0f) }
     var resolutionFill by remember { mutableFloatStateOf(0f) }
-    var lastPulseTrigger by remember { mutableIntStateOf(0) }
+    var lastPulseTrigger by remember {
+        mutableIntStateOf(resolutionPulseConsumptionStart(resolutionPulseTrigger))
+    }
 
     LaunchedEffect(resolutionPulseTrigger) {
-        if (resolutionPulseTrigger <= lastPulseTrigger) return@LaunchedEffect
+        if (!shouldConsumeResolutionPulse(lastPulseTrigger, resolutionPulseTrigger)) {
+            return@LaunchedEffect
+        }
         while (lastPulseTrigger < resolutionPulseTrigger) {
             lastPulseTrigger++
             try {

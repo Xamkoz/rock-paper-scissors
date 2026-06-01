@@ -466,6 +466,11 @@ fun RpsApp() {
 
     RpsTheme(style = themeStyle) {
         val roundResolutionPulseNotifier = remember { RoundResolutionPulseNotifier() }
+        LaunchedEffect(user?.uid) {
+            if (user?.uid == null) {
+                roundResolutionPulseNotifier.resetPulseTrigger()
+            }
+        }
         CompositionLocalProvider(
             LocalClockSoundMuted provides clockSoundMuted,
             LocalNetworkConnectionStatus provides connectionStatus,
@@ -529,6 +534,7 @@ fun RpsApp() {
                                     }
                                 }
                                 val connectionProbeActive =
+                                    (inQueue || inMatch) &&
                                     connectionStatus == NetworkConnectionStatus.Checking &&
                                     NetworkDataActivityKind.Connection !in activeNetworkKinds &&
                                     NetworkDataActivityKind.Queue !in activeNetworkKinds

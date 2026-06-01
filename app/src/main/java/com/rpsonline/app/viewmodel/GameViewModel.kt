@@ -184,10 +184,20 @@ class GameViewModel(
         if (alreadySubmitted && openRoundNumber == locallySubmittedRound) {
             locallySubmittedRound = null
         }
+        if (openRoundNumber == null) {
+            locallySubmittedRound = null
+            lockedMoveRound = null
+        }
         val localSubmitPending = locallySubmittedRound != null &&
             match?.status == MatchStatus.ACTIVE &&
-            (openRoundNumber == null || locallySubmittedRound == openRoundNumber)
-        val hasSubmittedMove = alreadySubmitted || localSubmitPending
+            openRoundNumber != null &&
+            locallySubmittedRound == openRoundNumber
+        val hasSubmittedMove = computeHasSubmittedMove(
+            alreadySubmitted = alreadySubmitted,
+            locallySubmittedRound = locallySubmittedRound,
+            openRoundNumber = openRoundNumber,
+            matchActive = match?.status == MatchStatus.ACTIVE,
+        )
         val opponentHasSubmitted = when {
             match == null || userId == null || openRound == null -> false
             else -> openRound.opponentHasSubmittedFor(userId, match.player1)

@@ -314,6 +314,16 @@ fun HomeScreen(
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
+        } else if (
+            uiState.preGameSync == null &&
+            uiState.activeMatchId != null &&
+            !matchmakingInProgress &&
+            openingMatchId == null
+        ) {
+            HomeReconnectToGameActionCard(
+                onClick = { onReconnectToGame(uiState.activeMatchId!!) },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
         } else if (uiState.preGameSync == null && uiState.activeMatchId == null) {
             HomeFindMatchActionCard(
                 onClick = { viewModel.startMatchmaking(context, selectedModes) },
@@ -327,20 +337,12 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-        when {
-            openingMatchId != null -> {
-                RpsHeroPrimaryButton(
-                    onClick = {},
-                    text = stringResource(R.string.opening_match),
-                    enabled = false,
-                )
-            }
-            uiState.activeMatchId != null && !matchmakingInProgress && openingMatchId == null -> {
-                RpsHeroPrimaryButton(
-                    onClick = { onReconnectToGame(uiState.activeMatchId!!) },
-                    text = stringResource(R.string.reconnect_to_game),
-                )
-            }
+        if (openingMatchId != null) {
+            RpsHeroPrimaryButton(
+                onClick = {},
+                text = stringResource(R.string.opening_match),
+                enabled = false,
+            )
         }
         Column(
             verticalArrangement = Arrangement.spacedBy(4.dp),

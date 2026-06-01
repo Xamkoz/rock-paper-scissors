@@ -50,6 +50,7 @@ import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
 import com.rpsonline.app.viewmodel.GameTimerUiState
 import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
+import com.rpsonline.app.viewmodel.shouldShowWaitingForOpponentMessage
 import kotlinx.coroutines.delay
 
 @Composable
@@ -338,7 +339,14 @@ fun GameScreen(
         val panelStatusMessage = when {
             inMatchEndTransition -> null
             uiState.isSubmitting -> stringResource(R.string.communicating_to_server)
-            uiState.hasSubmittedMove && panelOutcome == null -> stringResource(R.string.waiting_for_opponent)
+            shouldShowWaitingForOpponentMessage(
+                hasSubmittedMove = uiState.hasSubmittedMove,
+                opponentHasSubmitted = uiState.opponentHasSubmitted,
+                isSubmitting = uiState.isSubmitting,
+                isResolvingTimeout = uiState.isResolvingTimeout,
+                hasOpenRound = openRound != null,
+                hasPanelOutcome = panelOutcome != null,
+            ) -> stringResource(R.string.waiting_for_opponent)
             else -> null
         }
         val pickPrompt = when {

@@ -53,6 +53,7 @@ private fun rememberHomeMatchmakingCardMetrics(): HomeMatchmakingCardMetrics {
     val primaryTimer = formatQueueTime(5_999)
     val primaryOpening = stringResource(R.string.opening_game)
     val primaryFindMatch = stringResource(R.string.find_match)
+    val primaryReconnect = stringResource(R.string.reconnect_to_game)
     val primarySending = stringResource(R.string.communicating_to_server)
 
     return remember(
@@ -66,6 +67,7 @@ private fun rememberHomeMatchmakingCardMetrics(): HomeMatchmakingCardMetrics {
         primaryTimer,
         primaryOpening,
         primaryFindMatch,
+        primaryReconnect,
         primarySending,
         density,
     ) {
@@ -86,6 +88,7 @@ private fun rememberHomeMatchmakingCardMetrics(): HomeMatchmakingCardMetrics {
             measureHeight(primaryTimer, timerStyle),
             measureHeight(primaryOpening, timerStyle, maxLines = 2),
             measureHeight(primaryFindMatch, timerStyle),
+            measureHeight(primaryReconnect, timerStyle, maxLines = 2),
             measureHeight(primarySending, bodyMedium, maxLines = 2),
         )
 
@@ -214,6 +217,20 @@ fun HomeFindMatchActionCard(
 ) {
     HomeMatchmakingActionCard(
         primary = stringResource(R.string.find_match),
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun HomeReconnectToGameActionCard(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    HomeMatchmakingActionCard(
+        primary = stringResource(R.string.reconnect_to_game),
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,

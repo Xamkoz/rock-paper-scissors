@@ -78,6 +78,10 @@ class RoundResolutionPulseNotifier {
 
 
 
+    fun resetPulseTrigger() {
+        pulseTrigger = 0
+    }
+
     fun isLiveMatch(matchId: String): Boolean = matchId in liveMatchIds
 
 
