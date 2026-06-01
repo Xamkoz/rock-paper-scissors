@@ -27,6 +27,11 @@ import com.rpsonline.app.data.update.ReleaseChangelog
 private const val HomeVersionChipWidthSample = "v0.7.50"
 
 private const val HomeVersionChipScale = 0.8f
+private const val HomeVersionChipHeightScale = 0.85f
+
+private val HomeVersionChipHeight = HomeHeaderChipHeight * HomeVersionChipHeightScale
+private val HomeVersionChipPaddingTop = HomeHeaderChipColumnPaddingVertical
+private val HomeVersionChipPaddingBottom = HomeHeaderChipColumnPaddingVertical * 0.45f
 
 private val HomeVersionIconSize = 20.dp * HomeVersionChipScale
 private val HomeVersionChipHorizontalPadding = 20.dp * HomeVersionChipScale
@@ -121,6 +126,9 @@ fun HomeVersionMiniWidget(
         containerColor = containerColor,
         borderColor = borderColor,
         borderWidth = borderWidth,
+        chipHeight = HomeVersionChipHeight,
+        columnPaddingTop = HomeVersionChipPaddingTop,
+        columnPaddingBottom = HomeVersionChipPaddingBottom,
         contentDescription = "$statusDescription, $displayTag",
         modifier = modifier,
         minWidth = labelMinWidth + HomeVersionChipHorizontalPadding,

@@ -182,6 +182,7 @@ fun SignInScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
         HomeAppInfoFooter(
+            versionName = updateState.versionName,
             updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
             availableUpdate = updateState.availableUpdate,
             isCheckingForUpdate = updateState.isCheckingForUpdate,
@@ -192,6 +193,7 @@ fun SignInScreen(
                 activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
                     ?: updateViewModel.showUpdatePrompt()
             },
+            onVersionClick = onChangelog,
         )
     }
 }

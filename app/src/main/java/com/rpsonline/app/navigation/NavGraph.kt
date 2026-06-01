@@ -205,6 +205,7 @@ fun RpsNavGraph() {
                     onPlayerProfile = { profileUserId ->
                         navController.navigate(Routes.profile(profileUserId))
                     },
+                    onChangelog = { navController.navigate(Routes.CHANGELOG) },
                 )
                 }
             }

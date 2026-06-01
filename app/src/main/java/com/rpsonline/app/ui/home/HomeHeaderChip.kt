@@ -33,7 +33,7 @@ internal val HomeHeaderChipHeight = HomeHeaderChipBaseHeight * HomeHeaderChipSca
 internal val HomeHeaderChipBorderWidth = 2.dp * HomeHeaderChipScale
 private val HomeHeaderChipPaddingHorizontal = 12.dp * HomeHeaderChipScale
 private val HomeHeaderChipColumnPaddingHorizontal = 10.dp * HomeHeaderChipScale
-private val HomeHeaderChipColumnPaddingVertical = 4.dp * HomeHeaderChipScale
+internal val HomeHeaderChipColumnPaddingVertical = 4.dp * HomeHeaderChipScale
 private val HomeHeaderChipColumnItemSpacing = 2.dp * HomeHeaderChipScale
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -86,6 +86,9 @@ internal fun HomeHeaderChipColumn(
     modifier: Modifier = Modifier,
     minWidth: Dp = 0.dp,
     borderWidth: Dp = HomeHeaderChipBorderWidth,
+    chipHeight: Dp = HomeHeaderChipHeight,
+    columnPaddingTop: Dp = HomeHeaderChipColumnPaddingVertical,
+    columnPaddingBottom: Dp = HomeHeaderChipColumnPaddingVertical,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
@@ -99,7 +102,7 @@ internal fun HomeHeaderChipColumn(
             .wrapContentWidth()
             .then(if (minWidth > 0.dp) Modifier.widthIn(min = minWidth) else Modifier)
             .clip(shape)
-            .height(HomeHeaderChipHeight)
+            .height(chipHeight)
             .semantics { this.contentDescription = contentDescription }
             .then(clickModifier),
         containerColor = containerColor,
@@ -108,10 +111,12 @@ internal fun HomeHeaderChipColumn(
     ) {
         Box(
             modifier = Modifier
-                .height(HomeHeaderChipHeight)
+                .height(chipHeight)
                 .padding(
-                    horizontal = HomeHeaderChipColumnPaddingHorizontal,
-                    vertical = HomeHeaderChipColumnPaddingVertical,
+                    start = HomeHeaderChipColumnPaddingHorizontal,
+                    end = HomeHeaderChipColumnPaddingHorizontal,
+                    top = columnPaddingTop,
+                    bottom = columnPaddingBottom,
                 ),
             contentAlignment = Alignment.Center,
         ) {

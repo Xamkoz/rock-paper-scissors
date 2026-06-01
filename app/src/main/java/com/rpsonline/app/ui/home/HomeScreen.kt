@@ -63,7 +63,7 @@ import com.rpsonline.app.BuildConfig
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.MatchSessionMonitor
-import com.rpsonline.app.data.update.InstalledVersionApk
+import com.rpsonline.app.data.update.ReleaseChangelog
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.ui.components.AppUpdateDialogs
 import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
@@ -91,6 +91,7 @@ fun HomeScreen(
     onLeaderboard: () -> Unit,
     onProfile: () -> Unit,
     onPlayerProfile: (String) -> Unit = {},
+    onChangelog: () -> Unit,
     autoStartMatchmaking: Boolean = false,
     viewModel: HomeViewModel = viewModel(),
     updateViewModel: AppUpdateViewModel = viewModel(),
@@ -197,34 +198,6 @@ fun HomeScreen(
         ) {
         Spacer(modifier = Modifier.height(4.dp))
         HomeWelcomeHeaderRow(
-            versionName = updateState.versionName,
-            updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
-            isCheckingForUpdate = updateState.isCheckingForUpdate,
-            isDownloadingUpdate = updateState.isDownloadingUpdate,
-            hasAvailableUpdate = run {
-                val pending = updateState.availableUpdate
-                pending != null && pending.tag != updateState.dismissedUpdateTag
-            },
-            onVersionLongClickCopyApk = {
-                val apkUrl = InstalledVersionApk.downloadUrl(updateState.versionName) ?: return@HomeWelcomeHeaderRow
-                clipboardManager.setText(AnnotatedString(apkUrl))
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.apk_link_copied),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            },
-            onVersionClick = {
-                if (!BuildConfig.GITHUB_UPDATES_ENABLED) return@HomeWelcomeHeaderRow
-                val pendingUpdate = updateState.availableUpdate
-                if (pendingUpdate != null && pendingUpdate.tag != updateState.dismissedUpdateTag) {
-                    activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
-                        ?: updateViewModel.showUpdatePrompt()
-                } else if (!updateState.isCheckingForUpdate && !updateState.isDownloadingUpdate) {
-                    updateViewModel.checkForUpdate(context)
-                }
-            },
             onSignOutConfirmed = { viewModel.signOut(context) },
         )
         Spacer(modifier = Modifier.height(6.dp))
@@ -239,11 +212,13 @@ fun HomeScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 MatchMode.entries.forEach { mode ->
@@ -396,6 +371,7 @@ fun HomeScreen(
             text = stringResource(R.string.leaderboard),
         )
         HomeAppInfoFooter(
+            versionName = updateState.versionName,
             updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
             availableUpdate = updateState.availableUpdate,
             isCheckingForUpdate = updateState.isCheckingForUpdate,
@@ -406,6 +382,26 @@ fun HomeScreen(
                 activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
                     ?: updateViewModel.showUpdatePrompt()
             },
+            onVersionClick = onChangelog,
+            onVersionLongClick = {
+                val version = updateState.versionName.trim()
+                if (version.isBlank() && updateState.availableUpdate?.tag.isNullOrBlank()) return@HomeAppInfoFooter
+                val tag = if (BuildConfig.DEBUG) {
+                    updateState.availableUpdate?.tag?.takeIf { it.isNotBlank() }
+                        ?: ReleaseChangelog.tagForInstalledVersion(version)
+                } else {
+                    ReleaseChangelog.tagForInstalledVersion(version)
+                }
+                val apkUrl =
+                    "https://github.com/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/download/$tag/rps-online-$tag.apk"
+                clipboardManager.setText(AnnotatedString(apkUrl))
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.apk_link_copied),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
         )
         }
         }
@@ -414,13 +410,6 @@ fun HomeScreen(
 
 @Composable
 private fun HomeWelcomeHeaderRow(
-    versionName: String,
-    updatesEnabled: Boolean,
-    isCheckingForUpdate: Boolean,
-    isDownloadingUpdate: Boolean,
-    hasAvailableUpdate: Boolean,
-    onVersionLongClickCopyApk: () -> Unit,
-    onVersionClick: () -> Unit,
     onSignOutConfirmed: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -428,37 +417,18 @@ private fun HomeWelcomeHeaderRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
+        Text(
+            text = "Welcome!",
+            style = MaterialTheme.typography.headlineMedium,
+            color = scheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
-                .widthIn(min = 0.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Welcome!",
-                style = MaterialTheme.typography.headlineMedium,
-                color = scheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HomeSignOutMiniWidget(onSignOutConfirmed = onSignOutConfirmed)
-            HomeVersionMiniWidget(
-                versionName = versionName,
-                updatesEnabled = updatesEnabled,
-                isCheckingForUpdate = isCheckingForUpdate,
-                isDownloadingUpdate = isDownloadingUpdate,
-                hasAvailableUpdate = hasAvailableUpdate,
-                onLongClickCopyApk = onVersionLongClickCopyApk,
-                onClick = onVersionClick,
-            )
-        }
+                .widthIn(min = 0.dp)
+                .padding(end = 8.dp),
+        )
+        HomeSignOutMiniWidget(onSignOutConfirmed = onSignOutConfirmed)
     }
 }
 
