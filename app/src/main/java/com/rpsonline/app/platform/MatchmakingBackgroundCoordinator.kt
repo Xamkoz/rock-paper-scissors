@@ -87,6 +87,7 @@ object MatchmakingBackgroundCoordinator {
             match = match,
             hasQueueEntry = hasQueueEntry,
             queueJoinedAtMs = queueJoinedAtMs,
+            matchmakingInProgress = matchmakingInProgress,
         )
     }
 
@@ -101,7 +102,9 @@ object MatchmakingBackgroundCoordinator {
      * foreground UI must not duplicate those writes.
      */
     fun foregroundServiceOwnsHeartbeats(context: Context, backgroundUsageEnabled: Boolean): Boolean =
-        backgroundUsageEnabled && shouldRunService(context)
+        backgroundUsageEnabled &&
+            shouldRunService(context) &&
+            MatchmakingForegroundService.isRunning()
 
     fun sync(context: Context) {
         MatchmakingForegroundService.sync(
@@ -119,6 +122,7 @@ internal fun computeSessionNeedsBackgroundService(
     match: Match?,
     hasQueueEntry: Boolean,
     queueJoinedAtMs: Long?,
+    matchmakingInProgress: Boolean = false,
 ): Boolean {
     if (match != null && match.isParticipant(uid)) {
         when (match.status) {
@@ -126,7 +130,7 @@ internal fun computeSessionNeedsBackgroundService(
             else -> Unit
         }
     }
-    return hasQueueEntry || queueJoinedAtMs != null
+    return hasQueueEntry || queueJoinedAtMs != null || matchmakingInProgress
 }
 
 /** Presence heartbeats while foreground and engaged, or during an active queue/match session. */
@@ -137,8 +141,17 @@ internal fun computeSessionNeedsPresenceHeartbeat(
     match: Match?,
     hasQueueEntry: Boolean,
     queueJoinedAtMs: Long?,
+    matchmakingInProgress: Boolean = false,
 ): Boolean {
-    if (computeSessionNeedsBackgroundService(uid, match, hasQueueEntry, queueJoinedAtMs)) {
+    if (
+        computeSessionNeedsBackgroundService(
+            uid,
+            match,
+            hasQueueEntry,
+            queueJoinedAtMs,
+            matchmakingInProgress = matchmakingInProgress,
+        )
+    ) {
         return true
     }
     return appInForeground && userEngaged

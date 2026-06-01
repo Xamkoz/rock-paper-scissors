@@ -210,12 +210,15 @@ fun RpsApp() {
         }
     }
 
+    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
+
     LaunchedEffect(
         user?.uid,
         appInForeground,
         userEngaged,
         hasQueueEntry,
         queueJoinedAtMs,
+        matchmakingInProgress,
         activeMatch?.id,
         activeMatch?.status,
         backgroundUsageEnabled,
@@ -229,6 +232,7 @@ fun RpsApp() {
                 match = activeMatch,
                 hasQueueEntry = hasQueueEntry,
                 queueJoinedAtMs = queueJoinedAtMs,
+                matchmakingInProgress = matchmakingInProgress,
             )
         fun serviceOwnsHeartbeats(): Boolean =
             MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
@@ -243,7 +247,7 @@ fun RpsApp() {
         }
 
         if (!shouldMaintainPresence()) {
-            if (!serviceOwnsHeartbeats()) {
+            if (!serviceOwnsHeartbeats() && !MatchSessionMonitor.isMatchmakingInProgress()) {
                 stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
             }
             return@LaunchedEffect
@@ -261,7 +265,7 @@ fun RpsApp() {
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
-                if (!serviceOwnsHeartbeats()) {
+                if (!serviceOwnsHeartbeats() && !MatchSessionMonitor.isMatchmakingInProgress()) {
                     stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
                 }
                 break
@@ -297,7 +301,6 @@ fun RpsApp() {
         }
         onPauseOrDispose { }
     }
-    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
     var queueElapsedSeconds by remember(queueJoinedAtMs) {
         mutableStateOf(
             queueJoinedAtMs?.let { joinedAt ->
@@ -340,8 +343,8 @@ fun RpsApp() {
         }
     }
 
-    LaunchedEffect(hasQueueEntry, backgroundUsageEnabled) {
-        if (!hasQueueEntry) return@LaunchedEffect
+    LaunchedEffect(hasQueueEntry, queueJoinedAtMs, matchmakingInProgress, backgroundUsageEnabled) {
+        if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) return@LaunchedEffect
         if (
             MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
                 context,
@@ -353,6 +356,7 @@ fun RpsApp() {
         var consecutiveFailures = 0
         matchRepository.sendQueueHeartbeat()
         while (true) {
+            if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) break
             if (
                 MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
                     context,
@@ -426,9 +430,9 @@ fun RpsApp() {
         lastNotifiedMatchId = match.id
     }
 
-    LifecycleResumeEffect(hasQueueEntry, backgroundUsageEnabled) {
+    LifecycleResumeEffect(hasQueueEntry, queueJoinedAtMs, matchmakingInProgress, backgroundUsageEnabled) {
         if (
-            hasQueueEntry &&
+            MatchSessionMonitor.shouldSendQueueHeartbeats() &&
             !MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
                 context,
                 backgroundUsageEnabled,

@@ -68,6 +68,19 @@ class MatchSessionBackgroundPolicyTest {
     }
 
     @Test
+    fun matchmakingInProgress_keepsBackgroundServiceWhenListenerCleared() {
+        assertTrue(
+            computeSessionNeedsBackgroundService(
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+                matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
     fun foregroundEngagedIdle_needsPresenceHeartbeat() {
         assertTrue(
             computeSessionNeedsPresenceHeartbeat(
@@ -119,6 +132,22 @@ class MatchSessionBackgroundPolicyTest {
                 match = null,
                 hasQueueEntry = true,
                 queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun screenLockedQueue_matchmakingFlag_keepsPresenceHeartbeat() {
+        assertTrue(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = false,
+                userEngaged = false,
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
             ),
         )
     }

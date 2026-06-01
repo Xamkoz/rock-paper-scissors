@@ -98,6 +98,10 @@ object MatchSessionMonitor {
 
     fun isMatchmakingInProgress(): Boolean = _matchmakingInProgress.value
 
+    /** True while the client should keep queue heartbeats (listener doc or confirmed join). */
+    fun shouldSendQueueHeartbeats(): Boolean =
+        _hasQueueEntry.value || (_matchmakingInProgress.value && _queueJoinedAtMs.value != null)
+
     fun requestGameNavigation(matchId: String) {
         if (isAutoGameNavigationSuppressed(matchId)) return
         _pendingGameNavigationMatchId.value = matchId
@@ -326,18 +330,33 @@ object MatchSessionMonitor {
     }
 
     private fun applyQueueSnapshot(snapshot: DocumentSnapshot?, error: Exception?) {
-        if (error != null || snapshot == null || !snapshot.exists()) {
+        val matchmaking = _matchmakingInProgress.value
+        if (!matchmaking) {
             _hasQueueEntry.value = false
             _queueJoinedAtMs.value = null
             return
         }
-        if (!_matchmakingInProgress.value) {
+        if (QueueSnapshotPolicy.shouldRetainSessionOnListenerError(matchmaking, error)) {
+            return
+        }
+        val exists = snapshot?.exists() == true
+        val fromCache = snapshot?.metadata?.isFromCache != false
+        if (
+            QueueSnapshotPolicy.shouldRetainSessionOnMissingDoc(
+                matchmakingInProgress = matchmaking,
+                exists = exists,
+                fromCache = fromCache,
+            )
+        ) {
+            return
+        }
+        if (!exists) {
             _hasQueueEntry.value = false
-            _queueJoinedAtMs.value = null
+            notifySessionStateChanged()
             return
         }
         _hasQueueEntry.value = true
-        resolveQueueJoinedAtMs(snapshot)?.let { mergeQueueJoinedAtMs(it) }
+        resolveQueueJoinedAtMs(snapshot!!)?.let { mergeQueueJoinedAtMs(it) }
         if (snapshot.metadata.hasPendingWrites()) {
             return
         }

@@ -115,7 +115,7 @@ class MatchmakingForegroundService : Service() {
                         }
                     }
                 }
-                if (MatchSessionMonitor.hasQueueEntry.value) {
+                if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
                     if (matchRepository.sendQueueHeartbeat()) {
                         queueFailures = 0
                     } else {
@@ -368,6 +368,8 @@ class MatchmakingForegroundService : Service() {
         fun refreshNotificationIfRunning() {
             runningInstance?.repostForegroundNotification()
         }
+
+        fun isRunning(): Boolean = runningInstance != null
 
         fun sync(context: Context, shouldRun: Boolean) {
             if (shouldRun) {

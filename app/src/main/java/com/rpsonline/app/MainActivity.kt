@@ -15,6 +15,7 @@ import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchLaunchHelper
+import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.PresenceEngagementTracker
 import com.rpsonline.app.ui.RpsApp
@@ -83,7 +84,10 @@ class MainActivity : ComponentActivity() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
-                    Intent.ACTION_SCREEN_OFF -> PresenceEngagementTracker.setScreenInteractive(false)
+                    Intent.ACTION_SCREEN_OFF -> {
+                        PresenceEngagementTracker.setScreenInteractive(false)
+                        MatchmakingBackgroundCoordinator.sync(context)
+                    }
                     Intent.ACTION_SCREEN_ON -> PresenceEngagementTracker.syncScreenInteractive(context)
                 }
             }
