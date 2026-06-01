@@ -99,6 +99,7 @@ class MatchmakingForegroundService : Service() {
         heartbeatJob = serviceScope.launch {
             var queueFailures = 0
             var presenceBeat = 0
+            var queueBeat = 0
             while (isActive) {
                 FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
                     runCatching {
@@ -116,6 +117,10 @@ class MatchmakingForegroundService : Service() {
                     }
                 }
                 if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
+                    queueBeat++
+                    if (queueBeat % 3 == 0) {
+                        MatchSessionMonitor.verifyQueueOnServer()
+                    }
                     if (matchRepository.sendQueueHeartbeat()) {
                         queueFailures = 0
                     } else {

@@ -63,6 +63,10 @@ object MatchSessionMonitor {
     private var listeningMatchId: String? = null
     private var attachedUid: String? = null
     private var lastServerSyncAtMs = 0L
+    private var lastQueueServerVerifyAtMs = 0L
+
+    /** Min gap between server queue existence checks (avoids hammering Firestore). */
+    private const val QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS = 60_000L
 
     fun ensureStarted() {
         if (authListener != null) return
@@ -350,9 +354,8 @@ object MatchSessionMonitor {
         ) {
             return
         }
-        if (!exists) {
-            _hasQueueEntry.value = false
-            notifySessionStateChanged()
+        if (QueueSnapshotPolicy.isAuthoritativeQueueMissing(exists, fromCache)) {
+            signalQueueDocLost()
             return
         }
         _hasQueueEntry.value = true
@@ -360,6 +363,39 @@ object MatchSessionMonitor {
         if (snapshot.metadata.hasPendingWrites()) {
             return
         }
+        if (fromCache) {
+            maybeVerifyQueueOnServerThrottled()
+        }
+    }
+
+    private fun maybeVerifyQueueOnServerThrottled() {
+        val now = System.currentTimeMillis()
+        if (now - lastQueueServerVerifyAtMs < QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS) return
+        lastQueueServerVerifyAtMs = now
+        sessionScope.launch {
+            verifyQueueOnServer()
+        }
+    }
+
+    /**
+     * Confirms queue/{uid} exists on the server. Clears local session via [signalQueueDocLost]
+     * when the doc is gone but the client still thinks it is queued.
+     */
+    suspend fun verifyQueueOnServer(): Boolean {
+        if (auth.currentUser?.uid == null) return false
+        if (!_matchmakingInProgress.value && !shouldSendQueueHeartbeats()) return true
+        val exists = matchRepository.queueEntryExistsOnServer()
+        if (exists) {
+            if (!_hasQueueEntry.value && _matchmakingInProgress.value) {
+                _hasQueueEntry.value = true
+                notifySessionStateChanged()
+            }
+            return true
+        }
+        if (shouldSendQueueHeartbeats() || _hasQueueEntry.value || _queueJoinedAtMs.value != null) {
+            signalQueueDocLost()
+        }
+        return false
     }
 
     private fun resolveQueueJoinedAtMs(snapshot: DocumentSnapshot): Long? {

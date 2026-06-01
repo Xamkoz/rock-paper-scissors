@@ -12,4 +12,8 @@ internal object QueueSnapshotPolicy {
         exists: Boolean,
         fromCache: Boolean,
     ): Boolean = matchmakingInProgress && !exists && fromCache
+
+    /** Server-confirmed queue doc deletion (not a cache/offline gap). */
+    fun isAuthoritativeQueueMissing(exists: Boolean, fromCache: Boolean): Boolean =
+        !exists && !fromCache
 }

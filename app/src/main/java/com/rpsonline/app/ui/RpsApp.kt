@@ -354,6 +354,8 @@ fun RpsApp() {
             return@LaunchedEffect
         }
         var consecutiveFailures = 0
+        var queueBeat = 0
+        runCatching { MatchSessionMonitor.verifyQueueOnServer() }
         matchRepository.sendQueueHeartbeat()
         while (true) {
             if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) break
@@ -364,6 +366,10 @@ fun RpsApp() {
                 )
             ) {
                 break
+            }
+            queueBeat++
+            if (queueBeat % 3 == 0) {
+                runCatching { MatchSessionMonitor.verifyQueueOnServer() }
             }
             if (!matchRepository.sendQueueHeartbeat()) {
                 consecutiveFailures += 1

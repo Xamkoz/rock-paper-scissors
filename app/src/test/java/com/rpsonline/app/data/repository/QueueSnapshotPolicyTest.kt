@@ -47,4 +47,11 @@ class QueueSnapshotPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun authoritativeMissing_isServerConfirmedGap() {
+        assertTrue(QueueSnapshotPolicy.isAuthoritativeQueueMissing(exists = false, fromCache = false))
+        assertFalse(QueueSnapshotPolicy.isAuthoritativeQueueMissing(exists = false, fromCache = true))
+        assertFalse(QueueSnapshotPolicy.isAuthoritativeQueueMissing(exists = true, fromCache = false))
+    }
 }

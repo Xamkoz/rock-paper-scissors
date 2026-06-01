@@ -357,15 +357,25 @@ class MatchRepository(
      * Keeps the queue entry alive while the user is actively waiting for a match.
      * Failures are treated as transient; cleanup of truly stale entries is server-driven.
      */
+    suspend fun queueEntryExistsOnServer(userId: String = uid): Boolean {
+        awaitFirestoreAuth()
+        val snap = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
+            firestore.collection("queue").document(userId).get(Source.SERVER).await()
+        } ?: return false
+        return snap.exists()
+    }
+
     suspend fun sendQueueHeartbeat(): Boolean {
         val userId = auth.currentUser?.uid ?: return false
         return runCatching {
             awaitFirestoreAuth()
+            val ref = firestore.collection("queue").document(userId)
             val now = Timestamp.now()
-            firestore.collection("queue").document(userId)
-                .update(mapOf("lastHeartbeatAt" to now))
-                .await()
-        }.isSuccess
+            withTimeout(QUEUE_WRITE_TIMEOUT_MS) {
+                ref.update(mapOf("lastHeartbeatAt" to now)).awaitTask()
+            }
+            queueEntryExistsOnServer(userId)
+        }.getOrDefault(false)
     }
 
     suspend fun confirmMatchReady(matchId: String) {

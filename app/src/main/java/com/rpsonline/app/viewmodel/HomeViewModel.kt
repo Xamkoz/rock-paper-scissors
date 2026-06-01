@@ -363,7 +363,24 @@ class HomeViewModel(
         MatchSessionMonitor.ensureStarted()
         queueObserveJob?.cancel()
         queueObserveJob = viewModelScope.launch {
-            MatchSessionMonitor.queueJoinedAtMs.collect { joinedAtMs ->
+            kotlinx.coroutines.flow.combine(
+                MatchSessionMonitor.hasQueueEntry,
+                MatchSessionMonitor.queueJoinedAtMs,
+            ) { hasEntry, joinedAtMs -> hasEntry to joinedAtMs }
+                .collect { (hasEntry, joinedAtMs) ->
+                if (joinedAtMs != null && !hasEntry && MatchSessionMonitor.isMatchmakingInProgress()) {
+                    viewModelScope.launch {
+                        val onServer = runCatching {
+                            matchRepository.queueEntryExistsOnServer()
+                        }.getOrDefault(false)
+                        if (onServer) {
+                            MatchSessionMonitor.confirmQueueJoinedAt(joinedAtMs)
+                        } else {
+                            MatchSessionMonitor.signalQueueDocLost()
+                        }
+                    }
+                    return@collect
+                }
                 if (joinedAtMs == null) {
                     val joinInFlight = _uiState.value.isJoiningQueue ||
                         MatchSessionMonitor.isQueueEntryPending()
@@ -428,7 +445,7 @@ class HomeViewModel(
                             queueElapsedSeconds = 0,
                         )
                     }
-                } else {
+                } else if (hasEntry) {
                     syncConfirmedQueueUi()
                 }
             }
