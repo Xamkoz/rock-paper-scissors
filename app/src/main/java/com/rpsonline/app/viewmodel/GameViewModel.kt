@@ -225,7 +225,8 @@ class GameViewModel(
         val openRoundChanged = previousOpenRound != null && openRoundNumber != previousOpenRound
         val staleSubmitting = _uiState.value.isSubmitting && activeSubmitJob?.isActive != true
         val snapshotUnchanged = fingerprint != null && fingerprint == lastAppliedMatchFingerprint
-        if (snapshotUnchanged && !clearResolving && !openRoundChanged && !staleSubmitting) {
+        val terminalStatus = match?.status == MatchStatus.COMPLETED || match?.status == MatchStatus.ABANDONED
+        if (snapshotUnchanged && !clearResolving && !openRoundChanged && !staleSubmitting && !terminalStatus) {
             return
         }
         if (fingerprint != null) {
@@ -549,12 +550,7 @@ class GameViewModel(
                         else current.copy(countdownSeconds = seconds)
                     }
                     if (seconds <= 0) {
-                        val state = _uiState.value
-                        val matchClockWillResolve = !state.serverMoveSubmitted &&
-                            _timerUiState.value.myClockSeconds == 0
-                        if (!matchClockWillResolve) {
-                            maybeRequestTimeoutResolution(match, roundNumber)
-                        }
+                        maybeRequestTimeoutResolution(match, roundNumber)
                         delay(500)
                         continue
                     }
@@ -584,6 +580,25 @@ class GameViewModel(
         requestTimeoutResolution(match, roundNumber)
     }
 
+    private suspend fun pollMatchAfterTimeoutRequest(roundNumber: Int): Boolean {
+        repeat(5) {
+            if (!_uiState.value.isResolvingTimeout) return false
+            runCatching { syncMatchFromServer() }
+            val match = _uiState.value.match
+            if (
+                match?.status == MatchStatus.COMPLETED ||
+                match?.status == MatchStatus.ABANDONED ||
+                match?.openRound()?.roundNumber != roundNumber
+            ) {
+                matchSnapshotAtTimeoutRequest = null
+                _uiState.update { it.copy(isResolvingTimeout = false, error = null) }
+                return true
+            }
+            delay(800)
+        }
+        return false
+    }
+
     private fun requestTimeoutResolution(match: Match, roundNumber: Int) {
         timeoutRequestedForRound = roundNumber
         matchSnapshotAtTimeoutRequest = matchFingerprint(match)
@@ -596,6 +611,9 @@ class GameViewModel(
                 }
                 try {
                     matchRepository.requestRoundTimeout(matchId, roundNumber)
+                    if (pollMatchAfterTimeoutRequest(roundNumber)) {
+                        return@launch
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
