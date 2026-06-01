@@ -138,6 +138,7 @@ class GameViewModel(
     }
 
     fun refreshOnResume() {
+        recoverStuckSubmitUiIfNeeded()
         viewModelScope.launch {
             runCatching {
                 MatchSessionMonitor.refreshOnResume(forceServerSync = true)
@@ -301,10 +302,11 @@ class GameViewModel(
         submitWatchdogJob = null
         activeSubmitJob?.cancel()
         activeSubmitJob = null
-        if (clearPendingUi) {
-            _uiState.update {
-                it.copy(isSubmitting = false, pendingMove = null)
-            }
+        _uiState.update {
+            it.copy(
+                isSubmitting = false,
+                pendingMove = if (clearPendingUi) null else it.pendingMove,
+            )
         }
     }
 
@@ -742,6 +744,7 @@ class GameViewModel(
             }
             var submitError: String? = null
             var staleRoundSubmit = false
+            var skipSubmitConfirmation = false
             try {
                 if (!isSubmitForOpenRound(roundNumber)) return@launch
                 withTimeout(SUBMIT_MOVE_TIMEOUT_MS) {
@@ -760,6 +763,10 @@ class GameViewModel(
                         runCatching { syncMatchFromServer() }
                     }
                     isIgnorableFirestoreRace(e) -> Unit
+                    isQuotaExceededError(e) -> {
+                        skipSubmitConfirmation = true
+                        submitError = quotaExceededUserMessage()
+                    }
                     else ->
                         submitError = GameFunctions.toSubmitErrorMessage(e)
                             ?: userFacingGameError(e, "Failed to submit move")
@@ -790,6 +797,7 @@ class GameViewModel(
                         generation,
                         roundNumber,
                         confirmedMove = move,
+                        skipServerConfirmation = skipSubmitConfirmation,
                     ) {
                         submitError ?: "Move did not reach the server. Tap a move to try again."
                     }
@@ -822,11 +830,13 @@ class GameViewModel(
     private fun recoverStuckSubmitUiIfNeeded() {
         val state = _uiState.value
         if (state.serverMoveSubmitted) return
-        if (state.isSubmitting && activeSubmitJob?.isActive == true) return
+        val submitJobActive = state.isSubmitting && activeSubmitJob?.isActive == true
+        if (submitJobActive) return
 
         val stuckLocalSubmit = state.hasSubmittedMove ||
             state.pendingMove != null ||
-            locallySubmittedRound != null
+            locallySubmittedRound != null ||
+            state.isSubmitting
         if (!stuckLocalSubmit && state.error == null) return
 
         cancelInFlightSubmit(clearPendingUi = true)
@@ -885,6 +895,7 @@ class GameViewModel(
         generation: Int,
         roundNumber: Int,
         confirmedMove: Move? = null,
+        skipServerConfirmation: Boolean = false,
         errorMessage: () -> String,
     ) {
         if (generation != submitGeneration) return
@@ -896,22 +907,24 @@ class GameViewModel(
             finalizeConfirmedMove(roundNumber, confirmedMove)
             return
         }
-        val confirmedMatch = confirmMoveOnServer(roundNumber)
-        if (confirmedMatch != null) {
-            locallySubmittedRound = roundNumber
-            lockedMoveRound = roundNumber
-            _uiState.update {
-                it.copy(
-                    match = confirmedMatch,
-                    hasSubmittedMove = true,
-                    serverMoveSubmitted = true,
-                    lockedMove = confirmedMove ?: it.lockedMove ?: it.pendingMove,
-                    isSubmitting = false,
-                    pendingMove = null,
-                    error = null,
-                )
+        if (!skipServerConfirmation) {
+            val confirmedMatch = confirmMoveOnServer(roundNumber)
+            if (confirmedMatch != null) {
+                locallySubmittedRound = roundNumber
+                lockedMoveRound = roundNumber
+                _uiState.update {
+                    it.copy(
+                        match = confirmedMatch,
+                        hasSubmittedMove = true,
+                        serverMoveSubmitted = true,
+                        lockedMove = confirmedMove ?: it.lockedMove ?: it.pendingMove,
+                        isSubmitting = false,
+                        pendingMove = null,
+                        error = null,
+                    )
+                }
+                return
             }
-            return
         }
         locallySubmittedRound = null
         lockedMoveRound = null

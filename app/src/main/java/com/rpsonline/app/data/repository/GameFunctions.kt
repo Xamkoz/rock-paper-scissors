@@ -11,10 +11,12 @@ import kotlinx.coroutines.withTimeout
 internal object GameFunctions {
     private const val SUBMIT_MOVE_CALLABLE = "submitMatchMove"
     private const val CALL_TIMEOUT_MS = 15_000L
+    private const val QUOTA_RETRY_ATTEMPTS = 3
+    private const val QUOTA_RETRY_DELAY_MS = 1_500L
 
     suspend fun submitMove(matchId: String, roundNumber: Int, move: Move) {
         var lastError: Exception? = null
-        repeat(2) { attempt ->
+        repeat(QUOTA_RETRY_ATTEMPTS) { attempt ->
             try {
                 awaitCallableAuth()
                 val functions = FirebaseFunctions.getInstance(
@@ -32,8 +34,8 @@ internal object GameFunctions {
                 return
             } catch (e: FirebaseFunctionsException) {
                 lastError = e
-                if (isQuotaExceededError(e) && attempt == 0) {
-                    delay(2_000)
+                if (isQuotaExceededError(e) && attempt < QUOTA_RETRY_ATTEMPTS - 1) {
+                    delay(QUOTA_RETRY_DELAY_MS * (attempt + 1))
                 } else if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
                     delay(400)
                 } else {
@@ -41,8 +43,8 @@ internal object GameFunctions {
                 }
             } catch (e: Exception) {
                 lastError = e
-                if (isQuotaExceededError(e) && attempt == 0) {
-                    delay(2_000)
+                if (isQuotaExceededError(e) && attempt < QUOTA_RETRY_ATTEMPTS - 1) {
+                    delay(QUOTA_RETRY_DELAY_MS * (attempt + 1))
                 } else if (attempt > 0) {
                     throw e
                 } else {
@@ -54,12 +56,14 @@ internal object GameFunctions {
     }
 
     fun isRecoverableViaFirestore(error: Throwable): Boolean {
+        if (isQuotaExceededError(error)) return true
         val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
         return when (functionsError?.code) {
             FirebaseFunctionsException.Code.UNAUTHENTICATED,
             FirebaseFunctionsException.Code.UNAVAILABLE,
             FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
             FirebaseFunctionsException.Code.NOT_FOUND,
+            FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED,
             -> true
             else -> false
         }
