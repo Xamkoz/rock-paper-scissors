@@ -1,6 +1,6 @@
 # RPS self-hosted AI player
 
-Headless Node process that plays RPS Online like the Android client: presence heartbeats, matchmaking queue, lobby ready, and round moves via Firebase Auth + Cloud Functions (with Firestore fallbacks).
+Headless Node process that plays RPS Online like the Android client: matchmaking queue, lobby ready, and round moves via Firebase Auth + Cloud Functions (with Firestore fallbacks).
 
 It also keeps a **local JSON match history** (no Firestore reads for cache), **analyzes opponent throw patterns**, and logs a **one-line match description** after each game.
 
@@ -26,8 +26,7 @@ npm run start
 
 | Concern | Behavior |
 |--------|----------|
-| **Presence** | Calls `touchPresence` every 30s (configurable). |
-| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write), 30s heartbeat. |
+| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); heartbeat every `BOT_QUEUE_INTERVAL_MS` (default 30s). |
 | **Lobby** | `confirmMatchReady` when paired. |
 | **Moves** | Pattern-based pick + `submitMatchMove` (or direct `choices` subdoc). |
 | **Cache** | `AI_CACHE_DIR/` — `index.json`, `matches/{id}.json`, `descriptions/{id}.json`; filled from live match snapshots when games end. |
@@ -46,7 +45,13 @@ npm test
 
 Integration smoke: run the bot and one Android client; both queue on the same formats and verify pairing, ready, and moves in the Functions logs.
 
-## Troubleshooting `PERMISSION_DENIED` on queue heartbeat
+## Troubleshooting move / queue errors
+
+### `Move was not recorded` or duplicate `[move]` lines
+
+The callable can succeed on the server while the client still sees an error. The bot now waits for `player1Submitted` / `player2Submitted` on the match doc before retrying, and skips a direct Firestore write if your choice doc already exists (avoids `PERMISSION_DENIED` on the second attempt).
+
+### `PERMISSION_DENIED` on queue heartbeat
 
 Firestore returns this when the bot tries to **update a queue doc that no longer exists** (you were matched and the server deleted `queue/{uid}`) or when the client is not allowed to write.
 
@@ -60,7 +65,7 @@ Firestore returns this when the bot tries to **update a queue doc that no longer
 
 | Path | Role |
 |------|------|
-| `src/player/PlayerAgent.ts` | Main loop: presence, queue, match listener |
+| `src/player/PlayerAgent.ts` | Main loop: queue, match listener |
 | `src/cache/matchCache.ts` | Local JSON cache |
 | `src/analysis/movePattern.ts` | Opponent throw tendencies |
 | `src/narrative/matchDescription.ts` | Post-match one-liner |

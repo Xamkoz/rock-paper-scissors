@@ -51,7 +51,7 @@ Headless bot that mirrors client matchmaking flows (see [ai/docs/README.md](../a
 | `src/analysis/movePattern.ts` | Opponent R/P/S tendencies |
 | `src/narrative/matchDescription.ts` | One-line post-match recap |
 
-Uses the same callables as the app: `touchPresence`, `joinMatchmakingQueue`, `confirmMatchReady`, `submitMatchMove`.
+Uses the same callables as the app: `joinMatchmakingQueue`, `confirmMatchReady`, `submitMatchMove`.
 
 ## Backend (`functions/`)
 

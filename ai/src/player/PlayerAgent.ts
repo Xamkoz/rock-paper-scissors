@@ -7,8 +7,6 @@ import type { FirebaseContext } from "../firebase/client.js";
 import {
   confirmMatchReady,
   joinMatchmakingQueue,
-  submitMatchMove,
-  touchPresence,
 } from "../firebase/callables.js";
 import {
   ensureUserProfile,
@@ -17,9 +15,9 @@ import {
   leaveQueue,
   queueEntryExists,
   sendQueueHeartbeat,
-  submitMoveDirect,
   writeQueueEntry,
 } from "../firebase/firestoreApi.js";
+import { submitRoundMove } from "../firebase/submitRoundMove.js";
 import {
   isParticipant,
   matchFromSnapshot,
@@ -42,9 +40,10 @@ export class PlayerAgent {
   private activeMatchId: string | null = null;
   private matchUnsub: Unsubscribe | null = null;
   private userUnsub: Unsubscribe | null = null;
-  private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private queueTimer: ReturnType<typeof setInterval> | null = null;
-  private lastMoveRound = 0;
+  /** Prevents duplicate submits while the listener fires or callable is slow. */
+  private moveInFlight: number | null = null;
+  private trackedRound = 0;
 
   constructor(
     private readonly ctx: FirebaseContext,
@@ -55,13 +54,6 @@ export class PlayerAgent {
     const uid = this.ctx.user.uid;
     await this.cache.load();
     await ensureUserProfile(this.ctx.db, uid, this.ctx.config.botDisplayName);
-
-    this.presenceTimer = setInterval(() => {
-      void touchPresence(this.ctx.functions).catch((err) => {
-        console.warn("[presence]", err);
-      });
-    }, this.ctx.config.presenceIntervalMs);
-    await touchPresence(this.ctx.functions);
 
     this.userUnsub = onSnapshot(doc(this.ctx.db, "users", uid), (snap) => {
       const matchId = snap.get("activeMatchId") as string | undefined;
@@ -84,7 +76,6 @@ export class PlayerAgent {
   }
 
   async stop(): Promise<void> {
-    if (this.presenceTimer) clearInterval(this.presenceTimer);
     this.stopQueueHeartbeat();
     this.matchUnsub?.();
     this.userUnsub?.();
@@ -146,7 +137,7 @@ export class PlayerAgent {
           console.warn("[queue-heartbeat]", e);
           this.stopQueueHeartbeat();
         });
-    }, this.ctx.config.queueHeartbeatMs);
+    }, this.ctx.config.queueIntervalMs);
   }
 
   private stopQueueHeartbeat(): void {
@@ -160,7 +151,8 @@ export class PlayerAgent {
     this.matchUnsub?.();
     this.matchUnsub = null;
     this.activeMatchId = null;
-    this.lastMoveRound = 0;
+    this.moveInFlight = null;
+    this.trackedRound = 0;
     if (this.phase === "lobby" || this.phase === "active") {
       this.phase = "idle";
     }
@@ -197,27 +189,40 @@ export class PlayerAgent {
 
     if (match.status === "active") {
       this.phase = "active";
+      if (match.currentRound !== this.trackedRound) {
+        this.trackedRound = match.currentRound;
+        this.moveInFlight = null;
+      }
       if (!openRoundNeedsMove(match, uid)) return;
-      if (this.lastMoveRound === match.currentRound) return;
+      if (this.moveInFlight === match.currentRound) return;
 
       const opp = opponentId(match, uid);
       if (!opp) return;
 
-      const pattern = await this.buildPattern(uid, opp, match);
-      const choice = pickMove(pattern);
       const roundNumber = match.currentRound;
-
+      this.moveInFlight = roundNumber;
       try {
-        await submitMatchMove(this.ctx.functions, match.id, roundNumber, choice);
+        const pattern = await this.buildPattern(uid, opp, match);
+        const choice = pickMove(pattern);
+        const ok = await submitRoundMove(
+          this.ctx.db,
+          this.ctx.functions,
+          match,
+          uid,
+          choice,
+        );
+        if (ok) {
+          console.log(
+            `[move] ${choice} round ${roundNumber} vs ${opp} (${pattern.counterMove} counters ${pattern.dominantMove})`,
+          );
+        }
       } catch (err) {
-        console.warn("[move] callable failed, direct write:", err);
-        await submitMoveDirect(this.ctx.db, match.id, roundNumber, uid, choice);
+        console.warn(`[move] round ${roundNumber} failed:`, err);
+      } finally {
+        if (this.moveInFlight === roundNumber) {
+          this.moveInFlight = null;
+        }
       }
-
-      this.lastMoveRound = roundNumber;
-      console.log(
-        `[move] ${choice} round ${roundNumber} vs ${opp} (${pattern.counterMove} counters ${pattern.dominantMove})`,
-      );
       return;
     }
 

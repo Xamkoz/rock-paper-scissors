@@ -8,7 +8,8 @@ import {
   updateDoc,
   type Firestore,
 } from "firebase/firestore";
-import type { MatchMode, Move, UserProfile } from "../types.js";
+import { matchFromSnapshot } from "./matchDoc.js";
+import type { Match, MatchMode, Move, UserProfile } from "../types.js";
 
 export async function ensureUserProfile(
   db: Firestore,
@@ -67,6 +68,12 @@ export async function getUserProfile(db: Firestore, uid: string): Promise<UserPr
   };
 }
 
+export async function getMatch(db: Firestore, matchId: string): Promise<Match | null> {
+  const snap = await getDoc(doc(db, "matches", matchId));
+  if (!snap.exists()) return null;
+  return matchFromSnapshot(snap.id, snap.data());
+}
+
 export async function getActiveMatchId(db: Firestore, uid: string): Promise<string | null> {
   const snap = await getDoc(doc(db, "users", uid));
   const id = snap.get("activeMatchId") as string | undefined;
@@ -119,8 +126,16 @@ export async function submitMoveDirect(
   uid: string,
   choice: Move,
 ): Promise<void> {
-  await setDoc(
-    doc(db, "matches", matchId, "rounds", String(roundNumber), "choices", uid),
-    { choice, submittedAt: serverTimestamp() },
+  const choiceRef = doc(
+    db,
+    "matches",
+    matchId,
+    "rounds",
+    String(roundNumber),
+    "choices",
+    uid,
   );
+  const existing = await getDoc(choiceRef);
+  if (existing.exists()) return;
+  await setDoc(choiceRef, { choice, submittedAt: serverTimestamp() });
 }

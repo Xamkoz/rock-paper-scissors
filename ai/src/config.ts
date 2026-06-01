@@ -18,8 +18,8 @@ export interface AgentConfig {
   /** When true, joins matchmaking when idle. */
   autoQueue: boolean;
   cacheDir: string;
-  presenceIntervalMs: number;
-  queueHeartbeatMs: number;
+  /** Interval for queue heartbeat while waiting for a match (ms). */
+  queueIntervalMs: number;
 }
 
 export interface GameRules {
@@ -68,7 +68,8 @@ export function loadConfig(): AgentConfig {
     matchModes: parseMatchModes(process.env.BOT_MATCH_MODES),
     autoQueue: process.env.BOT_AUTO_QUEUE !== "false",
     cacheDir: process.env.AI_CACHE_DIR?.trim() || ".ai-cache",
-    presenceIntervalMs: Number(process.env.PRESENCE_INTERVAL_MS ?? 30_000),
-    queueHeartbeatMs: Number(process.env.QUEUE_HEARTBEAT_MS ?? 30_000),
+    queueIntervalMs: Number(
+      process.env.BOT_QUEUE_INTERVAL_MS ?? process.env.QUEUE_HEARTBEAT_MS ?? 30_000,
+    ),
   };
 }

@@ -2,17 +2,6 @@ import { httpsCallable, type Functions } from "firebase/functions";
 import type { Move } from "../types.js";
 import type { MatchMode } from "../types.js";
 
-export async function touchPresence(
-  functions: Functions,
-  includeOnlineCount = false,
-): Promise<void> {
-  const fn = httpsCallable<{ includeOnlineCount?: boolean }, { ok: boolean }>(
-    functions,
-    "touchPresence",
-  );
-  await fn({ includeOnlineCount });
-}
-
 export async function joinMatchmakingQueue(
   functions: Functions,
   params: {
