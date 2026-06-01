@@ -11,8 +11,11 @@ import com.rpsonline.app.platform.computeShouldSyncFromServerOnResume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,6 +48,9 @@ object MatchSessionMonitor {
     private val _matchmakingInProgress = MutableStateFlow(false)
     val matchmakingInProgress: StateFlow<Boolean> = _matchmakingInProgress.asStateFlow()
 
+    private val _queueRecoveryRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val queueRecoveryRequests: SharedFlow<Unit> = _queueRecoveryRequests.asSharedFlow()
+
     /** Pending navigation to game; survives HomeViewModel / back-stack lifecycle. */
     private val _pendingGameNavigationMatchId = MutableStateFlow<String?>(null)
     val pendingGameNavigationMatchId: StateFlow<String?> = _pendingGameNavigationMatchId.asStateFlow()
@@ -64,9 +70,11 @@ object MatchSessionMonitor {
     private var attachedUid: String? = null
     private var lastServerSyncAtMs = 0L
     private var lastQueueServerVerifyAtMs = 0L
+    private var lastQueueRecoveryRequestAtMs = 0L
 
     /** Min gap between server queue existence checks (avoids hammering Firestore). */
     private const val QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS = 60_000L
+    private const val QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS = 15_000L
 
     fun ensureStarted() {
         if (authListener != null) return
@@ -521,6 +529,17 @@ object MatchSessionMonitor {
         _hasQueueEntry.value = false
         _queueJoinedAtMs.value = null
         notifySessionStateChanged()
+        if (_matchmakingInProgress.value) {
+            requestQueueRecovery()
+        }
+    }
+
+    /** Re-join or re-sync queue markers after connectivity returns or heartbeats cleared local state. */
+    fun requestQueueRecovery() {
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastQueueRecoveryRequestAtMs < QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS) return
+        lastQueueRecoveryRequestAtMs = nowMs
+        _queueRecoveryRequests.tryEmit(Unit)
     }
 
     /** Local fallback when the user leaves matchmaking or auth/session resets. */

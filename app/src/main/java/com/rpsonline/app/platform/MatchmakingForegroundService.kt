@@ -127,8 +127,11 @@ class MatchmakingForegroundService : Service() {
                         queueFailures += 1
                         if (queueFailures >= 3) {
                             MatchSessionMonitor.signalQueueDocLost()
+                            queueFailures = 0
                         }
                     }
+                } else if (MatchSessionMonitor.isMatchmakingInProgress()) {
+                    MatchSessionMonitor.requestQueueRecovery()
                 }
                 delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             }

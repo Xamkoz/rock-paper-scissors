@@ -343,29 +343,30 @@ fun RpsApp() {
         }
     }
 
-    LaunchedEffect(hasQueueEntry, queueJoinedAtMs, matchmakingInProgress, backgroundUsageEnabled) {
+    LaunchedEffect(
+        hasQueueEntry,
+        queueJoinedAtMs,
+        matchmakingInProgress,
+        backgroundUsageEnabled,
+        connectionStatus,
+    ) {
         if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) return@LaunchedEffect
-        if (
+        var consecutiveFailures = 0
+        var queueBeat = 0
+        runCatching { MatchSessionMonitor.verifyQueueOnServer() }
+        fun serviceOwnsHeartbeats(): Boolean =
             MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
                 context,
                 backgroundUsageEnabled,
             )
-        ) {
-            return@LaunchedEffect
+        if (!serviceOwnsHeartbeats()) {
+            matchRepository.sendQueueHeartbeat()
         }
-        var consecutiveFailures = 0
-        var queueBeat = 0
-        runCatching { MatchSessionMonitor.verifyQueueOnServer() }
-        matchRepository.sendQueueHeartbeat()
         while (true) {
             if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) break
-            if (
-                MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
-                    context,
-                    backgroundUsageEnabled,
-                )
-            ) {
-                break
+            if (serviceOwnsHeartbeats()) {
+                delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
+                continue
             }
             queueBeat++
             if (queueBeat % 3 == 0) {
@@ -382,6 +383,18 @@ fun RpsApp() {
             }
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
         }
+    }
+
+    LaunchedEffect(connectionStatus, matchmakingInProgress, hasQueueEntry, queueJoinedAtMs) {
+        if (!connectionStatus.isServerConnected()) return@LaunchedEffect
+        if (!matchmakingInProgress) return@LaunchedEffect
+        if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
+            runCatching { MatchSessionMonitor.verifyQueueOnServer() }
+            MatchmakingBackgroundCoordinator.sync(context)
+            return@LaunchedEffect
+        }
+        MatchSessionMonitor.requestQueueRecovery()
+        MatchmakingBackgroundCoordinator.sync(context)
     }
 
     LifecycleResumeEffect(activity, backgroundUsageEnabled, matchFoundNotificationsEnabled) {

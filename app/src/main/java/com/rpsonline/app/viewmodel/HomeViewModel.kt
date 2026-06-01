@@ -137,6 +137,7 @@ class HomeViewModel(
                     refresh(user)
                     observeActiveMatch()
                     observeQueue()
+                    observeQueueRecovery()
                 }
             }
         }
@@ -388,46 +389,7 @@ class HomeViewModel(
                         return@collect
                     }
                     if (_uiState.value.isInQueue && MatchSessionMonitor.isMatchmakingInProgress()) {
-                        viewModelScope.launch {
-                            val serverJoinedAtMs = runCatching {
-                                matchRepository.getQueueJoinedAtMs()
-                            }.getOrNull()
-                            if (serverJoinedAtMs != null) {
-                                enterConfirmedQueue(serverJoinedAtMs)
-                                return@launch
-                            }
-                            if (!_uiState.value.isInQueue || !MatchSessionMonitor.isMatchmakingInProgress()) {
-                                return@launch
-                            }
-                            if (matchmakingJob?.isActive == true) {
-                                return@launch
-                            }
-                            val profile = _uiState.value.profile ?: return@launch
-                            val modes = queuedMatchModes ?: _uiState.value.selectedMatchModes
-                            if (modes.isEmpty()) return@launch
-                            runCatching {
-                                matchRepository.joinQueue(modes, profile)
-                            }.onSuccess { result ->
-                                if (result.immediateMatchId != null) {
-                                    _uiState.update {
-                                        it.copy(
-                                            isJoiningQueue = false,
-                                            isInQueue = false,
-                                            queueElapsedSeconds = 0,
-                                        )
-                                    }
-                                    return@onSuccess
-                                }
-                                enterConfirmedQueue(
-                                    result.clientJoinedAtMs ?: System.currentTimeMillis(),
-                                )
-                            }.onFailure {
-                                failMatchmaking(
-                                    generation = matchmakingGeneration,
-                                    message = "Lost connection to the matchmaking queue. Tap Find Match to try again.",
-                                )
-                            }
-                        }
+                        viewModelScope.launch { performQueueRecoveryRejoin() }
                         return@collect
                     }
                     stopQueueTimer()
@@ -449,6 +411,58 @@ class HomeViewModel(
                     syncConfirmedQueueUi()
                 }
             }
+        }
+    }
+
+    private fun observeQueueRecovery() {
+        viewModelScope.launch {
+            MatchSessionMonitor.queueRecoveryRequests.collect {
+                performQueueRecoveryRejoin()
+            }
+        }
+    }
+
+    private suspend fun performQueueRecoveryRejoin() {
+        if (!MatchSessionMonitor.isMatchmakingInProgress()) return
+        val waitingInQueue = _uiState.value.isInQueue || _uiState.value.isJoiningQueue
+        if (!waitingInQueue) return
+        if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
+            runCatching { MatchSessionMonitor.verifyQueueOnServer() }
+            return
+        }
+        val serverJoinedAtMs = runCatching {
+            matchRepository.getQueueJoinedAtMs()
+        }.getOrNull()
+        if (serverJoinedAtMs != null) {
+            enterConfirmedQueue(serverJoinedAtMs)
+            return
+        }
+        if (!_uiState.value.isInQueue || !MatchSessionMonitor.isMatchmakingInProgress()) return
+        if (matchmakingJob?.isActive == true && _uiState.value.isJoiningQueue) return
+        val profile = _uiState.value.profile ?: return
+        val modes = queuedMatchModes ?: _uiState.value.selectedMatchModes
+        if (modes.isEmpty()) return
+        runCatching {
+            matchRepository.joinQueue(modes, profile)
+        }.onSuccess { result ->
+            if (result.immediateMatchId != null) {
+                _uiState.update {
+                    it.copy(
+                        isJoiningQueue = false,
+                        isInQueue = false,
+                        queueElapsedSeconds = 0,
+                    )
+                }
+                return@onSuccess
+            }
+            enterConfirmedQueue(
+                result.clientJoinedAtMs ?: System.currentTimeMillis(),
+            )
+        }.onFailure {
+            failMatchmaking(
+                generation = matchmakingGeneration,
+                message = "Lost connection to the matchmaking queue. Tap Find Match to try again.",
+            )
         }
     }
 
