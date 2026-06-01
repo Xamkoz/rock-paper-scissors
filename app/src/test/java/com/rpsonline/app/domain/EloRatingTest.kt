@@ -36,8 +36,8 @@ class EloRatingTest {
             player1Wins = 2,
             player2Wins = 1,
         )
-        assertEquals(3, result.deltaA)
-        assertEquals(-3, result.deltaB)
+        assertEquals(4, result.deltaA)
+        assertEquals(-4, result.deltaB)
     }
 
     @Test
@@ -53,8 +53,8 @@ class EloRatingTest {
             player1Wins = 2,
             player2Wins = 0,
         )
-        assertEquals(6, result.deltaA)
-        assertEquals(-6, result.deltaB)
+        assertEquals(8, result.deltaA)
+        assertEquals(-8, result.deltaB)
     }
 
     @Test
@@ -85,8 +85,8 @@ class EloRatingTest {
         requireNotNull(preview)
         assertEquals(1000, preview.myElo)
         assertEquals(1000, preview.opponentElo)
-        assertEquals(13, preview.myWinDelta)
-        assertEquals(13, preview.opponentWinDelta)
+        assertEquals(14, preview.myWinDelta)
+        assertEquals(14, preview.opponentWinDelta)
     }
 
     @Test
@@ -99,14 +99,14 @@ class EloRatingTest {
             player1Elo = 1000,
             player2Elo = 1000,
         )
-        assertEquals(6, shutoutMatch.liveEloPreview("me")!!.myWinDelta)
+        assertEquals(8, shutoutMatch.liveEloPreview("me")!!.myWinDelta)
 
         val afterLoss = shutoutMatch.copy(
             rounds = listOf(
                 RoundResult(roundNumber = 1, winner = "opp", resolvedAt = 1L),
             ),
         )
-        assertEquals(3, afterLoss.liveEloPreview("me")!!.myWinDelta)
+        assertEquals(4, afterLoss.liveEloPreview("me")!!.myWinDelta)
     }
 
     @Test

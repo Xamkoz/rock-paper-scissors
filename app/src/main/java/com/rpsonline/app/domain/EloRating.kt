@@ -15,9 +15,9 @@ const val ELO_K_FACTOR = 32.0
 private const val ELO_DOMINATION_BONUS = 2.0
 
 private val ELO_MODE_MULTIPLIERS = mapOf(
-    MatchMode.BO3 to 0.2,
-    MatchMode.BO5 to 0.35,
-    MatchMode.BO10 to 0.8,
+    MatchMode.BO3 to 0.25,
+    MatchMode.BO5 to 0.4,
+    MatchMode.BO10 to 0.9,
 )
 
 data class EloDeltaPair(val deltaA: Int, val deltaB: Int)

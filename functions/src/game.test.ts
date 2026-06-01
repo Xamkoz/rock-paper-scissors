@@ -44,19 +44,19 @@ describe("calculateMatchElo", () => {
     player2Wins: 0,
   };
 
-  it("scales BO3 wins to 20% of base ELO swing", () => {
+  it("scales BO3 wins to 25% of base ELO swing", () => {
     const result = calculateMatchElo(1000, 1000, 1, {
       ...players,
       matchMode: "BO3",
       endReason: "normal",
       player2Wins: 1,
     });
-    assert.equal(result.deltaA, 3);
-    assert.equal(result.deltaB, -3);
-    assert.equal(result.multiplier, 0.2);
+    assert.equal(result.deltaA, 4);
+    assert.equal(result.deltaB, -4);
+    assert.equal(result.multiplier, 0.25);
   });
 
-  it("scales BO5 wins to 35% of base ELO swing", () => {
+  it("scales BO5 wins to 40% of base ELO swing", () => {
     const result = calculateMatchElo(1000, 1000, 1, {
       ...players,
       matchMode: "BO5",
@@ -65,19 +65,19 @@ describe("calculateMatchElo", () => {
     });
     assert.equal(result.deltaA, 6);
     assert.equal(result.deltaB, -6);
-    assert.equal(result.multiplier, 0.35);
+    assert.equal(result.multiplier, 0.4);
   });
 
-  it("scales BO10 wins to 80% of base ELO swing", () => {
+  it("scales BO10 wins to 90% of base ELO swing", () => {
     const result = calculateMatchElo(1000, 1000, 1, {
       ...players,
       matchMode: "BO10",
       endReason: "normal",
       player2Wins: 4,
     });
-    assert.equal(result.deltaA, 13);
-    assert.equal(result.deltaB, -13);
-    assert.equal(result.multiplier, 0.8);
+    assert.equal(result.deltaA, 14);
+    assert.equal(result.deltaB, -14);
+    assert.equal(result.multiplier, 0.9);
   });
 
   it("does not double ELO swing on clock timeout when opponent won rounds", () => {
@@ -87,8 +87,8 @@ describe("calculateMatchElo", () => {
       endReason: "clock_timeout",
       player2Wins: 3,
     });
-    assert.equal(result.deltaA, 13);
-    assert.equal(result.multiplier, 0.8);
+    assert.equal(result.deltaA, 14);
+    assert.equal(result.multiplier, 0.9);
   });
 
   it("does not double ELO swing on round timeout when opponent won rounds", () => {
@@ -99,7 +99,7 @@ describe("calculateMatchElo", () => {
       player2Wins: 2,
     });
     assert.equal(result.deltaA, 6);
-    assert.equal(result.multiplier, 0.35);
+    assert.equal(result.multiplier, 0.4);
   });
 
   it("doubles ELO swing on clock timeout shutout", () => {
@@ -109,8 +109,8 @@ describe("calculateMatchElo", () => {
       endReason: "clock_timeout",
       player2Wins: 0,
     });
-    assert.equal(result.deltaA, 26);
-    assert.equal(result.multiplier, 1.6);
+    assert.equal(result.deltaA, 29);
+    assert.equal(result.multiplier, 1.8);
   });
 
   it("doubles ELO swing on round timeout shutout", () => {
@@ -120,8 +120,8 @@ describe("calculateMatchElo", () => {
       endReason: "round_timeout",
       player2Wins: 0,
     });
-    assert.equal(result.deltaA, 11);
-    assert.equal(result.multiplier, 0.7);
+    assert.equal(result.deltaA, 13);
+    assert.equal(result.multiplier, 0.8);
   });
 
   it("doubles ELO swing when opponent won no rounds", () => {
@@ -131,8 +131,8 @@ describe("calculateMatchElo", () => {
       endReason: "normal",
       player2Wins: 0,
     });
-    assert.equal(result.deltaA, 6);
-    assert.equal(result.multiplier, 0.4);
+    assert.equal(result.deltaA, 8);
+    assert.equal(result.multiplier, 0.5);
   });
 });
 
@@ -148,7 +148,7 @@ describe("eloMultiplierForMatch", () => {
         player1Wins: 6,
         player2Wins: 0,
       }),
-      1.6,
+      1.8,
     );
   });
 });

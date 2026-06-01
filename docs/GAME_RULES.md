@@ -107,9 +107,9 @@ The base delta is multiplied by a **format weight**:
 
 | Format | Weight |
 |--------|--------|
-| BO3 | **20%** (×0.2) |
-| BO5 | **35%** (×0.35) |
-| BO10 | **80%** (×0.8) |
+| BO3 | **25%** (×0.25) |
+| BO5 | **40%** (×0.4) |
+| BO10 | **90%** (×0.9) |
 
 Longer series move ratings more than short ones.
 
@@ -123,12 +123,12 @@ Examples at equal 1000 ELO (base win ≈ ±16):
 
 | Outcome | Approx. winner Δ |
 |---------|------------------|
-| BO3 win, opponent took 1+ rounds | ±3 |
-| BO3 shutout (2–0) | ±6 |
+| BO3 win, opponent took 1+ rounds | ±4 |
+| BO3 shutout (2–0) | ±8 |
 | BO5 win, opponent took rounds | ±6 |
-| BO5 shutout | ±11 |
-| BO10 win, opponent took rounds | ±13 |
-| BO10 shutout | ±26 |
+| BO5 shutout | ±13 |
+| BO10 win, opponent took rounds | ±14 |
+| BO10 shutout | ±29 |
 
 ### Draws
 

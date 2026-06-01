@@ -112,9 +112,9 @@ export function calculateElo(
 export type MatchEndReason = "normal" | "round_timeout" | "clock_timeout";
 
 export const ELO_MODE_MULTIPLIERS: Record<MatchMode, number> = {
-  BO3: 0.2,
-  BO5: 0.35,
-  BO10: 0.8,
+  BO3: 0.25,
+  BO5: 0.4,
+  BO10: 0.9,
 };
 
 export const ELO_DOMINATION_BONUS = 2;
