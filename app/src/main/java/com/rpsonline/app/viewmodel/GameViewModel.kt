@@ -211,9 +211,10 @@ class GameViewModel(
         }
 
         val fingerprint = match?.let { matchFingerprint(it) }
+        val timeoutFingerprint = match?.let { timeoutResolutionFingerprint(it) }
         val serverResponded = matchSnapshotAtTimeoutRequest != null &&
-            fingerprint != null &&
-            fingerprint != matchSnapshotAtTimeoutRequest
+            timeoutFingerprint != null &&
+            timeoutFingerprint != matchSnapshotAtTimeoutRequest
         val clearResolving = _uiState.value.isResolvingTimeout && serverResponded
 
         if (clearResolving) {
@@ -359,10 +360,21 @@ class GameViewModel(
         oppRunning: Boolean,
     ) {
         clockSyncRealtimeMs = SystemClock.elapsedRealtime()
-        clockSyncMyBaseMs = match.myClockMs(userId)
-        clockSyncOppBaseMs = match.opponentClockMs(userId)
-        clockSyncMyRunning = myRunning
-        clockSyncOppRunning = oppRunning
+        val timer = _timerUiState.value
+        val (myBaseMs, myRunningSync) = reconcileClockBaseMs(
+            running = myRunning,
+            displayedSeconds = timer.myClockSeconds,
+            serverMs = match.myClockMs(userId),
+        )
+        val (oppBaseMs, oppRunningSync) = reconcileClockBaseMs(
+            running = oppRunning,
+            displayedSeconds = timer.opponentClockSeconds,
+            serverMs = match.opponentClockMs(userId),
+        )
+        clockSyncMyBaseMs = myBaseMs
+        clockSyncOppBaseMs = oppBaseMs
+        clockSyncMyRunning = myRunningSync
+        clockSyncOppRunning = oppRunningSync
     }
 
     private fun syncMatchClocks(match: Match?, userId: String?) {
@@ -473,11 +485,15 @@ class GameViewModel(
                 }
 
                 if (clockSyncMyRunning && myMs <= 0L) {
+                    clockSyncMyRunning = false
+                    clockSyncMyBaseMs = 0L
                     val open = activeMatch.openRound() ?: break
                     maybeRequestTimeoutResolution(activeMatch, open.roundNumber)
                 }
 
                 if (clockSyncOppRunning && oppMs <= 0L) {
+                    clockSyncOppRunning = false
+                    clockSyncOppBaseMs = 0L
                     val open = activeMatch.openRound() ?: break
                     if (!opponentSubmittedNow) {
                         maybeRequestTimeoutResolution(activeMatch, open.roundNumber)
@@ -601,7 +617,7 @@ class GameViewModel(
 
     private fun requestTimeoutResolution(match: Match, roundNumber: Int) {
         timeoutRequestedForRound = roundNumber
-        matchSnapshotAtTimeoutRequest = matchFingerprint(match)
+        matchSnapshotAtTimeoutRequest = timeoutResolutionFingerprint(match)
         _uiState.update { it.copy(isResolvingTimeout = true, error = null) }
         resolvingRetryJob?.cancel()
         resolvingRetryJob = viewModelScope.launch {
