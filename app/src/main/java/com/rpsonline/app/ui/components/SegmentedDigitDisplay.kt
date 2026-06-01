@@ -502,7 +502,7 @@ fun TopBarSegmentedStatusRow(
 ) {
     val offColor = sevenSegmentGhostColor()
     val showLiveTime = inQueue || inMatch
-    val animateSpinner = inQueue || inMatch
+    val animateSpinner = inQueue || (inMatch && !playerClockStopped)
     val spinnerStyle = when {
         !inMatch -> SegmentedSpinnerStyle.QUEUE
         playerClockStopped -> SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED

@@ -239,6 +239,7 @@ class MatchmakingForegroundService : Service() {
                 } else {
                     SegmentedSpinnerStyle.MATCH
                 },
+                animateSpinner = !clockStopped,
             )
         }
 

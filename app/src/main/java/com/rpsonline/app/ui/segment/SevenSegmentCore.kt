@@ -108,9 +108,9 @@ object SegmentedSpinnerSteps {
     }
 
     fun stepDelayMs(style: SegmentedSpinnerStyle): Long = when (style) {
-        SegmentedSpinnerStyle.QUEUE -> 90L
-        SegmentedSpinnerStyle.MATCH -> 180L
-        SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED -> 340L
+        SegmentedSpinnerStyle.QUEUE -> 500L
+        SegmentedSpinnerStyle.MATCH -> 500L
+        SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED -> 500L
     }
 
     fun stepIndex(style: SegmentedSpinnerStyle, timeMs: Long = System.currentTimeMillis()): Int {
