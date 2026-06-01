@@ -7,6 +7,7 @@ High-level map of the repository. User-facing overview: [README.md](../README.md
 ```
 rock-paper-scissors/
 ├── app/                 # Android client (Kotlin, Jetpack Compose)
+├── ai/                  # Self-hosted player bot (Node); ai/docs/ for setup and architecture
 ├── functions/           # Firebase Cloud Functions (TypeScript)
 ├── shared/              # game-rules.json — timing + match formats (client + server)
 ├── firestore.rules
@@ -38,6 +39,19 @@ Package root: `com.rpsonline.app`.
 `RpsApp` wraps the nav graph with ping meter, queue/match chip, theme, and sound mute. Round-resolution sounds use `RoundResolutionSoundEffect` on the same active-match flow.
 
 ViewModels use repositories (`AuthRepository`, `UserRepository`, `MatchRepository`, `PresenceRepository`, `AppUpdateRepository`). Home and global UI read queue/active match from `MatchSessionMonitor` only.
+
+## Player bot (`ai/`)
+
+Headless bot that mirrors client matchmaking flows (see [ai/docs/README.md](../ai/docs/README.md)):
+
+| Module | Role |
+|--------|------|
+| `src/player/PlayerAgent.ts` | Presence, queue, match listener, ready + moves |
+| `src/cache/matchCache.ts` | Local JSON files (`index.json`, `matches/`, `descriptions/`) |
+| `src/analysis/movePattern.ts` | Opponent R/P/S tendencies |
+| `src/narrative/matchDescription.ts` | One-line post-match recap |
+
+Uses the same callables as the app: `touchPresence`, `joinMatchmakingQueue`, `confirmMatchReady`, `submitMatchMove`.
 
 ## Backend (`functions/`)
 

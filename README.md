@@ -32,6 +32,7 @@ Pre-built APKs are attached to [GitHub Releases](https://github.com/melkor217/ro
 | Path | Purpose |
 |------|---------|
 | `app/` | Android client (Kotlin, Jetpack Compose) |
+| `ai/` | Self-hosted matchmaking bot (Node); docs in [ai/docs/](ai/docs/README.md) |
 | `functions/` | Firebase Cloud Functions (match logic, timeouts, ELO) |
 | `firestore.rules` | Firestore security rules |
 | `firestore.indexes.json` | Composite indexes for queries |
