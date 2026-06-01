@@ -24,12 +24,13 @@ internal suspend fun awaitFirestoreAuth(
  */
 internal suspend fun awaitCallableAuth(
     auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    timeoutMs: Long = 15_000,
 ): FirebaseUser {
     val user = auth.currentUser ?: error("Not signed in")
     var lastError: Exception? = null
     repeat(2) { attempt ->
         try {
-            withTimeout(15_000) {
+            withTimeout(timeoutMs) {
                 user.getIdToken(true).await()
             }
             return user
@@ -39,4 +40,21 @@ internal suspend fun awaitCallableAuth(
         }
     }
     throw lastError ?: IllegalStateException("Could not refresh sign-in token")
+}
+
+/** Prefer cached token for latency; refresh only if needed before a move callable. */
+internal suspend fun awaitCallableAuthForSubmit(
+    auth: FirebaseAuth = FirebaseAuth.getInstance(),
+): FirebaseUser {
+    val user = auth.currentUser ?: error("Not signed in")
+    try {
+        withTimeout(4_000) {
+            user.getIdToken(false).await()
+        }
+    } catch (_: Exception) {
+        withTimeout(6_000) {
+            user.getIdToken(true).await()
+        }
+    }
+    return user
 }

@@ -27,7 +27,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -747,10 +746,9 @@ class GameViewModel(
             var skipSubmitConfirmation = false
             try {
                 if (!isSubmitForOpenRound(roundNumber)) return@launch
-                withTimeout(SUBMIT_MOVE_TIMEOUT_MS) {
-                    matchRepository.submitMove(matchId, move, roundNumber)
-                }
+                matchRepository.submitMove(matchId, move, roundNumber)
             } catch (e: TimeoutCancellationException) {
+                skipSubmitConfirmation = true
                 submitError = "Connection timed out. Check your network and tap a move to try again."
             } catch (e: CancellationException) {
                 if (generation == submitGeneration) {
@@ -797,7 +795,7 @@ class GameViewModel(
                         generation,
                         roundNumber,
                         confirmedMove = move,
-                        skipServerConfirmation = skipSubmitConfirmation,
+                        skipServerConfirmation = skipSubmitConfirmation || submitError != null,
                     ) {
                         submitError ?: "Move did not reach the server. Tap a move to try again."
                     }
@@ -884,7 +882,7 @@ class GameViewModel(
             val fromServer = runCatching { matchRepository.getMatchFromServer(matchId) }.getOrNull()
                 ?: return@repeat
             if (fromServer.hasSubmittedInRound(userId, roundNumber)) {
-                applyMatchSnapshot(fromServer)
+                applyMatchSnapshot(fromServer, authoritative = true)
                 return fromServer
             }
         }
@@ -953,10 +951,9 @@ class GameViewModel(
 
     companion object {
         private const val LOBBY_ACTIVE_TIMEOUT_MS = 8_000L
-        private const val SUBMIT_MOVE_TIMEOUT_MS = 15_000L
-        private const val SUBMIT_STUCK_WATCHDOG_MS = 18_000L
-        private const val SUBMIT_CONFIRM_ATTEMPTS = 15
-        private const val SUBMIT_CONFIRM_DELAY_MS = 500L
+        private const val SUBMIT_STUCK_WATCHDOG_MS = 22_000L
+        private const val SUBMIT_CONFIRM_ATTEMPTS = 4
+        private const val SUBMIT_CONFIRM_DELAY_MS = 300L
 
         fun factory(matchId: String): androidx.lifecycle.ViewModelProvider.Factory =
             object : androidx.lifecycle.ViewModelProvider.Factory {

@@ -4,21 +4,22 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.rpsonline.app.data.model.Move
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 
 internal object GameFunctions {
     private const val SUBMIT_MOVE_CALLABLE = "submitMatchMove"
-    private const val CALL_TIMEOUT_MS = 15_000L
-    private const val QUOTA_RETRY_ATTEMPTS = 3
-    private const val QUOTA_RETRY_DELAY_MS = 1_500L
+    private const val CALL_TIMEOUT_MS = 8_000L
+    private const val QUOTA_RETRY_ATTEMPTS = 2
+    private const val QUOTA_RETRY_DELAY_MS = 1_000L
 
     suspend fun submitMove(matchId: String, roundNumber: Int, move: Move) {
         var lastError: Exception? = null
         repeat(QUOTA_RETRY_ATTEMPTS) { attempt ->
             try {
-                awaitCallableAuth()
+                awaitCallableAuthForSubmit()
                 val functions = FirebaseFunctions.getInstance(
                     FirebaseApp.getInstance(),
                     FIREBASE_FUNCTIONS_REGION,
@@ -34,6 +35,9 @@ internal object GameFunctions {
                 return
             } catch (e: FirebaseFunctionsException) {
                 lastError = e
+                if (isRecoverableViaFirestore(e) && !isQuotaExceededError(e)) {
+                    throw e
+                }
                 if (isQuotaExceededError(e) && attempt < QUOTA_RETRY_ATTEMPTS - 1) {
                     delay(QUOTA_RETRY_DELAY_MS * (attempt + 1))
                 } else if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
@@ -43,6 +47,9 @@ internal object GameFunctions {
                 }
             } catch (e: Exception) {
                 lastError = e
+                if (isRecoverableViaFirestore(e) && !isQuotaExceededError(e)) {
+                    throw e
+                }
                 if (isQuotaExceededError(e) && attempt < QUOTA_RETRY_ATTEMPTS - 1) {
                     delay(QUOTA_RETRY_DELAY_MS * (attempt + 1))
                 } else if (attempt > 0) {
@@ -56,6 +63,7 @@ internal object GameFunctions {
     }
 
     fun isRecoverableViaFirestore(error: Throwable): Boolean {
+        if (error is TimeoutCancellationException) return true
         if (isQuotaExceededError(error)) return true
         val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
         return when (functionsError?.code) {

@@ -37,6 +37,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Date
 
+private const val SUBMIT_CALLABLE_BUDGET_MS = 10_000L
+private const val SUBMIT_DIRECT_BUDGET_MS = 10_000L
+
 class MatchRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val firestore: FirebaseFirestore = appFirestore(),
@@ -499,15 +502,20 @@ class MatchRepository(
      * [GameViewModel] confirms via snapshot sync.
      */
     suspend fun submitMove(matchId: String, move: Move, roundNumber: Int) {
-        try {
-            GameFunctions.submitMove(matchId, roundNumber, move)
-        } catch (callableError: Exception) {
-            if (!GameFunctions.isRecoverableViaFirestore(callableError)) {
-                GameFunctions.toSubmitErrorMessage(callableError)?.let {
-                    throw IllegalStateException(it, callableError)
-                }
+        val callableError = runCatching {
+            withTimeout(SUBMIT_CALLABLE_BUDGET_MS) {
+                GameFunctions.submitMove(matchId, roundNumber, move)
             }
-            submitMoveDirect(matchId, move, roundNumber, callableError)
+        }.exceptionOrNull()
+        if (callableError == null) return
+        if (!GameFunctions.isRecoverableViaFirestore(callableError)) {
+            GameFunctions.toSubmitErrorMessage(callableError)?.let {
+                throw IllegalStateException(it, callableError)
+            }
+            throw callableError
+        }
+        withTimeout(SUBMIT_DIRECT_BUDGET_MS) {
+            submitMoveDirect(matchId, move, roundNumber, callableError as Exception)
         }
     }
 
@@ -517,7 +525,7 @@ class MatchRepository(
         roundNumber: Int,
         callableError: Exception,
     ) {
-        awaitFirestoreAuth(forceRefresh = true)
+        awaitFirestoreAuth(forceRefresh = false)
         val choiceRef = firestore.collection("matches")
             .document(matchId)
             .collection("rounds")
