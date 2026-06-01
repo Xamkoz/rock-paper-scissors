@@ -196,7 +196,6 @@ object MatchSessionMonitor {
     fun noteMatchLaunchIntent(matchId: String) {
         autoGameNavigationSuppressedMatchId = null
         pendingLaunchMatchId = matchId
-        _matchmakingInProgress.value = true
         _matchLaunchUiNudge.value += 1
     }
 
@@ -592,7 +591,7 @@ object MatchSessionMonitor {
                 MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
                     // Stale terminal snapshots can arrive while Find Match is running; do not
                     // clear matchmaking or the new queue session in that case.
-                    if (!_matchmakingInProgress.value) {
+                    if (!_hasQueueEntry.value) {
                         clearQueueState(endMatchmaking = true)
                     }
                 }

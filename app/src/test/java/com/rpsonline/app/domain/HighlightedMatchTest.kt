@@ -55,7 +55,25 @@ class HighlightedMatchTest {
         assertNull(biggestEloGainMatchOfWeek(matches, zoneId = zoneId, clock = fixedClock))
     }
 
-    private fun entry(matchId: String, lastActivityAt: Long, eloDelta: Int): MatchHistoryEntry =
+    @Test
+    fun biggestEloGainMatchOfWeek_ignoresSingleRoundMatches() {
+        val noon = today.atTime(12, 0).atZone(zoneId).toInstant().toEpochMilli()
+        val matches = listOf(
+            entry("one-round", noon + 2_000, 40, recapCount = 1),
+            entry("two-rounds", noon + 1_000, 12, recapCount = 2),
+        )
+
+        val best = biggestEloGainMatchOfWeek(matches, zoneId = zoneId, clock = fixedClock)
+
+        assertEquals("two-rounds", best?.matchId)
+    }
+
+    private fun entry(
+        matchId: String,
+        lastActivityAt: Long,
+        eloDelta: Int,
+        recapCount: Int = 2,
+    ): MatchHistoryEntry =
         MatchHistoryEntry(
             matchId = matchId,
             myDisplayName = "Me",
@@ -65,6 +83,13 @@ class HighlightedMatchTest {
             resolution = ViewerMatchResolution.WIN,
             eloDelta = eloDelta,
             lastActivityAt = lastActivityAt,
-            recaps = emptyList(),
+            recaps = List(recapCount) { index ->
+                com.rpsonline.app.data.model.RoundRecap(
+                    roundNumber = index + 1,
+                    myChoice = "ROCK",
+                    opponentChoice = "SCISSORS",
+                    won = true,
+                )
+            },
         )
 }

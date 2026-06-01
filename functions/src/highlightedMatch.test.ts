@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Timestamp } from "firebase-admin/firestore";
 import {
+  hasMinimumHighlightedMatchRounds,
   mergeRecentCompletedMatches,
   pickBiggestEloGainMatch,
   type HighlightedMatchCandidate,
@@ -67,6 +68,39 @@ describe("pickBiggestEloGainMatch", () => {
     );
     assert.equal(picks, null);
   });
+
+  it("ignores matches with fewer than two rounds", () => {
+    const ts = (ms: number) => Timestamp.fromMillis(ms);
+    const picks = pickBiggestEloGainMatch(
+      [
+        candidate(
+          "one-round",
+          matchDoc({
+            lastActivityAt: ts(3000),
+            player1EloDelta: 40,
+            player1Wins: 1,
+            player2Wins: 0,
+            rounds: [{ roundNumber: 1, resolvedAt: ts(2500) }],
+          }),
+        ),
+        candidate(
+          "two-rounds",
+          matchDoc({
+            lastActivityAt: ts(2000),
+            player1EloDelta: 12,
+            player1Wins: 2,
+            player2Wins: 0,
+            rounds: [
+              { roundNumber: 1, resolvedAt: ts(1500) },
+              { roundNumber: 2, resolvedAt: ts(1800) },
+            ],
+          }),
+        ),
+      ],
+      "u1",
+    );
+    assert.equal(picks?.matchId, "two-rounds");
+  });
 });
 
 describe("mergeRecentCompletedMatches", () => {
@@ -96,5 +130,43 @@ describe("mergeRecentCompletedMatches", () => {
       merged.map((entry) => entry.matchId),
       ["m3", "m1"],
     );
+  });
+
+  it("drops matches with fewer than two rounds", () => {
+    const ts = (ms: number) => Timestamp.fromMillis(ms);
+    const docs = [
+      {
+        id: "short",
+        data: () =>
+          matchDoc({
+            lastActivityAt: ts(3000),
+            status: "completed",
+            player1Wins: 1,
+            player2Wins: 0,
+            rounds: [{ roundNumber: 1, resolvedAt: ts(2500) }],
+          }),
+      },
+      {
+        id: "long",
+        data: () =>
+          matchDoc({
+            lastActivityAt: ts(2000),
+            status: "completed",
+            player1Wins: 2,
+            player2Wins: 0,
+            rounds: [
+              { roundNumber: 1, resolvedAt: ts(1500) },
+              { roundNumber: 2, resolvedAt: ts(1800) },
+            ],
+          }),
+      },
+    ] as unknown as import("firebase-admin/firestore").QueryDocumentSnapshot[];
+
+    const merged = mergeRecentCompletedMatches(docs, 10);
+    assert.deepEqual(
+      merged.map((entry) => entry.matchId),
+      ["long"],
+    );
+    assert.equal(hasMinimumHighlightedMatchRounds(merged[0].match), true);
   });
 });

@@ -105,7 +105,65 @@ class MatchSessionBackgroundPolicyTest {
                 uid = uid,
                 match = null,
                 hasQueueEntry = false,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun matchmakingInProgressWithoutJoinTimestamp_doesNotNeedBackgroundService() {
+        assertFalse(
+            computeSessionNeedsBackgroundService(
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
                 queueJoinedAtMs = null,
+                matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedInQueue_requiresJoinTimestampAndMatchmaking() {
+        assertTrue(
+            computeConfirmedInQueue(
+                uid = uid,
+                match = null,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
+            ),
+        )
+        assertFalse(
+            computeConfirmedInQueue(
+                uid = uid,
+                match = null,
+                queueJoinedAtMs = null,
+                matchmakingInProgress = true,
+            ),
+        )
+        assertFalse(
+            computeConfirmedInQueue(
+                uid = uid,
+                match = null,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = false,
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedInQueue_falseDuringLobbyOrActiveMatch() {
+        val lobby = Match(
+            player1 = uid,
+            player2 = "player-2",
+            status = MatchStatus.LOBBY,
+        )
+        assertFalse(
+            computeConfirmedInQueue(
+                uid = uid,
+                match = lobby,
+                queueJoinedAtMs = 1_000L,
                 matchmakingInProgress = true,
             ),
         )

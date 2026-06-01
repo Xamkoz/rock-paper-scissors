@@ -295,7 +295,6 @@ fun RpsApp() {
         val uid = user?.uid
         if (uid != null) {
             if (
-                MatchSessionMonitor.isMatchmakingInProgress() ||
                 MatchSessionMonitor.hasQueueEntry.value ||
                 MatchSessionMonitor.queueJoinedAtMs.value != null
             ) {

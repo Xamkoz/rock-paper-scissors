@@ -19,6 +19,7 @@ fun biggestEloGainMatchOfWeek(
         .filter { match ->
             val delta = match.eloDelta ?: return@filter false
             if (delta <= 0) return@filter false
+            if (match.recaps.size < 2) return@filter false
             val activityAt = match.lastActivityAt
             if (activityAt <= 0L) return@filter false
             val matchDay = Instant.ofEpochMilli(activityAt).atZone(zoneId).toLocalDate()
