@@ -48,6 +48,7 @@ import {
   markLeaderboardBackfillComplete,
   runLeaderboardVisibilityBackfill,
 } from "./leaderboardVisibility";
+import { findHighlightedMatchId } from "./highlightedMatch";
 
 admin.initializeApp();
 
@@ -1488,6 +1489,20 @@ export const ping = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Sign in required.");
   }
   return { serverTimeMs: Date.now() };
+});
+
+/** Best positive ELO gain this week for the signed-in player (rolling 7-day window). */
+export const getHighlightedMatch = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  const windowStartMs = (request.data as { windowStartMs?: number } | undefined)?.windowStartMs;
+  if (typeof windowStartMs !== "number" || !Number.isFinite(windowStartMs) || windowStartMs <= 0) {
+    throw new HttpsError("invalid-argument", "windowStartMs is required.");
+  }
+  const matchId = await findHighlightedMatchId(db, uid, windowStartMs);
+  return { matchId };
 });
 
 /** Server-authoritative presence heartbeat (Admin SDK — reliable for Google sign-in). */

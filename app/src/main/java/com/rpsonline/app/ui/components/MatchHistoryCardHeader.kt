@@ -16,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.MatchHistoryEntry
@@ -220,18 +222,32 @@ private fun MatchResultCenter(
     opponentWins: Int,
     eloDelta: Int?,
 ) {
-    val resultLineStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+    val outcomeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
     val scoreStyle = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+    val eloDeltaStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
     val scoreText = formatMatchScore(myWins, opponentWins)
     val resultGap = 6.dp
+    val deltaColor = eloDelta?.let { eloDeltaColor(it) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         if (maxWidth < MatchResultCompactBreakpoint) {
             Text(
-                text = formatMatchResultLine(outcomeLabel, myWins, opponentWins, eloDelta),
+                text = buildAnnotatedString {
+                    withStyle(outcomeStyle.toSpanStyle().copy(color = outcomeColor)) {
+                        append(outcomeLabel)
+                    }
+                    append(' ')
+                    withStyle(scoreStyle.toSpanStyle().copy(color = outcomeColor)) {
+                        append(scoreText)
+                    }
+                    if (eloDelta != null && deltaColor != null) {
+                        append(' ')
+                        withStyle(eloDeltaStyle.toSpanStyle().copy(color = deltaColor)) {
+                            append(formatEloDelta(eloDelta))
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
-                style = resultLineStyle,
-                color = outcomeColor,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -248,7 +264,7 @@ private fun MatchResultCenter(
                 ) {
                     Text(
                         text = outcomeLabel,
-                        style = resultLineStyle,
+                        style = outcomeStyle,
                         color = outcomeColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -265,11 +281,11 @@ private fun MatchResultCenter(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    if (eloDelta != null) {
+                    if (eloDelta != null && deltaColor != null) {
                         Text(
-                            text = "(${formatEloDelta(eloDelta)})",
-                            style = resultLineStyle,
-                            color = outcomeColor,
+                            text = formatEloDelta(eloDelta),
+                            style = eloDeltaStyle,
+                            color = deltaColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = resultGap),

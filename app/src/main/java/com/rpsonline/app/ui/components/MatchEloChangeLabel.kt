@@ -25,11 +25,7 @@ fun MatchEloChangeLabel(
 ) {
     if (eloDelta == null) return
 
-    val deltaColor = when {
-        eloDelta > 0 -> MaterialTheme.colorScheme.primary
-        eloDelta < 0 -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val deltaColor = eloDeltaColor(eloDelta)
     val rowArrangement = when (horizontalAlignment) {
         Alignment.CenterHorizontally -> Arrangement.Center
         Alignment.End -> Arrangement.End

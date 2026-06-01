@@ -5,9 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.data.model.UserProfile
+import com.rpsonline.app.data.preferences.HighlightedMatchCache
 import com.rpsonline.app.data.preferences.MatchModePreferences
 import com.rpsonline.app.data.repository.AuthRepository
+import com.rpsonline.app.data.repository.HighlightedMatchFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.MatchmakingFunctions
@@ -15,6 +18,8 @@ import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.data.repository.UserProfileSync
 import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.MatchMode
+import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
+import com.rpsonline.app.domain.weeklyChartWindowStartMs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -52,6 +57,8 @@ data class HomeUiState(
     val isInQueue: Boolean = false,
     val queueElapsedSeconds: Long = 0,
     val matchmakingError: String? = null,
+    val highlightedMatch: MatchHistoryEntry? = null,
+    val isHighlightedMatchDismissed: Boolean = false,
     val error: String? = null,
     val isSigningOut: Boolean = false,
 )
@@ -80,6 +87,9 @@ class HomeViewModel(
     private var preGameReadyJob: Job? = null
     private var preGameReadyMatchId: String? = null
     private var gameNavigationVerifyJob: Job? = null
+    private var highlightedMatchJob: Job? = null
+    private var lastProfileStatsFingerprint: Int? = null
+    private var appContext: Context? = null
 
     companion object {
         private const val MATCH_ASSIGNMENT_GRACE_MS = 30_000L
@@ -105,6 +115,10 @@ class HomeViewModel(
                     activeMatchJob = null
                     queueObserveJob?.cancel()
                     queueObserveJob = null
+                    highlightedMatchJob?.cancel()
+                    highlightedMatchJob = null
+                    lastProfileStatsFingerprint = null
+                    appContext = null
                     stopQueueTimer()
                     awaitingMatchFromQueue = false
                     MatchSessionMonitor.consumeGameNavigation()
@@ -120,6 +134,8 @@ class HomeViewModel(
                             isInQueue = false,
                             queueElapsedSeconds = 0,
                             matchmakingError = null,
+                            highlightedMatch = null,
+                            isHighlightedMatchDismissed = false,
                             isSigningOut = false,
                             error = null,
                         )
@@ -133,10 +149,18 @@ class HomeViewModel(
                     profileJob = viewModelScope.launch {
                         userRepository.observeUserProfile(user.uid).collect { profile ->
                             if (profile != null) {
+                                val fingerprint = profile.postMatchStatsFingerprint()
+                                val statsChanged = lastProfileStatsFingerprint != null &&
+                                    lastProfileStatsFingerprint != fingerprint
+                                lastProfileStatsFingerprint = fingerprint
                                 _uiState.update { it.copy(profile = profile, isLoading = false, error = null) }
+                                if (statsChanged || _uiState.value.highlightedMatch == null) {
+                                    loadHighlightedMatch(user.uid, profile.elo)
+                                }
                             }
                         }
                     }
+                    loadHighlightedMatch(user.uid, _uiState.value.profile?.elo ?: 1000)
                     refresh(user)
                     observeActiveMatch()
                     observeQueue()
@@ -761,11 +785,65 @@ class HomeViewModel(
         preGameReadyMatchId = null
     }
 
+    fun dismissHighlightedMatch() {
+        _uiState.update { it.copy(isHighlightedMatchDismissed = true) }
+    }
+
     fun onHomeVisible(context: Context) {
+        appContext = context.applicationContext
         loadMatchModePreferences(context)
+        authRepository.currentUserId?.let { uid ->
+            _uiState.value.profile?.elo?.let { elo ->
+                loadHighlightedMatch(uid, elo)
+            }
+        }
+    }
+
+    private fun loadHighlightedMatch(userId: String, currentElo: Int) {
+        highlightedMatchJob?.cancel()
+        highlightedMatchJob = viewModelScope.launch {
+            try {
+                val windowStartMs = weeklyChartWindowStartMs()
+                val cacheContext = appContext
+                if (cacheContext != null) {
+                    val cached = HighlightedMatchCache(cacheContext).read(userId, windowStartMs)
+                    if (cached != null) {
+                        if (authRepository.currentUserId == userId) {
+                            _uiState.update { it.copy(highlightedMatch = cached.entry) }
+                        }
+                        return@launch
+                    }
+                }
+                val matchId = HighlightedMatchFunctions.getHighlightedMatchId(windowStartMs)
+                val highlighted = if (matchId != null) {
+                    val match = matchRepository.getMatch(matchId)
+                        ?: matchRepository.getMatchFromServer(matchId)
+                    if (match != null) {
+                        enrichMatchHistoryWithOpponentElos(
+                            viewerId = userId,
+                            myCurrentElo = currentElo,
+                            matches = listOf(match),
+                        ).firstOrNull()
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
+                cacheContext?.let { context ->
+                    HighlightedMatchCache(context).write(userId, windowStartMs, highlighted)
+                }
+                if (authRepository.currentUserId == userId) {
+                    _uiState.update { it.copy(highlightedMatch = highlighted) }
+                }
+            } catch (_: Exception) {
+                // Keep the previous highlight or hide the section on failure.
+            }
+        }
     }
 
     fun reconcileQueueOnResume(context: Context) {
+        appContext = context.applicationContext
         loadMatchModePreferences(context)
         _uiState.value.preGameSync?.matchId?.let { ensurePreGameReadyLoop(it) }
         viewModelScope.launch {
@@ -781,6 +859,7 @@ class HomeViewModel(
             val uid = authRepository.currentUserId ?: return@launch
             userRepository.getUserProfile(uid)?.let { profile ->
                 _uiState.update { it.copy(profile = profile) }
+                loadHighlightedMatch(uid, profile.elo)
             }
 
             val serverJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
@@ -915,6 +994,7 @@ class HomeViewModel(
 
     fun signOut(context: Context) {
         val uid = authRepository.currentUserId
+        appContext?.let { HighlightedMatchCache(it).clear() }
         refreshJob?.cancel()
         resetMatchmakingLocalState()
         MatchSessionMonitor.consumeGameNavigation()
@@ -947,6 +1027,7 @@ class HomeViewModel(
         leaveQueueJob?.cancel()
         activeMatchJob?.cancel()
         queueObserveJob?.cancel()
+        highlightedMatchJob?.cancel()
         stopQueueTimer()
         super.onCleared()
     }

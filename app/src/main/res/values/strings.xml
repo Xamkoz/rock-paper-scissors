@@ -19,6 +19,9 @@
     <string name="reconnect_to_game">Reconnect to Game</string>
     <string name="leave_queue">Leave Queue</string>
     <string name="find_match">Find Match</string>
+    <string name="highlighted_match">Highlighted match</string>
+    <string name="highlighted_match_subtitle">Biggest ELO gain this week</string>
+    <string name="dismiss_highlighted_match">Dismiss highlighted match</string>
     <string name="leaderboard">Leaderboard</string>
     <string name="leaderboard_online_only">Online only</string>
     <string name="my_opponents">My Opponents</string>

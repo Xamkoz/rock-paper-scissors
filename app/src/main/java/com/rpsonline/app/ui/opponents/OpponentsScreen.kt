@@ -46,6 +46,7 @@ import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.formatEloDelta
 import com.rpsonline.app.ui.components.formatEloDeltaOneDecimal
+import com.rpsonline.app.ui.components.eloDeltaColor
 import com.rpsonline.app.ui.components.onlinePresenceRowStyle
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.viewmodel.OpponentsViewModel
@@ -309,16 +310,6 @@ private fun OpponentEloPerMatchSummaryLine(
             color = muted,
         )
     }
-}
-
-@Composable
-private fun eloDeltaColor(delta: Int) = eloDeltaColor(delta.toDouble())
-
-@Composable
-private fun eloDeltaColor(delta: Double) = when {
-    delta > 0 -> MaterialTheme.colorScheme.primary
-    delta < 0 -> MaterialTheme.colorScheme.error
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable

@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,11 +31,9 @@ import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.R
 import com.rpsonline.app.domain.DisplayNames
 import com.rpsonline.app.ui.components.HomeOutlinedButton
+import com.rpsonline.app.ui.components.MatchHistoryCard
 import com.rpsonline.app.ui.components.MatchHistoryLoadingSection
-import com.rpsonline.app.ui.components.MatchRecapCard
 import com.rpsonline.app.ui.components.ProfileSummaryCard
-import com.rpsonline.app.ui.components.RpsCard
-import com.rpsonline.app.ui.components.MatchHistoryCardHeader
 import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
@@ -170,7 +167,8 @@ fun ProfileScreen(
                         ) { entry ->
                             MatchHistoryCard(
                                 entry = entry,
-                                onPlayerProfile = onPlayerProfile,
+                                onMyProfile = onPlayerProfile,
+                                onOpponentProfile = onPlayerProfile,
                             )
                         }
                         if (uiState.isLoadingMore) {
@@ -204,36 +202,6 @@ fun ProfileScreen(
             onClick = onHome,
             label = stringResource(R.string.back_to_home),
         )
-        }
-    }
-}
-
-@Composable
-private fun MatchHistoryCard(
-    entry: MatchHistoryEntry,
-    onPlayerProfile: (String) -> Unit,
-) {
-    RpsCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            MatchHistoryCardHeader(
-                entry = entry,
-                lastActivityAt = entry.lastActivityAt,
-                onMyProfile = onPlayerProfile,
-                onOpponentProfile = onPlayerProfile,
-            )
-            if (entry.recaps.isNotEmpty()) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                MatchRecapCard(
-                    recaps = entry.recaps,
-                    title = null,
-                    embedded = true,
-                )
-            }
         }
     }
 }

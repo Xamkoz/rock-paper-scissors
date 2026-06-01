@@ -91,14 +91,14 @@ fun rpsPerRoundColor(throwsPerRound: Double, darkTheme: Boolean): Color {
 fun rpsPerRoundColor(throwsPerRound: Double): Color =
     rpsPerRoundColor(throwsPerRound, isRpsDarkTheme())
 
-private const val EloRatingMin = 800f
+private const val EloRatingMin = 900f
 private const val EloRatingMid = 1000f
-private const val EloRatingMax = 1400f
+private const val EloRatingMax = 1250f
 
-/** Lower ELO → magenta, ~1000 → yellow, higher ELO → cyan. */
-fun eloRatingColor(elo: Int, darkTheme: Boolean): Color {
+/** Maps player ELO to 0–100 spectrum; clamped to the current [900, 1250] population spread. */
+internal fun eloRatingSpectrumPercent(elo: Int): Float {
     val value = elo.toFloat().coerceIn(EloRatingMin, EloRatingMax)
-    val percent = when {
+    return when {
         value <= EloRatingMid -> {
             val span = EloRatingMid - EloRatingMin
             val t = if (span > 0f) (value - EloRatingMin) / span else 0f
@@ -110,7 +110,11 @@ fun eloRatingColor(elo: Int, darkTheme: Boolean): Color {
             BalancedSharePercent + t * (100f - BalancedSharePercent)
         }
     }
-    return leaderboardSpectrumColor(percent, darkTheme)
+}
+
+/** Lower ELO → magenta, ~1000 → yellow, ~1250 → cyan (900–1250 player spread). */
+fun eloRatingColor(elo: Int, darkTheme: Boolean): Color {
+    return leaderboardSpectrumColor(eloRatingSpectrumPercent(elo), darkTheme)
 }
 
 @Composable

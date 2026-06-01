@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -67,6 +68,7 @@ import com.rpsonline.app.data.update.ReleaseChangelog
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.ui.components.AppUpdateDialogs
 import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
+import com.rpsonline.app.ui.components.MatchHistoryCard
 import com.rpsonline.app.ui.components.ProfileSummaryCard
 import com.rpsonline.app.ui.components.RpsHeroPrimaryButton
 import com.rpsonline.app.ui.components.RpsOutlinedActionButton
@@ -80,6 +82,7 @@ import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.ui.util.PreGameReadyFeedbackEffect
 import com.rpsonline.app.ui.util.formatQueueTime
 import com.rpsonline.app.ui.util.findActivity
+import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.viewmodel.AppUpdateViewModel
 import com.rpsonline.app.viewmodel.HomeViewModel
 import com.rpsonline.app.viewmodel.PreGameSyncUiState
@@ -139,7 +142,9 @@ fun HomeScreen(
     PreGameReadyFeedbackEffect(preGameSync = uiState.preGameSync)
 
     Column(
-        modifier = Modifier.rpsScreenPadding(),
+        modifier = Modifier
+            .fillMaxSize()
+            .rpsScreenPadding(),
     ) {
         if (uiState.isSigningOut) {
             Box(
@@ -190,12 +195,12 @@ fun HomeScreen(
         val matchModesLocked = uiState.isJoiningQueue || uiState.isInQueue
         val scrollState = rememberScrollState()
 
+        val showHighlightedMatch = !uiState.isHighlightedMatchDismissed && uiState.highlightedMatch != null
+
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(scrollState),
+            modifier = Modifier.fillMaxSize(),
         ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
         Spacer(modifier = Modifier.height(4.dp))
         HomeWelcomeHeaderRow(
             onSignOutConfirmed = { viewModel.signOut(context) },
@@ -331,66 +336,115 @@ fun HomeScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
-        }
 
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
         if (openingMatchId != null) {
             RpsHeroPrimaryButton(
                 onClick = {},
                 text = stringResource(R.string.opening_match),
                 enabled = false,
             )
+            Spacer(modifier = Modifier.height(8.dp))
         }
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        }
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
         ) {
-        RpsOutlinedActionButton(
-            onClick = onMyOpponents,
-            text = stringResource(R.string.my_opponents),
-        )
-        RpsOutlinedActionButton(
-            onClick = onLeaderboard,
-            text = stringResource(R.string.leaderboard),
-        )
-        HomeAppInfoFooter(
-            versionName = updateState.versionName,
-            updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
-            availableUpdate = updateState.availableUpdate,
-            isCheckingForUpdate = updateState.isCheckingForUpdate,
-            isDownloadingUpdate = updateState.isDownloadingUpdate,
-            updateMessage = updateState.updateMessage,
-            onCheckForUpdate = { updateViewModel.checkForUpdate(context) },
-            onInstallUpdate = {
-                activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
-                    ?: updateViewModel.showUpdatePrompt()
-            },
-            onVersionClick = onChangelog,
-            onVersionLongClick = {
-                val version = updateState.versionName.trim()
-                if (version.isBlank() && updateState.availableUpdate?.tag.isNullOrBlank()) return@HomeAppInfoFooter
-                val tag = if (BuildConfig.DEBUG) {
-                    updateState.availableUpdate?.tag?.takeIf { it.isNotBlank() }
-                        ?: ReleaseChangelog.tagForInstalledVersion(version)
-                } else {
-                    ReleaseChangelog.tagForInstalledVersion(version)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = maxHeight)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                if (showHighlightedMatch) {
+                    uiState.highlightedMatch?.let { highlightedMatch ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HomeHighlightedMatchCard(
+                                entry = highlightedMatch,
+                                onPlayerProfile = onPlayerProfile,
+                                onDismiss = { viewModel.dismissHighlightedMatch() },
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
-                val apkUrl =
-                    "https://github.com/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/download/$tag/rps-online-$tag.apk"
-                clipboardManager.setText(AnnotatedString(apkUrl))
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.apk_link_copied),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            },
-        )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    RpsOutlinedActionButton(
+                        onClick = onMyOpponents,
+                        text = stringResource(R.string.my_opponents),
+                    )
+                    RpsOutlinedActionButton(
+                        onClick = onLeaderboard,
+                        text = stringResource(R.string.leaderboard),
+                    )
+                    HomeAppInfoFooter(
+                        versionName = updateState.versionName,
+                        updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
+                        availableUpdate = updateState.availableUpdate,
+                        isCheckingForUpdate = updateState.isCheckingForUpdate,
+                        isDownloadingUpdate = updateState.isDownloadingUpdate,
+                        updateMessage = updateState.updateMessage,
+                        onCheckForUpdate = { updateViewModel.checkForUpdate(context) },
+                        onInstallUpdate = {
+                            activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
+                                ?: updateViewModel.showUpdatePrompt()
+                        },
+                        onVersionClick = onChangelog,
+                        onVersionLongClick = {
+                            val version = updateState.versionName.trim()
+                            if (version.isBlank() && updateState.availableUpdate?.tag.isNullOrBlank()) {
+                                return@HomeAppInfoFooter
+                            }
+                            val tag = if (BuildConfig.DEBUG) {
+                                updateState.availableUpdate?.tag?.takeIf { it.isNotBlank() }
+                                    ?: ReleaseChangelog.tagForInstalledVersion(version)
+                            } else {
+                                ReleaseChangelog.tagForInstalledVersion(version)
+                            }
+                            val apkUrl =
+                                "https://github.com/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/download/$tag/rps-online-$tag.apk"
+                            clipboardManager.setText(AnnotatedString(apkUrl))
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.apk_link_copied),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                }
+            }
         }
         }
     }
+}
+
+@Composable
+private fun HomeHighlightedMatchCard(
+    entry: MatchHistoryEntry,
+    onPlayerProfile: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    MatchHistoryCard(
+        entry = entry,
+        title = stringResource(R.string.highlighted_match),
+        onDismiss = onDismiss,
+        contentVerticalPadding = 2.dp,
+        contentTopPadding = 12.dp,
+        compactHeader = true,
+        matchHeaderTopPadding = 8.dp,
+        titleStyle = MaterialTheme.typography.titleMedium,
+        onMyProfile = onPlayerProfile,
+        onOpponentProfile = onPlayerProfile,
+    )
 }
 
 @Composable
