@@ -33,6 +33,7 @@ import android.Manifest
 import android.os.Build
 import com.rpsonline.app.data.monitoring.NetworkConnectionMonitor
 import com.rpsonline.app.data.monitoring.NetworkConnectionStatus
+import com.rpsonline.app.data.monitoring.NetworkDataActivityKind
 import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
@@ -133,7 +134,7 @@ fun RpsApp() {
     val scope = rememberCoroutineScope()
     val connectionMonitor = remember { NetworkConnectionMonitor(context) }
     val connectionStatus by connectionMonitor.status.collectAsStateWithLifecycle()
-    val dataActivityActive by NetworkDataActivityTracker.isActive.collectAsStateWithLifecycle()
+    val activeNetworkKinds by NetworkDataActivityTracker.activeKinds.collectAsStateWithLifecycle()
 
     DisposableEffect(connectionMonitor, scope) {
         connectionMonitor.start(scope)
@@ -529,11 +530,12 @@ fun RpsApp() {
                                 }
                                 val connectionProbeActive =
                                     connectionStatus == NetworkConnectionStatus.Checking &&
-                                    !dataActivityActive
+                                    NetworkDataActivityKind.Connection !in activeNetworkKinds &&
+                                    NetworkDataActivityKind.Queue !in activeNetworkKinds
                                 SegmentedDisplayPulseEffect(
                                     resolutionPulseTrigger = resolutionPulseTrigger,
                                     pulseMove = roundResolutionPulseNotifier.activePulseMove,
-                                    dataTransferActive = dataActivityActive,
+                                    activeNetworkKinds = activeNetworkKinds,
                                     connectionProbeActive = connectionProbeActive,
                                 ) {
                                     TopBarSegmentedQueueIndicator(

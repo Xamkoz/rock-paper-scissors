@@ -68,6 +68,37 @@ class MatchSessionBackgroundPolicyTest {
     }
 
     @Test
+    fun staleQueueTimestampAfterMatch_doesNotNeedBackgroundService() {
+        assertFalse(
+            computeSessionNeedsBackgroundService(
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = false,
+            ),
+        )
+    }
+
+    @Test
+    fun completedMatch_doesNotNeedBackgroundService() {
+        val match = Match(
+            player1 = uid,
+            player2 = "player-2",
+            status = MatchStatus.COMPLETED,
+        )
+        assertFalse(
+            computeSessionNeedsBackgroundService(
+                uid = uid,
+                match = match,
+                hasQueueEntry = false,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = false,
+            ),
+        )
+    }
+
+    @Test
     fun matchmakingInProgress_keepsBackgroundServiceWhenListenerCleared() {
         assertTrue(
             computeSessionNeedsBackgroundService(

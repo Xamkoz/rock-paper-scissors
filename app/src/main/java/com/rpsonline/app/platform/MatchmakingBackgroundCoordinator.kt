@@ -127,10 +127,11 @@ internal fun computeSessionNeedsBackgroundService(
     if (match != null && match.isParticipant(uid)) {
         when (match.status) {
             MatchStatus.LOBBY, MatchStatus.ACTIVE -> return true
-            else -> Unit
+            MatchStatus.COMPLETED, MatchStatus.ABANDONED -> return false
         }
     }
-    return hasQueueEntry || queueJoinedAtMs != null || matchmakingInProgress
+    // Stale queueJoinedAtMs alone must not keep the status notification alive after a match.
+    return hasQueueEntry || matchmakingInProgress
 }
 
 /** Presence heartbeats while foreground and engaged, or during an active queue/match session. */

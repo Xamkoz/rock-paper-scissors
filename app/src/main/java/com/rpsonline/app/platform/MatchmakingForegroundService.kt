@@ -253,8 +253,14 @@ class MatchmakingForegroundService : Service() {
             )
         }
 
-        val joinedAt = queueJoinedAt?.takeIf { it > 0L }
-        val inQueue = MatchSessionMonitor.hasQueueEntry.value || joinedAt != null
+        val queueSessionActive = MatchSessionMonitor.hasQueueEntry.value ||
+            MatchSessionMonitor.matchmakingInProgress.value
+        val joinedAt = if (queueSessionActive) {
+            queueJoinedAt?.takeIf { it > 0L }
+        } else {
+            null
+        }
+        val inQueue = queueSessionActive && (MatchSessionMonitor.hasQueueEntry.value || joinedAt != null)
         return TopBarStatusRowSpec(
             status = SegmentedNotificationStatus.IN_QUEUE,
             onlineCount = SegmentedNotificationState.onlineCount,
