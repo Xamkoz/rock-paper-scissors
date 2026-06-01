@@ -22,6 +22,11 @@ class RpsApplication : Application() {
         MatchSessionMonitor.onSessionStateChanged = {
             MatchmakingBackgroundCoordinator.sync(this)
         }
+        MatchSessionMonitor.onQueueRecoveryFailed = {
+            MatchSessionMonitor.setMatchmakingInProgress(false)
+            MatchSessionMonitor.clearQueueState()
+            MatchmakingBackgroundCoordinator.sync(this)
+        }
         MatchSessionMonitor.onActiveMatchPublished = { match ->
             MatchForegroundLaunchCoordinator.onMatchSessionChanged(this, match)
         }

@@ -1,7 +1,9 @@
 package com.rpsonline.app.data.repository
 
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.rpsonline.app.data.preferences.MatchModePreferences
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -156,10 +158,8 @@ object MatchSessionMonitor {
 
     fun isMatchmakingInProgress(): Boolean = _matchmakingInProgress.value
 
-    /** True while the client should keep queue heartbeats (listener doc or confirmed join). */
-    fun shouldSendQueueHeartbeats(): Boolean =
-        _hasQueueEntry.value ||
-            (_matchmakingInProgress.value && queueElapsedAnchorMs() != null)
+    /** True while queue/{uid} exists locally and should receive heartbeats. */
+    fun shouldSendQueueHeartbeats(): Boolean = _hasQueueEntry.value
 
     fun hasPendingGameNavigation(): Boolean = _pendingGameNavigationMatchId.value != null
 
@@ -508,18 +508,31 @@ object MatchSessionMonitor {
     }
 
     private suspend fun performQueueRecovery() {
-        if (!_matchmakingInProgress.value) return
-        if (isQueueEntryPending()) return
-        if (shouldSendQueueHeartbeats()) {
-            verifyQueueOnServer()
+        val step = resolveQueueRecoveryStep(
+            matchmakingInProgress = _matchmakingInProgress.value,
+            queueEntryPending = isQueueEntryPending(),
+            serverQueueExists = matchRepository.queueEntryExistsOnServer(),
+        )
+        when (step) {
+            QueueRecoveryStep.SKIP, QueueRecoveryStep.RETRY_LATER -> return
+            QueueRecoveryStep.SYNC -> {
+                _hasQueueEntry.value = true
+                notifySessionStateChanged()
+                matchRepository.getQueueJoinedAtMs()?.let { confirmQueueJoinedAt(it) }
+            }
+            QueueRecoveryStep.REJOIN -> {
+                _hasQueueEntry.value = false
+                notifySessionStateChanged()
+                rejoinQueueAfterDocLoss()
+            }
+        }
+    }
+
+    private suspend fun rejoinQueueAfterDocLoss() {
+        val modes = resolveRecoveryMatchModes() ?: run {
+            onQueueRecoveryFailed?.invoke(QUEUE_RECOVERY_FAILURE_MESSAGE)
             return
         }
-        val serverJoinedAtMs = runCatching { matchRepository.getQueueJoinedAtMs() }.getOrNull()
-        if (serverJoinedAtMs != null) {
-            confirmQueueJoinedAt(serverJoinedAtMs)
-            return
-        }
-        val modes = pendingRecoveryMatchModes ?: return
         val user = auth.currentUser ?: return
         val profile = resolveRecoveryProfile(user.uid, user) ?: return
         runCatching {
@@ -533,6 +546,12 @@ object MatchSessionMonitor {
         }.onFailure {
             onQueueRecoveryFailed?.invoke(QUEUE_RECOVERY_FAILURE_MESSAGE)
         }
+    }
+
+    private fun resolveRecoveryMatchModes(): Set<MatchMode>? {
+        pendingRecoveryMatchModes?.let { return it }
+        val context = runCatching { FirebaseApp.getInstance().applicationContext }.getOrNull() ?: return null
+        return MatchModePreferences(context).get().also { pendingRecoveryMatchModes = it }
     }
 
     private fun resolveRecoveryProfile(uid: String, user: FirebaseUser): UserProfile? {
