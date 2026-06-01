@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Match
+import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.viewerResolution
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.data.repository.AuthRepository
@@ -66,15 +67,25 @@ fun ResultScreen(
     var myProfile by remember { mutableStateOf<UserProfile?>(null) }
     var myCurrentElo by remember { mutableStateOf<Int?>(null) }
     var opponentProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var opponentCurrentElo by remember { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(matchId) {
         val userId = authRepository.currentUserId
         match = matchRepository.getMatch(matchId)
+        match?.takeIf {
+            it.status == MatchStatus.COMPLETED || it.status == MatchStatus.ABANDONED
+        }?.let { finished ->
+            matchRepository.invalidateConcludedMatchCacheForParticipants(
+                finished.player1,
+                finished.player2,
+            )
+        }
         myCurrentElo = userId?.let { userRepository.getUserProfile(it)?.elo }
         myProfile = userId?.let { userRepository.getUserProfile(it) }
         isLoading = false
         val opponentId = userId?.let { uid -> match?.opponentId(uid) } ?: return@LaunchedEffect
+        opponentCurrentElo = userRepository.getUserProfile(opponentId)?.elo
 
         userId?.let { uid ->
             launch {
@@ -88,10 +99,11 @@ fun ResultScreen(
         launch {
             userRepository.observeUserProfile(opponentId).collectLatest { profile ->
                 opponentProfile = profile
+                opponentCurrentElo = profile?.elo ?: opponentCurrentElo
             }
         }
 
-        // Cloud Functions may finish incrementing throw stats after the result screen opens.
+        // Cloud Functions may finish incrementing throw stats and Elo after the result screen opens.
         repeat(8) {
             delay(2_000)
             userId?.let { uid ->
@@ -100,7 +112,10 @@ fun ResultScreen(
                     myCurrentElo = profile.elo
                 }
             }
-            userRepository.getUserProfile(opponentId)?.let { opponentProfile = it }
+            userRepository.getUserProfile(opponentId)?.let { profile ->
+                opponentProfile = profile
+                opponentCurrentElo = profile.elo
+            }
         }
     }
 
@@ -128,9 +143,10 @@ fun ResultScreen(
                 ?: currentMatch.myName(uid).takeIf { it.isNotBlank() }
         } ?: DisplayNames.DEFAULT
         val opponentId = userId?.let { currentMatch.opponentId(it) }
-        val opponentElo = userId?.let { uid ->
+        val opponentPreMatchElo = userId?.let { uid ->
             myCurrentElo?.let { currentMatch.opponentEloAtMatch(uid, it) }
         }
+        val opponentDisplayElo = opponentCurrentElo ?: opponentProfile?.elo ?: opponentPreMatchElo
         val recaps = userId?.let { currentMatch.resolvedRoundRecaps(it) } ?: emptyList()
         val outcomeDetail = matchResultOutcomeDetail(
             match = currentMatch,
@@ -180,7 +196,7 @@ fun ResultScreen(
                 displayName = opponentProfile?.displayName ?: opponentName,
                 profile = opponentProfile,
                 playerUid = opponentId,
-                eloOverride = opponentElo,
+                eloOverride = opponentDisplayElo,
                 onClick = { onOpponentProfile(opponentId) },
             )
         }

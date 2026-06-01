@@ -149,6 +149,30 @@ class MatchRepository(
             cacheVersionCode = currentVersionCode
         }
 
+        /** Keys whose cache entries include either participant uid (recent + shared match queries). */
+        internal fun concludedCacheKeysTouchingParticipants(
+            allKeys: Set<String>,
+            vararg participantIds: String,
+        ): Set<String> {
+            val uids = participantIds.filter { it.isNotBlank() }.toSet()
+            if (uids.isEmpty()) return emptySet()
+            return allKeys.filter { key -> uids.any { uid -> key.contains(uid) } }.toSet()
+        }
+
+        fun invalidateConcludedMatchCacheForParticipants(player1: String, player2: String) {
+            synchronized(concludedMatchCache) {
+                ensureCacheVersion()
+                val allKeys = buildSet {
+                    addAll(concludedMatchCache.keys)
+                    addAll(prefs.all.keys)
+                }
+                concludedCacheKeysTouchingParticipants(allKeys, player1, player2).forEach { key ->
+                    concludedMatchCache.remove(key)
+                    prefs.edit().remove(key).apply()
+                }
+            }
+        }
+
         private fun writeCacheEntryToPrefs(key: String, entry: ConcludedMatchCacheEntry) {
             val jsonArray = JSONArray()
             entry.matches.forEach { match ->
@@ -542,6 +566,11 @@ class MatchRepository(
             .get(Source.SERVER)
             .await()
         return if (snapshot.exists()) snapshot.toMatch(matchId) else null
+    }
+
+    /** Drop cached concluded-match lists so profile/history reflect a match that just ended. */
+    fun invalidateConcludedMatchCacheForParticipants(player1: String, player2: String) {
+        Companion.invalidateConcludedMatchCacheForParticipants(player1, player2)
     }
 
     suspend fun getRecentMatchesForUser(userId: String, limit: Int = 10): List<Match> {

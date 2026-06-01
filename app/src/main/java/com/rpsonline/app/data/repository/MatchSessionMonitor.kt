@@ -181,6 +181,26 @@ object MatchSessionMonitor {
         consumeGameNavigation()
         setMatchmakingInProgress(false)
         autoGameNavigationSuppressedMatchId = matchId
+        val finished = _activeMatch.value?.takeIf { it.id == matchId }
+        if (finished != null) {
+            matchRepository.invalidateConcludedMatchCacheForParticipants(
+                finished.player1,
+                finished.player2,
+            )
+        } else {
+            sessionScope.launch {
+                val snap = runCatching {
+                    firestore.collection("matches").document(matchId).get().await()
+                }.getOrNull()
+                if (snap != null && snap.exists()) {
+                    val match = snap.toMatch(matchId)
+                    matchRepository.invalidateConcludedMatchCacheForParticipants(
+                        match.player1,
+                        match.player2,
+                    )
+                }
+            }
+        }
     }
 
     /** Called when queue entry is confirmed (server or client join timestamp). */
