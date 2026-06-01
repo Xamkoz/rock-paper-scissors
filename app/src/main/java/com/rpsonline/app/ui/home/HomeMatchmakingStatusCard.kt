@@ -173,20 +173,36 @@ enum class HomeMatchmakingPrimaryStyle {
     ActionTitle,
 }
 
+/** Primary action card (Find Match, Play Again) — same layout as the idle matchmaking slot. */
 @Composable
-fun HomeFindMatchActionCard(
+fun HomeMatchmakingActionCard(
+    primary: String,
     onClick: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     HomeMatchmakingStatusCard(
         label = null,
-        primary = stringResource(R.string.find_match),
+        primary = primary,
         primaryStyle = HomeMatchmakingPrimaryStyle.ActionTitle,
         subtitle = null,
         modifier = modifier,
         onClick = onClick,
         enabled = enabled,
+    )
+}
+
+@Composable
+fun HomeFindMatchActionCard(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    HomeMatchmakingActionCard(
+        primary = stringResource(R.string.find_match),
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
     )
 }
 

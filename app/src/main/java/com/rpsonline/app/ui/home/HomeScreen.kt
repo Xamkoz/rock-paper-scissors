@@ -61,6 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import android.widget.Toast
 import com.rpsonline.app.BuildConfig
 import com.rpsonline.app.R
+import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.update.InstalledVersionApk
 import com.rpsonline.app.domain.MatchMode
@@ -98,6 +99,7 @@ fun HomeScreen(
     val isServerConnected = LocalNetworkConnectionStatus.current.isServerConnected()
     val openingMatchId by viewModel.navigateToGameMatchId.collectAsState()
     val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
+    val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val updateState by updateViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -318,9 +320,12 @@ fun HomeScreen(
             (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null || matchmakingInProgress) &&
             uiState.activeMatchId == null
         ) {
+            val showMatchFoundPhase = openingMatchId != null &&
+                activeMatch?.id == openingMatchId &&
+                activeMatch?.status == MatchStatus.ACTIVE
             HomeQueueStatusCard(
                 phase = when {
-                    openingMatchId != null -> QueueStatusPhase.MatchFound
+                    showMatchFoundPhase -> QueueStatusPhase.MatchFound
                     uiState.isJoiningQueue -> QueueStatusPhase.Joining
                     else -> QueueStatusPhase.Searching
                 },

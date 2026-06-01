@@ -85,8 +85,11 @@ private fun MatchFoundNavigationEffect(navController: NavHostController) {
                     MatchSessionMonitor.consumeGameNavigation()
                     return@LaunchedEffect
                 }
-                else -> Unit
+                MatchStatus.ACTIVE -> Unit
+                else -> return@LaunchedEffect
             }
+        } else {
+            return@LaunchedEffect
         }
         if (currentRoute == Routes.game(matchId)) {
             MatchSessionMonitor.consumeGameNavigation()

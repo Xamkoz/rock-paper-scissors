@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import com.rpsonline.app.domain.opponentEloAtMatch
 import com.rpsonline.app.domain.resultEloPreview
 import com.rpsonline.app.domain.DisplayNames
 import com.rpsonline.app.ui.components.HomeOutlinedButton
+import com.rpsonline.app.ui.home.HomeMatchmakingActionCard
 import com.rpsonline.app.ui.components.MatchRecapCard
 import com.rpsonline.app.ui.components.MatchResolutionOutcomeHeader
 import com.rpsonline.app.ui.components.ProfileSummaryCard
@@ -209,22 +209,17 @@ fun ResultScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Button(
+        HomeMatchmakingActionCard(
+            primary = stringResource(R.string.play_again),
             onClick = {
-                if (playAgainTriggered) return@Button
-                playAgainTriggered = true
-                onPlayAgain()
+                if (!playAgainTriggered) {
+                    playAgainTriggered = true
+                    onPlayAgain()
+                }
             },
             enabled = !playAgainTriggered,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.play_again),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-        }
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(modifier = Modifier.height(8.dp))
         HomeOutlinedButton(onClick = onHome)
     }

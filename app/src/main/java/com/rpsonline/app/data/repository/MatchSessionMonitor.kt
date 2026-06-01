@@ -140,6 +140,8 @@ object MatchSessionMonitor {
     fun shouldSendQueueHeartbeats(): Boolean =
         _hasQueueEntry.value || (_matchmakingInProgress.value && _queueJoinedAtMs.value != null)
 
+    fun hasPendingGameNavigation(): Boolean = _pendingGameNavigationMatchId.value != null
+
     fun requestGameNavigation(matchId: String) {
         if (isAutoGameNavigationSuppressed(matchId)) return
         _pendingGameNavigationMatchId.value = matchId
@@ -548,7 +550,7 @@ object MatchSessionMonitor {
             match.isParticipant(uid) &&
             _matchmakingInProgress.value &&
             !isAutoGameNavigationSuppressed(match.id) &&
-            (!fromCache || pendingLaunchMatchId == match.id)
+            !fromCache
         ) {
             requestGameNavigation(match.id)
             pendingLaunchMatchId = null

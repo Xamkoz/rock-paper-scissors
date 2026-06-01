@@ -79,6 +79,7 @@ class HomeViewModel(
     private var queuedMatchModes: Set<MatchMode>? = null
     private var preGameReadyJob: Job? = null
     private var preGameReadyMatchId: String? = null
+    private var gameNavigationVerifyJob: Job? = null
 
     companion object {
         private const val MATCH_ASSIGNMENT_GRACE_MS = 30_000L
@@ -479,7 +480,11 @@ class HomeViewModel(
                 val uid = authRepository.currentUserId
                 if (match == null || uid == null || !match.isParticipant(uid)) {
                     stopPreGameReadyLoop()
-                    _uiState.update { it.copy(preGameSync = null, activeMatchId = null) }
+                    if (MatchSessionMonitor.hasPendingGameNavigation()) {
+                        abortFalseMatchFoundAssignment()
+                    } else {
+                        _uiState.update { it.copy(preGameSync = null, activeMatchId = null) }
+                    }
                     return@collect
                 }
 
@@ -532,9 +537,6 @@ class HomeViewModel(
                             (inMatchmakingFlow || _uiState.value.preGameSync?.matchId == match.id)
                         if (shouldAutoNavigate) {
                             beginAutoGameNavigation(match.id)
-                            viewModelScope.launch {
-                                navigateToActiveMatchWhenServerReady(match.id)
-                            }
                             return@collect
                         }
                         stopPreGameReadyLoop()
@@ -624,7 +626,6 @@ class HomeViewModel(
                     }
                     if (serverMatch.status == MatchStatus.ACTIVE) {
                         beginAutoGameNavigation(matchId)
-                        navigateToActiveMatchWhenServerReady(matchId)
                         break
                     }
                     if (serverMatch.isReadyDeadlineExpired() && !serverMatch.isOpponentReady(uid)) {
@@ -680,7 +681,6 @@ class HomeViewModel(
         awaitingMatchStartedAtMs = null
         stopQueueTimer()
         MatchSessionMonitor.setMatchmakingInProgress(true)
-        MatchSessionMonitor.requestGameNavigation(matchId)
         _uiState.update {
             it.copy(
                 isJoiningQueue = false,
@@ -691,13 +691,64 @@ class HomeViewModel(
                 activeMatchId = null,
             )
         }
+        gameNavigationVerifyJob?.cancel()
+        gameNavigationVerifyJob = viewModelScope.launch(Dispatchers.IO) {
+            confirmActiveMatchOnServer(matchId)
+        }
     }
 
-    private suspend fun navigateToActiveMatchWhenServerReady(matchId: String) {
+    /**
+     * Only queue game navigation after the server reports a live ACTIVE match.
+     * Cached listener snapshots can briefly show ACTIVE for an old or non-existent match.
+     */
+    private suspend fun confirmActiveMatchOnServer(matchId: String) {
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
-        val serverMatch = matchRepository.getMatchFromServer(matchId) ?: return
-        if (serverMatch.status != MatchStatus.ACTIVE) return
+        val uid = authRepository.currentUserId ?: run {
+            abortFalseMatchFoundAssignment()
+            return
+        }
+        val serverMatch = matchRepository.getMatchFromServer(matchId)
+        if (serverMatch == null || !serverMatch.isParticipant(uid)) {
+            abortFalseMatchFoundAssignment()
+            return
+        }
         MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)
+        when (serverMatch.status) {
+            MatchStatus.ACTIVE -> MatchSessionMonitor.requestGameNavigation(matchId)
+            MatchStatus.LOBBY -> Unit
+            else -> abortFalseMatchFoundAssignment()
+        }
+    }
+
+    private fun abortFalseMatchFoundAssignment() {
+        gameNavigationVerifyJob?.cancel()
+        gameNavigationVerifyJob = null
+        MatchSessionMonitor.consumeGameNavigation()
+        val joinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
+        if (
+            MatchSessionMonitor.isMatchmakingInProgress() &&
+            (MatchSessionMonitor.hasQueueEntry.value || joinedAtMs != null)
+        ) {
+            joinedAtMs?.let { enterConfirmedQueue(it) }
+                ?: _uiState.update {
+                    it.copy(
+                        isJoiningQueue = false,
+                        isInQueue = true,
+                        matchmakingError = null,
+                    )
+                }
+            return
+        }
+        MatchSessionMonitor.setMatchmakingInProgress(false)
+        _uiState.update {
+            it.copy(
+                preGameSync = null,
+                activeMatchId = null,
+                isJoiningQueue = false,
+                isInQueue = false,
+                queueElapsedSeconds = 0,
+            )
+        }
     }
 
     private fun stopPreGameReadyLoop() {
