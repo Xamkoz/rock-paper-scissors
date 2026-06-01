@@ -34,6 +34,7 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.model.RoundEndReason
 import com.rpsonline.app.data.model.RoundRecap
+import com.rpsonline.app.ui.leaderboard.recapMoveTimeColor
 
 private val RecapMoveIconSize = 14.dp
 private val RecapLayoutCompactBreakpoint = 360.dp
@@ -50,35 +51,6 @@ fun formatRecapMoveMs(ms: Int?): String {
     if (ms == null) return "—"
     val seconds = ((ms + 500) / 1000).coerceAtLeast(0)
     return "${seconds}s"
-}
-
-private enum class RecapSideOutcome {
-    Won,
-    Lost,
-    Draw,
-    Cancelled,
-}
-
-@Composable
-private fun recapSideColor(outcome: RecapSideOutcome): Color = when (outcome) {
-    RecapSideOutcome.Won -> MaterialTheme.colorScheme.primary
-    RecapSideOutcome.Lost -> MaterialTheme.colorScheme.error
-    RecapSideOutcome.Draw -> MaterialTheme.colorScheme.tertiary
-    RecapSideOutcome.Cancelled -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-private fun mySideOutcome(recap: RoundRecap): RecapSideOutcome = when {
-    recap.isCancelled -> RecapSideOutcome.Cancelled
-    recap.isDraw || recap.won == null -> RecapSideOutcome.Draw
-    recap.won -> RecapSideOutcome.Won
-    else -> RecapSideOutcome.Lost
-}
-
-private fun opponentSideOutcome(recap: RoundRecap): RecapSideOutcome = when {
-    recap.isCancelled -> RecapSideOutcome.Cancelled
-    recap.isDraw || recap.won == null -> RecapSideOutcome.Draw
-    recap.won -> RecapSideOutcome.Lost
-    else -> RecapSideOutcome.Won
 }
 
 @Composable
@@ -254,7 +226,7 @@ private fun RoundRecapCells(
     ) {
         RecapMoveTimeText(
             moveMs = recap.myMoveMs,
-            outcome = mySideOutcome(recap),
+            cancelled = recap.isCancelled,
             compact = compact,
         )
     }
@@ -270,7 +242,7 @@ private fun RoundRecapCells(
     ) {
         RecapMoveTimeText(
             moveMs = recap.opponentMoveMs,
-            outcome = opponentSideOutcome(recap),
+            cancelled = recap.isCancelled,
             compact = compact,
         )
     }
@@ -307,14 +279,18 @@ private fun RecapCell(
 @Composable
 private fun RecapMoveTimeText(
     moveMs: Int?,
-    outcome: RecapSideOutcome,
+    cancelled: Boolean,
     compact: Boolean,
 ) {
     Text(
         text = formatRecapMoveMs(moveMs),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
-        color = recapSideColor(outcome),
+        color = if (cancelled) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            recapMoveTimeColor(moveMs)
+        },
         textAlign = TextAlign.Center,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -348,20 +324,21 @@ private fun RoundChoicesLine(recap: RoundRecap, compact: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val lineColor = recapOutcomeColor(recap)
         RecapMoveIcon(
             choice = recap.myChoice,
-            outcome = mySideOutcome(recap),
+            color = lineColor,
             iconSize = if (compact) 12.dp else RecapMoveIconSize,
         )
         Text(
             text = recapChoicesSeparator(recap),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = recapSeparatorColor(recap),
+            color = lineColor,
         )
         RecapMoveIcon(
             choice = recap.opponentChoice,
-            outcome = opponentSideOutcome(recap),
+            color = lineColor,
             iconSize = if (compact) 12.dp else RecapMoveIconSize,
         )
     }
@@ -378,20 +355,11 @@ private fun recapChoicesSeparator(recap: RoundRecap): String = when {
 }
 
 @Composable
-private fun recapSeparatorColor(recap: RoundRecap): Color = when {
-    recap.isCancelled -> MaterialTheme.colorScheme.onSurfaceVariant
-    recap.isDraw || recap.won == null -> MaterialTheme.colorScheme.tertiary
-    recap.won -> MaterialTheme.colorScheme.primary
-    else -> MaterialTheme.colorScheme.error
-}
-
-@Composable
 private fun RecapMoveIcon(
     choice: String?,
-    outcome: RecapSideOutcome,
+    color: Color,
     iconSize: Dp = RecapMoveIconSize,
 ) {
-    val color = recapSideColor(outcome)
     val move = Move.fromString(choice)
     val icon = moveIcon(move)
     if (icon == null) {

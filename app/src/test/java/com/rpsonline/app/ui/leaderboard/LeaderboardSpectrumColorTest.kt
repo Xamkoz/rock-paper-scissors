@@ -19,8 +19,17 @@ class LeaderboardSpectrumColorTest {
     }
 
     @Test
-    fun eloRatingSpectrumPercent_increasesWithRating() {
-        assertTrue(eloRatingSpectrumPercent(980) < eloRatingSpectrumPercent(1040))
-        assertTrue(eloRatingSpectrumPercent(1040) < eloRatingSpectrumPercent(1160))
+    fun recapMoveTimeSpectrumPercent_fasterMovesScoreHigher() {
+        assertTrue(recapMoveTimeSpectrumPercent(2_000) > recapMoveTimeSpectrumPercent(15_000))
+        assertTrue(recapMoveTimeSpectrumPercent(15_000) > recapMoveTimeSpectrumPercent(60_000))
+    }
+
+    @Test
+    fun recapMoveTimeSpectrumPercent_clampsToRoundLimit() {
+        assertEquals(
+            recapMoveTimeSpectrumPercent(60_000),
+            recapMoveTimeSpectrumPercent(120_000),
+            0.01f,
+        )
     }
 }

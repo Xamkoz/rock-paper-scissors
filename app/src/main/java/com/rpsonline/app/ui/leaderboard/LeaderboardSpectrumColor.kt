@@ -1,5 +1,6 @@
 package com.rpsonline.app.ui.leaderboard
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import androidx.compose.ui.graphics.Color
@@ -90,6 +91,37 @@ fun rpsPerRoundColor(throwsPerRound: Double, darkTheme: Boolean): Color {
 @Composable
 fun rpsPerRoundColor(throwsPerRound: Double): Color =
     rpsPerRoundColor(throwsPerRound, isRpsDarkTheme())
+
+/** Faster moves are better; ~2s cyan → ~15s yellow → 60s magenta. */
+private const val RecapMoveSecondsBest = 2f
+private const val RecapMoveSecondsMid = 15f
+private const val RecapMoveSecondsWorst = 60f
+
+internal fun recapMoveTimeSpectrumPercent(moveMs: Int): Float {
+    val seconds = (moveMs / 1000f).coerceIn(RecapMoveSecondsBest, RecapMoveSecondsWorst)
+    return when {
+        seconds <= RecapMoveSecondsMid -> {
+            val span = RecapMoveSecondsMid - RecapMoveSecondsBest
+            val t = if (span > 0f) (seconds - RecapMoveSecondsBest) / span else 0f
+            (1f - t) * 100f + t * BalancedSharePercent
+        }
+        else -> {
+            val span = RecapMoveSecondsWorst - RecapMoveSecondsMid
+            val t = if (span > 0f) (seconds - RecapMoveSecondsMid) / span else 1f
+            BalancedSharePercent * (1f - t)
+        }
+    }
+}
+
+fun recapMoveTimeColor(moveMs: Int, darkTheme: Boolean): Color =
+    leaderboardSpectrumColor(recapMoveTimeSpectrumPercent(moveMs), darkTheme)
+
+@Composable
+fun recapMoveTimeColor(moveMs: Int?): Color =
+    when (moveMs) {
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> recapMoveTimeColor(moveMs, isRpsDarkTheme())
+    }
 
 private const val EloRatingMin = 900f
 private const val EloRatingMid = 1000f
