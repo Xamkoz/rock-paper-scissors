@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.ui.components.RpsCard
+import com.rpsonline.app.ui.components.RpsOutlinedBorderWidth
 
 /** Chips are 80% of the original 48dp welcome-header size. */
 private const val HomeHeaderChipScale = 0.8f
@@ -30,7 +31,7 @@ private const val HomeHeaderChipScale = 0.8f
 private val HomeHeaderChipBaseHeight = 48.dp
 internal val HomeHeaderChipHeight = HomeHeaderChipBaseHeight * HomeHeaderChipScale
 
-internal val HomeHeaderChipBorderWidth = 2.dp * HomeHeaderChipScale
+internal val HomeHeaderChipBorderWidth = RpsOutlinedBorderWidth
 private val HomeHeaderChipPaddingHorizontal = 12.dp * HomeHeaderChipScale
 private val HomeHeaderChipColumnPaddingHorizontal = 10.dp * HomeHeaderChipScale
 internal val HomeHeaderChipColumnPaddingVertical = 4.dp * HomeHeaderChipScale

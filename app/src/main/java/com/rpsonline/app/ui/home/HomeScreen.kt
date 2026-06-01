@@ -335,23 +335,6 @@ fun HomeScreen(
                     enabled = false,
                 )
             }
-            uiState.preGameSync != null -> {
-                val readySecondsRemaining = rememberPreGameReadySecondsRemaining(
-                    uiState.preGameSync!!.readyDeadlineAtMs,
-                )
-                RpsHeroPrimaryButton(
-                    onClick = {},
-                    text = if (readySecondsRemaining > 0) {
-                        stringResource(
-                            R.string.waiting_for_opponent_countdown,
-                            readySecondsRemaining,
-                        )
-                    } else {
-                        stringResource(R.string.waiting_for_opponent)
-                    },
-                    enabled = false,
-                )
-            }
             uiState.activeMatchId != null && !matchmakingInProgress && openingMatchId == null -> {
                 RpsHeroPrimaryButton(
                     onClick = { onReconnectToGame(uiState.activeMatchId!!) },

@@ -125,14 +125,27 @@ fun HomeMatchmakingStatusCard(
     val scheme = MaterialTheme.colorScheme
     val metrics = rememberHomeMatchmakingCardMetrics()
     val contentAlpha = if (enabled) 1f else 0.38f
+    val brightAction =
+        enabled && primaryStyle == HomeMatchmakingPrimaryStyle.ActionTitle
+    val containerColor = if (brightAction) {
+        scheme.primary.copy(alpha = 0.92f)
+    } else {
+        scheme.primaryContainer.copy(alpha = 0.94f)
+    }
+    val borderColor = if (brightAction) {
+        scheme.primary
+    } else {
+        scheme.primary.copy(alpha = 0.55f)
+    }
+    val primaryContentColor = if (brightAction) scheme.onPrimary else scheme.onPrimaryContainer
     RpsCard(
         modifier = modifier
             .fillMaxWidth()
             .height(metrics.cardHeight)
             .alpha(contentAlpha),
         onClick = if (enabled) onClick else null,
-        containerColor = scheme.primaryContainer.copy(alpha = 0.94f),
-        borderColor = scheme.primary.copy(alpha = 0.55f),
+        containerColor = containerColor,
+        borderColor = borderColor,
     ) {
         Column(
             modifier = Modifier
@@ -155,6 +168,7 @@ fun HomeMatchmakingStatusCard(
                 text = primary,
                 style = primaryStyle,
                 slotHeight = metrics.primarySlotHeight,
+                color = primaryContentColor,
             )
             HomeMatchmakingStatusTextSlot(
                 text = subtitle,
@@ -211,9 +225,10 @@ private fun HomeMatchmakingStatusPrimarySlot(
     text: String,
     style: HomeMatchmakingPrimaryStyle,
     slotHeight: Dp,
+    color: Color = MaterialTheme.colorScheme.onPrimaryContainer,
     modifier: Modifier = Modifier,
 ) {
-    val primaryColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val primaryColor = color
     val timerTypography = MaterialTheme.typography.headlineMedium
 
     Box(

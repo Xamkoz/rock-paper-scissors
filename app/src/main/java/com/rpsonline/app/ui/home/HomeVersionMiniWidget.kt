@@ -11,8 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -22,16 +22,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.update.ReleaseChangelog
+import com.rpsonline.app.ui.components.RpsOutlinedBorderWidth
+import com.rpsonline.app.ui.components.RpsOutlinedSurfaceStyle
 
 /** Widest expected version label so the chip does not resize on update. */
 private const val HomeVersionChipWidthSample = "v0.7.50"
 
 private const val HomeVersionChipScale = 0.8f
-private const val HomeVersionChipHeightScale = 0.85f
-
-private val HomeVersionChipHeight = HomeHeaderChipHeight * HomeVersionChipHeightScale
-private val HomeVersionChipPaddingTop = HomeHeaderChipColumnPaddingVertical
-private val HomeVersionChipPaddingBottom = HomeHeaderChipColumnPaddingVertical * 0.45f
 
 private val HomeVersionIconSize = 20.dp * HomeVersionChipScale
 private val HomeVersionChipHorizontalPadding = 20.dp * HomeVersionChipScale
@@ -97,25 +94,13 @@ fun HomeVersionMiniWidget(
             HomeVersionWidgetStatus.UpToDate -> R.string.version_status_up_to_date
         },
     )
-    val containerColor = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiaryContainer
-        else -> scheme.surfaceContainerLow.copy(alpha = 0.88f)
-    }
-    val borderColor = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiary
-        else -> scheme.outline.copy(alpha = 0.55f)
-    }
-    val borderWidth = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> 2.dp
-        else -> HomeHeaderChipBorderWidth
-    }
     val labelColor = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> scheme.onTertiaryContainer
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.primary
         HomeVersionWidgetStatus.Checking -> scheme.onSurfaceVariant
-        HomeVersionWidgetStatus.UpToDate -> scheme.primary
+        HomeVersionWidgetStatus.UpToDate -> RpsOutlinedSurfaceStyle.contentColor()
     }
     val iconTint = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiary
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.primary
         else -> labelColor
     }
     val labelMinWidth = rememberHomeVersionLabelMinWidth()
@@ -123,12 +108,9 @@ fun HomeVersionMiniWidget(
     HomeHeaderChipColumn(
         onClick = { onClick?.invoke() },
         onLongClick = onLongClickCopyApk,
-        containerColor = containerColor,
-        borderColor = borderColor,
-        borderWidth = borderWidth,
-        chipHeight = HomeVersionChipHeight,
-        columnPaddingTop = HomeVersionChipPaddingTop,
-        columnPaddingBottom = HomeVersionChipPaddingBottom,
+        containerColor = RpsOutlinedSurfaceStyle.containerColor(),
+        borderColor = RpsOutlinedSurfaceStyle.borderColor(),
+        borderWidth = RpsOutlinedBorderWidth,
         contentDescription = "$statusDescription, $displayTag",
         modifier = modifier,
         minWidth = labelMinWidth + HomeVersionChipHorizontalPadding,

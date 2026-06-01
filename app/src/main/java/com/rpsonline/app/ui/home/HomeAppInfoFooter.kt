@@ -5,19 +5,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +19,9 @@ import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.update.AppUpdateInfo
 import com.rpsonline.app.ui.components.RpsCard
+import com.rpsonline.app.ui.components.RpsCompactOutlinedActionButton
+import com.rpsonline.app.ui.components.RpsOutlinedBorderWidth
+import com.rpsonline.app.ui.components.RpsOutlinedSurfaceStyle
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -46,19 +42,13 @@ fun HomeAppInfoFooter(
 
     val showUpdateAction = updatesEnabled && !isDownloadingUpdate
     val pendingUpdate = availableUpdate
+    val contentColor = RpsOutlinedSurfaceStyle.contentColor()
 
     RpsCard(
         modifier = modifier.fillMaxWidth(),
-        containerColor = if (pendingUpdate != null) {
-            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.94f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f)
-        },
-        borderColor = if (pendingUpdate != null) {
-            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)
-        } else {
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-        },
+        containerColor = RpsOutlinedSurfaceStyle.containerColor(),
+        borderColor = RpsOutlinedSurfaceStyle.borderColor(),
+        borderWidth = RpsOutlinedBorderWidth,
     ) {
         Row(
             modifier = Modifier
@@ -72,7 +62,7 @@ fun HomeAppInfoFooter(
                     Text(
                         text = stringResource(R.string.version_label, versionName),
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = contentColor,
                         modifier = Modifier.combinedClickable(
                             onClick = onVersionClick,
                             onLongClick = onVersionLongClick,
@@ -93,11 +83,7 @@ fun HomeAppInfoFooter(
                     Text(
                         text = text,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (pendingUpdate != null) {
-                            MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
@@ -107,33 +93,26 @@ fun HomeAppInfoFooter(
                 when {
                     isCheckingForUpdate -> {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier
+                                .padding(start = 12.dp)
+                                .size(24.dp),
                             strokeWidth = 2.dp,
+                            color = contentColor,
                         )
                     }
                     pendingUpdate != null -> {
-                        FilledTonalButton(
+                        RpsCompactOutlinedActionButton(
                             onClick = onInstallUpdate,
+                            text = stringResource(R.string.update),
                             modifier = Modifier.padding(start = 12.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Outlined.SystemUpdate,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.update))
-                            }
-                        }
+                        )
                     }
                     else -> {
-                        TextButton(
+                        RpsCompactOutlinedActionButton(
                             onClick = onCheckForUpdate,
-                            modifier = Modifier.padding(start = 4.dp),
-                        ) {
-                            Text(stringResource(R.string.check))
-                        }
+                            text = stringResource(R.string.check),
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
                     }
                 }
             }
