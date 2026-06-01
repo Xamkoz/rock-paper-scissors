@@ -11,8 +11,8 @@ data class WeeklyOpponentRow(
     val matchCount: Int,
     val lastPlayedAt: Long,
 ) {
-    fun avgMyEloDeltaPerMatch(): Int =
-        if (matchCount > 0) weeklyEloDelta / matchCount else 0
+    fun avgMyEloDeltaPerMatch(): Double =
+        if (matchCount > 0) weeklyEloDelta.toDouble() / matchCount else 0.0
 }
 
 private data class OpponentWeekMatchSlice(

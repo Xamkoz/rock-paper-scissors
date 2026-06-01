@@ -1,12 +1,21 @@
 package com.rpsonline.app.ui.components
 
 import com.rpsonline.app.domain.MatchMode
+import java.util.Locale
+import kotlin.math.roundToInt
 
 /** Shared match score format (e.g. `2–1`). */
 fun formatMatchScore(myWins: Int, opponentWins: Int): String = "$myWins–$opponentWins"
 
 fun formatEloDelta(delta: Int): String =
     if (delta >= 0) "+$delta" else "$delta"
+
+/** ELO delta with one decimal place (e.g. `+2.7`, `-1.0`). */
+fun formatEloDeltaOneDecimal(delta: Double): String {
+    val rounded = (delta * 10.0).roundToInt() / 10.0
+    val body = String.format(Locale.US, "%.1f", kotlin.math.abs(rounded))
+    return if (rounded >= 0) "+$body" else "-$body"
+}
 
 fun formatMatchResultLine(
     outcomeLabel: String,

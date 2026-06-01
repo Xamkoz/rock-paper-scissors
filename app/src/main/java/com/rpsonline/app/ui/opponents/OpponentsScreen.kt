@@ -45,6 +45,7 @@ import com.rpsonline.app.ui.components.rememberOnlineUidsPollSnapshot
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.formatEloDelta
+import com.rpsonline.app.ui.components.formatEloDeltaOneDecimal
 import com.rpsonline.app.ui.components.onlinePresenceRowStyle
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.viewmodel.OpponentsViewModel
@@ -275,7 +276,7 @@ private fun OpponentListItem(
 
 @Composable
 private fun OpponentEloPerMatchSummaryLine(
-    avgEloDelta: Int,
+    avgEloDelta: Double,
     matchCount: Int,
     modifier: Modifier = Modifier,
 ) {
@@ -288,7 +289,7 @@ private fun OpponentEloPerMatchSummaryLine(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "${formatEloDelta(avgEloDelta)} ",
+            text = "${formatEloDeltaOneDecimal(avgEloDelta)} ",
             style = textStyle.copy(fontWeight = FontWeight.SemiBold),
             color = eloDeltaColor(avgEloDelta),
         )
@@ -311,7 +312,10 @@ private fun OpponentEloPerMatchSummaryLine(
 }
 
 @Composable
-private fun eloDeltaColor(delta: Int) = when {
+private fun eloDeltaColor(delta: Int) = eloDeltaColor(delta.toDouble())
+
+@Composable
+private fun eloDeltaColor(delta: Double) = when {
     delta > 0 -> MaterialTheme.colorScheme.primary
     delta < 0 -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.onSurfaceVariant

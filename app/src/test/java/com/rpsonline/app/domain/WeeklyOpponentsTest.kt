@@ -51,11 +51,46 @@ class WeeklyOpponentsTest {
         assertEquals("opp-a", opponents[0].opponentUid)
         assertEquals(8, opponents[0].weeklyEloDelta)
         assertEquals(2, opponents[0].matchCount)
-        assertEquals(4, opponents[0].avgMyEloDeltaPerMatch())
+        assertEquals(4.0, opponents[0].avgMyEloDeltaPerMatch(), 0.001)
         assertEquals("opp-b", opponents[1].opponentUid)
         assertEquals(7, opponents[1].weeklyEloDelta)
         assertEquals(1, opponents[1].matchCount)
-        assertEquals(7, opponents[1].avgMyEloDeltaPerMatch())
+        assertEquals(7.0, opponents[1].avgMyEloDeltaPerMatch(), 0.001)
+    }
+
+    @Test
+    fun weeklyOpponentsFromMatchList_avgEloDeltaPerMatchUsesOneDecimal() {
+        val viewerId = "me"
+        val matches = listOf(
+            match(
+                id = "m1",
+                player1 = viewerId,
+                player2 = "opp-a",
+                player1EloDelta = 10,
+                player2EloDelta = -10,
+                lastActivityAt = weekStartMs + 1_000,
+            ),
+            match(
+                id = "m2",
+                player1 = viewerId,
+                player2 = "opp-a",
+                player1EloDelta = 7,
+                player2EloDelta = -7,
+                lastActivityAt = weekStartMs + 2_000,
+            ),
+            match(
+                id = "m3",
+                player1 = viewerId,
+                player2 = "opp-a",
+                player1EloDelta = 8,
+                player2EloDelta = -8,
+                lastActivityAt = weekStartMs + 3_000,
+            ),
+        )
+
+        val avg = weeklyOpponentsFromMatchList(matches, viewerId, weekStartMs).single().avgMyEloDeltaPerMatch()
+
+        assertEquals(25.0 / 3.0, avg, 0.001)
     }
 
     @Test
@@ -75,7 +110,7 @@ class WeeklyOpponentsTest {
         val opponents = weeklyOpponentsFromMatchList(matches, viewerId, weekStartMs)
 
         assertEquals(1, opponents.size)
-        assertEquals(10, opponents.single().avgMyEloDeltaPerMatch())
+        assertEquals(10.0, opponents.single().avgMyEloDeltaPerMatch(), 0.001)
         assertEquals(1, opponents.single().matchCount)
     }
 
