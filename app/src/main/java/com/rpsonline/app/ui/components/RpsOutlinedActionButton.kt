@@ -2,14 +2,17 @@ package com.rpsonline.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,8 +27,8 @@ val RpsOutlinedButtonHeight = 52.dp
 val RpsOutlinedBorderWidth = 2.dp
 
 private val RpsCompactOutlinedButtonContentPadding = PaddingValues(
-    horizontal = 12.dp,
-    vertical = 4.dp,
+    horizontal = 10.dp,
+    vertical = 0.dp,
 )
 
 /** Surface fill and stroke used by home outlined actions and info chips. */
@@ -52,24 +55,26 @@ fun RpsCompactOutlinedActionButton(
     enabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
-    OutlinedButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(RpsOutlinedBorderWidth, RpsOutlinedSurfaceStyle.borderColor()),
-        contentPadding = RpsCompactOutlinedButtonContentPadding,
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = RpsOutlinedSurfaceStyle.contentColor(),
-            disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
-        ),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier.defaultMinSize(minWidth = 0.dp, minHeight = 0.dp),
+            shape = MaterialTheme.shapes.medium,
+            border = BorderStroke(RpsOutlinedBorderWidth, RpsOutlinedSurfaceStyle.borderColor()),
+            contentPadding = RpsCompactOutlinedButtonContentPadding,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = RpsOutlinedSurfaceStyle.contentColor(),
+                disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
+            ),
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
