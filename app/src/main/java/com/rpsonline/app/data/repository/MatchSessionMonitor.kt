@@ -146,6 +146,14 @@ object MatchSessionMonitor {
         }
     }
 
+    /** Drop a concluded match still held for the result screen before joining queue again. */
+    fun discardTerminalActiveMatchIfPresent() {
+        when (_activeMatch.value?.status) {
+            MatchStatus.COMPLETED, MatchStatus.ABANDONED -> _activeMatch.value = null
+            else -> Unit
+        }
+    }
+
     fun isMatchmakingInProgress(): Boolean = _matchmakingInProgress.value
 
     /** True while the client should keep queue heartbeats (listener doc or confirmed join). */
@@ -231,6 +239,9 @@ object MatchSessionMonitor {
         clearQueueState(endMatchmaking = true)
         autoGameNavigationSuppressedMatchId = matchId
         val finished = _activeMatch.value?.takeIf { it.id == matchId }
+        if (_activeMatch.value?.id == matchId) {
+            _activeMatch.value = null
+        }
         if (finished != null) {
             matchRepository.invalidateConcludedMatchCacheForParticipants(
                 finished.player1,
@@ -579,7 +590,14 @@ object MatchSessionMonitor {
                     notifyActiveMatchPublished(match)
                 }
                 MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
-                    clearQueueState(endMatchmaking = true)
+                    // Stale terminal snapshots can arrive while Find Match is running; do not
+                    // clear matchmaking or the new queue session in that case.
+                    if (!_matchmakingInProgress.value) {
+                        clearQueueState(endMatchmaking = true)
+                    }
+                    if (_activeMatch.value?.id == match.id) {
+                        _activeMatch.value = null
+                    }
                 }
             }
         }
@@ -607,7 +625,17 @@ object MatchSessionMonitor {
         current: Match?,
         fromCache: Boolean,
     ): Boolean {
-        if (current == null || current.id != incoming.id) return true
+        if (current == null || current.id != incoming.id) {
+            if (
+                current != null &&
+                current.id != incoming.id &&
+                (incoming.status == MatchStatus.COMPLETED || incoming.status == MatchStatus.ABANDONED) &&
+                (current.status == MatchStatus.LOBBY || current.status == MatchStatus.ACTIVE)
+            ) {
+                return false
+            }
+            return true
+        }
         if (current.status == MatchStatus.ACTIVE && incoming.status == MatchStatus.LOBBY) return false
         if (current.status == MatchStatus.LOBBY && incoming.status == MatchStatus.ACTIVE) return true
         if (fromCache && current.status == MatchStatus.ACTIVE) return false

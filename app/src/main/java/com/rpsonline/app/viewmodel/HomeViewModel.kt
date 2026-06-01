@@ -164,6 +164,7 @@ class HomeViewModel(
         matchmakingJob?.cancel()
         val generation = ++matchmakingGeneration
         refreshJob?.cancel()
+        MatchSessionMonitor.discardTerminalActiveMatchIfPresent()
         MatchSessionMonitor.setMatchmakingInProgress(true)
         queuedMatchModes = matchModes
         MatchSessionMonitor.setRecoveryMatchModes(matchModes)
