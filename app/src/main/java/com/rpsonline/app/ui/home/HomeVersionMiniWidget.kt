@@ -1,13 +1,7 @@
 package com.rpsonline.app.ui.home
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -16,15 +10,41 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.update.ReleaseChangelog
-import com.rpsonline.app.ui.components.RpsCard
+
+/** Widest expected version label so the chip does not resize on update. */
+private const val HomeVersionChipWidthSample = "v0.7.50"
+
+private const val HomeVersionChipScale = 0.8f
+
+private val HomeVersionIconSize = 20.dp * HomeVersionChipScale
+private val HomeVersionChipHorizontalPadding = 20.dp * HomeVersionChipScale
+
+@Composable
+private fun rememberHomeVersionLabelMinWidth(): Dp {
+    val textStyle = MaterialTheme.typography.labelSmall
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    return remember(textStyle, textMeasurer, density) {
+        val textWidthPx = textMeasurer.measure(
+            text = HomeVersionChipWidthSample,
+            style = textStyle,
+            maxLines = 1,
+        ).size.width
+        with(density) { textWidthPx.toDp() }
+    }
+}
 
 internal enum class HomeVersionWidgetStatus {
     Checking,
@@ -44,7 +64,6 @@ internal fun resolveHomeVersionWidgetStatus(
     else -> HomeVersionWidgetStatus.UpToDate
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeVersionMiniWidget(
     versionName: String,
@@ -74,71 +93,79 @@ fun HomeVersionMiniWidget(
         },
     )
     val containerColor = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable ->
-            scheme.tertiaryContainer.copy(alpha = 0.94f)
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiaryContainer
         else -> scheme.surfaceContainerLow.copy(alpha = 0.88f)
     }
     val borderColor = when (status) {
-        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiary.copy(alpha = 0.6f)
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiary
         else -> scheme.outline.copy(alpha = 0.55f)
     }
+    val borderWidth = when (status) {
+        HomeVersionWidgetStatus.UpdateAvailable -> 2.dp
+        else -> HomeHeaderChipBorderWidth
+    }
+    val labelColor = when (status) {
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.onTertiaryContainer
+        HomeVersionWidgetStatus.Checking -> scheme.onSurfaceVariant
+        HomeVersionWidgetStatus.UpToDate -> scheme.primary
+    }
+    val iconTint = when (status) {
+        HomeVersionWidgetStatus.UpdateAvailable -> scheme.tertiary
+        else -> labelColor
+    }
+    val labelMinWidth = rememberHomeVersionLabelMinWidth()
 
-    RpsCard(
-        modifier = modifier
-            .height(HomeHeaderChipHeight)
-            .semantics {
-                contentDescription = "$statusDescription, $displayTag"
-            }
-            .combinedClickable(
-                onClick = { onClick?.invoke() },
-                onLongClick = onLongClickCopyApk,
-            ),
+    HomeHeaderChipColumn(
+        onClick = { onClick?.invoke() },
+        onLongClick = onLongClickCopyApk,
         containerColor = containerColor,
         borderColor = borderColor,
-        borderWidth = 2.dp,
+        borderWidth = borderWidth,
+        contentDescription = "$statusDescription, $displayTag",
+        modifier = modifier,
+        minWidth = labelMinWidth + HomeVersionChipHorizontalPadding,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-        ) {
-            HomeVersionStatusIcon(status = status)
-            Text(
-                text = displayTag,
-                style = MaterialTheme.typography.labelLarge,
-                color = scheme.primary,
-            )
-        }
+        HomeVersionStatusIcon(status = status, tint = iconTint)
+        Text(
+            text = displayTag,
+            style = MaterialTheme.typography.labelSmall,
+            color = labelColor,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(min = labelMinWidth),
+        )
     }
 }
 
 @Composable
-private fun HomeVersionStatusIcon(status: HomeVersionWidgetStatus) {
-    val scheme = MaterialTheme.colorScheme
+private fun HomeVersionStatusIcon(
+    status: HomeVersionWidgetStatus,
+    tint: Color,
+) {
     when (status) {
         HomeVersionWidgetStatus.Checking -> {
             CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = scheme.primary,
+                modifier = Modifier.size(HomeVersionIconSize),
+                strokeWidth = 2.dp * HomeVersionChipScale,
+                color = tint,
             )
         }
         HomeVersionWidgetStatus.UpdateAvailable -> {
             Icon(
                 imageVector = Icons.Outlined.SystemUpdate,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = scheme.tertiary,
+                modifier = Modifier.size(HomeVersionIconSize),
+                tint = tint,
             )
         }
         HomeVersionWidgetStatus.UpToDate -> {
             Icon(
                 imageVector = Icons.Outlined.CheckCircle,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = scheme.primary,
+                modifier = Modifier.size(HomeVersionIconSize),
+                tint = tint,
             )
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import com.rpsonline.app.R
 
 @Composable
@@ -19,15 +20,26 @@ fun HomeSignOutMiniWidget(
     modifier: Modifier = Modifier,
 ) {
     var showConfirmDialog by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
+    val signOutLabel = stringResource(R.string.sign_out)
 
-    HomeHeaderMiniWidget(
-        caption = "",
-        value = stringResource(R.string.sign_out),
+    HomeHeaderChip(
         onClick = { showConfirmDialog = true },
+        onLongClick = null,
+        containerColor = scheme.surfaceContainerLow.copy(alpha = 0.88f),
+        borderColor = scheme.outline.copy(alpha = 0.55f),
+        contentDescription = signOutLabel,
         modifier = modifier,
-        valueColor = MaterialTheme.colorScheme.error,
-        contentDescription = stringResource(R.string.sign_out),
-    )
+    ) {
+        Text(
+            text = signOutLabel,
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.error,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 
     if (showConfirmDialog) {
         SignOutConfirmDialog(

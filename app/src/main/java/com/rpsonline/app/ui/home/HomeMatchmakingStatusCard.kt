@@ -2,7 +2,6 @@ package com.rpsonline.app.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -10,44 +9,126 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.util.formatQueueTime
 
+private val HomeMatchmakingCardVerticalPadding = 16.dp
+private val HomeMatchmakingCardSlotSpacing = 4.dp
+
+private data class HomeMatchmakingCardMetrics(
+    val labelSlotHeight: Dp,
+    val primarySlotHeight: Dp,
+    val subtitleSlotHeight: Dp,
+    val cardHeight: Dp,
+)
+
+@Composable
+private fun rememberHomeMatchmakingCardMetrics(): HomeMatchmakingCardMetrics {
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val subtitleStyle = MaterialTheme.typography.bodySmall
+    val timerTypography = MaterialTheme.typography.headlineMedium
+    val timerStyle = timerTypography.copy(fontWeight = FontWeight.Bold)
+    val bodyMedium = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    val labelInQueue = stringResource(R.string.in_queue)
+    val labelMatchFound = stringResource(R.string.match_found)
+    val subtitleFinding = stringResource(R.string.finding_opponent)
+    val primaryTimer = formatQueueTime(5_999)
+    val primaryOpening = stringResource(R.string.opening_game)
+    val primaryFindMatch = stringResource(R.string.find_match)
+    val primarySending = stringResource(R.string.communicating_to_server)
+
+    return remember(
+        labelStyle,
+        subtitleStyle,
+        timerStyle,
+        bodyMedium,
+        labelInQueue,
+        labelMatchFound,
+        subtitleFinding,
+        primaryTimer,
+        primaryOpening,
+        primaryFindMatch,
+        primarySending,
+        density,
+    ) {
+        fun measureHeight(text: String, style: TextStyle, maxLines: Int = 1): Int =
+            textMeasurer.measure(
+                text = text,
+                style = style,
+                maxLines = maxLines,
+                overflow = TextOverflow.Ellipsis,
+            ).size.height
+
+        val labelPx = maxOf(
+            measureHeight(labelInQueue, labelStyle),
+            measureHeight(labelMatchFound, labelStyle),
+        )
+        val subtitlePx = measureHeight(subtitleFinding, subtitleStyle)
+        val primaryPx = maxOf(
+            measureHeight(primaryTimer, timerStyle),
+            measureHeight(primaryOpening, timerStyle, maxLines = 2),
+            measureHeight(primaryFindMatch, timerStyle),
+            measureHeight(primarySending, bodyMedium, maxLines = 2),
+        )
+
+        val labelSlot = with(density) { labelPx.toDp() }
+        val primarySlot = with(density) { primaryPx.toDp() }
+        val subtitleSlot = with(density) { subtitlePx.toDp() }
+        val cardHeight = HomeMatchmakingCardVerticalPadding * 2 +
+            labelSlot +
+            HomeMatchmakingCardSlotSpacing +
+            primarySlot +
+            HomeMatchmakingCardSlotSpacing +
+            subtitleSlot
+
+        HomeMatchmakingCardMetrics(
+            labelSlotHeight = labelSlot,
+            primarySlotHeight = primarySlot,
+            subtitleSlotHeight = subtitleSlot,
+            cardHeight = cardHeight,
+        )
+    }
+}
+
 /**
- * Shared matchmaking status card layout (queue timer, pre-game, Find Match CTA).
- * Fixed label / primary / subtitle slots keep every variant the same height.
+ * Shared matchmaking status card layout (Find Match, in-queue timer, match found).
+ * Three fixed-height slots keep the card size identical across every state.
  */
 @Composable
 fun HomeMatchmakingStatusCard(
     label: String?,
-    labelReference: String,
     primary: String,
     primaryStyle: HomeMatchmakingPrimaryStyle,
     subtitle: String?,
-    subtitleReference: String,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val metrics = rememberHomeMatchmakingCardMetrics()
     val contentAlpha = if (enabled) 1f else 0.38f
     RpsCard(
         modifier = modifier
             .fillMaxWidth()
+            .height(metrics.cardHeight)
             .alpha(contentAlpha),
         onClick = if (enabled) onClick else null,
         containerColor = scheme.primaryContainer.copy(alpha = 0.94f),
@@ -56,21 +137,31 @@ fun HomeMatchmakingStatusCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = HomeMatchmakingCardVerticalPadding,
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(HomeMatchmakingCardSlotSpacing),
         ) {
-            HomeMatchmakingStatusLabelSlot(
+            HomeMatchmakingStatusTextSlot(
                 text = label,
-                referenceText = labelReference,
+                style = MaterialTheme.typography.labelLarge,
+                color = scheme.onPrimaryContainer.copy(alpha = 0.85f),
+                slotHeight = metrics.labelSlotHeight,
+                maxLines = 1,
             )
-            HomeMatchmakingStatusPrimaryLine(
+            HomeMatchmakingStatusPrimarySlot(
                 text = primary,
                 style = primaryStyle,
+                slotHeight = metrics.primarySlotHeight,
             )
-            HomeMatchmakingStatusSubtitleSlot(
+            HomeMatchmakingStatusTextSlot(
                 text = subtitle,
-                referenceText = subtitleReference,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
+                slotHeight = metrics.subtitleSlotHeight,
+                maxLines = 1,
             )
         }
     }
@@ -79,6 +170,7 @@ fun HomeMatchmakingStatusCard(
 enum class HomeMatchmakingPrimaryStyle {
     Timer,
     Body,
+    ActionTitle,
 }
 
 @Composable
@@ -89,11 +181,9 @@ fun HomeFindMatchActionCard(
 ) {
     HomeMatchmakingStatusCard(
         label = null,
-        labelReference = stringResource(R.string.in_queue),
         primary = stringResource(R.string.find_match),
-        primaryStyle = HomeMatchmakingPrimaryStyle.Timer,
+        primaryStyle = HomeMatchmakingPrimaryStyle.ActionTitle,
         subtitle = null,
-        subtitleReference = stringResource(R.string.finding_opponent),
         modifier = modifier,
         onClick = onClick,
         enabled = enabled,
@@ -101,100 +191,59 @@ fun HomeFindMatchActionCard(
 }
 
 @Composable
-private fun HomeMatchmakingStatusLabelSlot(
-    text: String?,
-    referenceText: String,
-    modifier: Modifier = Modifier,
-) {
-    val style = MaterialTheme.typography.labelLarge
-    val color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-    HomeMatchmakingStatusTextSlot(
-        text = text,
-        referenceText = referenceText,
-        style = style,
-        color = color,
-        maxLines = 1,
-        modifier = modifier,
-    )
-}
-
-@Composable
-private fun HomeMatchmakingStatusPrimaryLine(
+private fun HomeMatchmakingStatusPrimarySlot(
     text: String,
     style: HomeMatchmakingPrimaryStyle,
+    slotHeight: Dp,
     modifier: Modifier = Modifier,
 ) {
     val primaryColor = MaterialTheme.colorScheme.onPrimaryContainer
     val timerTypography = MaterialTheme.typography.headlineMedium
-    val timerStyle = timerTypography.copy(fontWeight = FontWeight.Bold)
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val timerReference = formatQueueTime(5_999)
-    val openingReference = stringResource(R.string.opening_game)
 
-    BoxWithConstraints(
-        modifier = modifier.fillMaxWidth(),
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(slotHeight),
         contentAlignment = Alignment.Center,
     ) {
-        val maxWidthPx = constraints.maxWidth.coerceAtLeast(0)
-        val slotHeightPx = maxOf(
-            textMeasurer.measure(
-                text = timerReference,
-                style = timerStyle,
-                maxLines = 1,
-                constraints = Constraints(maxWidth = maxWidthPx),
-            ).size.height,
-            textMeasurer.measure(
-                text = openingReference,
-                style = timerStyle,
+        when (style) {
+            HomeMatchmakingPrimaryStyle.Body -> Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = primaryColor,
+                textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                constraints = Constraints(maxWidth = maxWidthPx),
-            ).size.height,
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(with(density) { slotHeightPx.toDp() }),
-            contentAlignment = Alignment.Center,
-        ) {
-            when (style) {
-                HomeMatchmakingPrimaryStyle.Body -> Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = primaryColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                HomeMatchmakingPrimaryStyle.Timer -> Text(
-                    text = text,
-                    style = timerTypography,
-                    fontWeight = FontWeight.Bold,
-                    color = primaryColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            )
+            HomeMatchmakingPrimaryStyle.Timer,
+            HomeMatchmakingPrimaryStyle.ActionTitle,
+            -> Text(
+                text = text,
+                style = timerTypography,
+                fontWeight = FontWeight.Bold,
+                color = primaryColor,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
+/** Subtitle row with the same locked height as [HomeMatchmakingStatusCard]. */
 @Composable
 internal fun HomeMatchmakingStatusSubtitleSlot(
     text: String?,
-    referenceText: String,
     modifier: Modifier = Modifier,
 ) {
-    val style = MaterialTheme.typography.bodySmall
-    val color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+    val metrics = rememberHomeMatchmakingCardMetrics()
+    val scheme = MaterialTheme.colorScheme
     HomeMatchmakingStatusTextSlot(
         text = text,
-        referenceText = referenceText,
-        style = style,
-        color = color,
+        style = MaterialTheme.typography.bodySmall,
+        color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
+        slotHeight = metrics.subtitleSlotHeight,
         maxLines = 1,
         modifier = modifier,
     )
@@ -203,25 +252,16 @@ internal fun HomeMatchmakingStatusSubtitleSlot(
 @Composable
 private fun HomeMatchmakingStatusTextSlot(
     text: String?,
-    referenceText: String,
     style: TextStyle,
     color: Color,
+    slotHeight: Dp,
     maxLines: Int,
     modifier: Modifier = Modifier,
 ) {
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val slotHeightPx = textMeasurer.measure(
-        text = referenceText,
-        style = style,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-    ).size.height
-
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(with(density) { slotHeightPx.toDp() }),
+            .height(slotHeight),
         contentAlignment = Alignment.Center,
     ) {
         if (text != null) {

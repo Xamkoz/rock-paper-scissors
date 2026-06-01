@@ -1,5 +1,7 @@
 package com.rpsonline.app.ui.home
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Checkbox
@@ -182,12 +185,15 @@ fun HomeScreen(
         val profile = uiState.profile
         val selectedModes = uiState.selectedMatchModes
         val matchModesLocked = uiState.isJoiningQueue || uiState.isInQueue
+        val scrollState = rememberScrollState()
 
         Column(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
         ) {
+        Spacer(modifier = Modifier.height(4.dp))
         HomeWelcomeHeaderRow(
             versionName = updateState.versionName,
             updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
@@ -219,7 +225,7 @@ fun HomeScreen(
             },
             onSignOutConfirmed = { viewModel.signOut(context) },
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         ProvideOnlinePresence(uids = listOfNotNull(profile?.uid)) {
             ProfileSummaryCard(
@@ -320,9 +326,27 @@ fun HomeScreen(
                 },
                 queueElapsedSeconds = uiState.queueElapsedSeconds,
             )
+            if (uiState.isJoiningQueue || uiState.isInQueue) {
+                Spacer(modifier = Modifier.height(8.dp))
+                RpsOutlinedActionButton(
+                    onClick = { viewModel.leaveQueue() },
+                    text = stringResource(R.string.leave_queue),
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        } else if (uiState.preGameSync == null && uiState.activeMatchId == null) {
+            HomeFindMatchActionCard(
+                onClick = { viewModel.startMatchmaking(context, selectedModes) },
+                enabled = isServerConnected,
+            )
             Spacer(modifier = Modifier.height(8.dp))
         }
+        }
 
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         when {
             openingMatchId != null -> {
                 RpsHeroPrimaryButton(
@@ -354,23 +378,8 @@ fun HomeScreen(
                     text = stringResource(R.string.reconnect_to_game),
                 )
             }
-            uiState.isJoiningQueue || uiState.isInQueue -> {
-                RpsOutlinedActionButton(
-                    onClick = { viewModel.leaveQueue() },
-                    text = stringResource(R.string.leave_queue),
-                )
-            }
-            else -> {
-                HomeFindMatchActionCard(
-                    onClick = { viewModel.startMatchmaking(context, selectedModes) },
-                    enabled = isServerConnected,
-                )
-            }
         }
-        }
-
         Column(
-            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
         RpsOutlinedActionButton(
@@ -394,6 +403,7 @@ fun HomeScreen(
             },
         )
         }
+        }
     }
 }
 
@@ -411,15 +421,24 @@ private fun HomeWelcomeHeaderRow(
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "Welcome!",
-            style = MaterialTheme.typography.headlineMedium,
-            color = scheme.primary,
-            modifier = Modifier.weight(1f),
-        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .widthIn(min = 0.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Welcome!",
+                style = MaterialTheme.typography.headlineMedium,
+                color = scheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -450,7 +469,6 @@ private fun PreGameSyncStatusCard(
     readySecondsRemaining: Int,
     onPlayerProfile: (String) -> Unit,
 ) {
-    val subtitleReference = stringResource(R.string.finding_opponent)
     val scheme = MaterialTheme.colorScheme
     RpsCard(
         modifier = Modifier.fillMaxWidth(),
@@ -483,7 +501,6 @@ private fun PreGameSyncStatusCard(
                 } else {
                     null
                 },
-                referenceText = subtitleReference,
             )
         }
     }
@@ -619,7 +636,6 @@ private fun HomeQueueStatusCard(
     phase: QueueStatusPhase,
     queueElapsedSeconds: Long,
 ) {
-    val subtitleReference = stringResource(R.string.finding_opponent)
     HomeMatchmakingStatusCard(
         label = stringResource(
             when (phase) {
@@ -627,7 +643,6 @@ private fun HomeQueueStatusCard(
                 else -> R.string.in_queue
             },
         ),
-        labelReference = stringResource(R.string.in_queue),
         primary = when (phase) {
             QueueStatusPhase.Joining -> stringResource(R.string.communicating_to_server)
             QueueStatusPhase.Searching -> formatQueueTime(queueElapsedSeconds)
@@ -641,6 +656,5 @@ private fun HomeQueueStatusCard(
             QueueStatusPhase.MatchFound -> null
             else -> stringResource(R.string.finding_opponent)
         },
-        subtitleReference = subtitleReference,
     )
 }
