@@ -28,8 +28,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class GameTimerUiState(
     val countdownSeconds: Int? = null,
@@ -88,8 +91,12 @@ class GameViewModel(
     private var lastAppliedMatchFingerprint: String? = null
     init {
         MatchSessionMonitor.ensureStarted()
+        MatchSessionMonitor.activeMatch.value
+            ?.takeIf { it.id == matchId }
+            ?.let { applyMatchSnapshot(it) }
+
         observeJob = viewModelScope.launch {
-            bootstrapActiveMatch()
+            launch { bootstrapActiveMatch() }
             MatchSessionMonitor.activeMatch.collect { active ->
                 val match = active?.takeIf { it.id == matchId } ?: return@collect
                 applyMatchSnapshot(match)
@@ -98,14 +105,32 @@ class GameViewModel(
     }
 
     private suspend fun bootstrapActiveMatch() {
-        syncMatchFromServer()
+        when (_uiState.value.match?.status) {
+            MatchStatus.ACTIVE -> {
+                viewModelScope.launch { runCatching { syncMatchFromServer() } }
+                return
+            }
+            null -> syncMatchFromServer()
+            else -> Unit
+        }
+
         if (_uiState.value.match?.status == MatchStatus.LOBBY) {
             runCatching { matchRepository.confirmMatchReady(matchId) }
-            repeat(PRE_START_POLL_ATTEMPTS) {
-                delay(PRE_START_SERVER_POLL_MS)
-                syncMatchFromServer()
-                if (_uiState.value.match?.status == MatchStatus.ACTIVE) return
+            val activated = withTimeoutOrNull(LOBBY_ACTIVE_TIMEOUT_MS) {
+                MatchSessionMonitor.activeMatch
+                    .filter { it?.id == matchId && it.status == MatchStatus.ACTIVE }
+                    .first()
             }
+            if (activated != null) {
+                applyMatchSnapshot(activated, authoritative = true)
+            } else {
+                syncMatchFromServer()
+            }
+            return
+        }
+
+        if (_uiState.value.match == null) {
+            syncMatchFromServer()
         }
     }
 
@@ -861,8 +886,7 @@ class GameViewModel(
     }
 
     companion object {
-        private const val PRE_START_POLL_ATTEMPTS = 40
-        private const val PRE_START_SERVER_POLL_MS = 500L
+        private const val LOBBY_ACTIVE_TIMEOUT_MS = 8_000L
         private const val SUBMIT_MOVE_TIMEOUT_MS = 15_000L
         private const val SUBMIT_STUCK_WATCHDOG_MS = 18_000L
         private const val SUBMIT_CONFIRM_ATTEMPTS = 15

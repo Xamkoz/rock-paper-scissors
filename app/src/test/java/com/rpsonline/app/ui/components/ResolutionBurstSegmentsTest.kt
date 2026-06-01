@@ -79,15 +79,18 @@ class ResolutionBurstSegmentsTest {
 
     @Test
     fun rockWave_propagatesLeftToRight() {
-        val early = resolutionBurstSlotFillProgress(0.12f, slotIndex = 0, move = Move.ROCK)
-        val late = resolutionBurstSlotFillProgress(0.12f, slotIndex = 11, move = Move.ROCK)
+        // Mid-wave sample: must stay below fill-complete (240/520) so slots differ.
+        val midWaveFill = 0.07f
+        val early = resolutionBurstSlotFillProgress(midWaveFill, slotIndex = 0, move = Move.ROCK)
+        val late = resolutionBurstSlotFillProgress(midWaveFill, slotIndex = 11, move = Move.ROCK)
         assertTrue(early > late)
     }
 
     @Test
     fun scissorsWave_propagatesFromBothEdges() {
-        val edge = resolutionBurstSlotFillProgress(0.12f, slotIndex = 0, move = Move.SCISSORS)
-        val center = resolutionBurstSlotFillProgress(0.12f, slotIndex = 5, move = Move.SCISSORS)
+        val midWaveFill = 0.07f
+        val edge = resolutionBurstSlotFillProgress(midWaveFill, slotIndex = 0, move = Move.SCISSORS)
+        val center = resolutionBurstSlotFillProgress(midWaveFill, slotIndex = 5, move = Move.SCISSORS)
         assertTrue(edge > center)
     }
 

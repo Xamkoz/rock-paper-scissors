@@ -6,6 +6,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
+import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.UserProfile
@@ -414,6 +415,7 @@ object MatchSessionMonitor {
             signalQueueDocLost()
             return
         }
+        NetworkDataActivityTracker.bump()
         _hasQueueEntry.value = true
         resolveQueueJoinedAtMs(snapshot!!)?.let { mergeQueueJoinedAtMs(it) }
         if (snapshot.metadata.hasPendingWrites()) {
@@ -520,6 +522,9 @@ object MatchSessionMonitor {
                     _activeMatch.value = null
                     return@addSnapshotListener
                 }
+                if (matchSnapshot != null) {
+                    NetworkDataActivityTracker.bump()
+                }
                 val fromCache = matchSnapshot?.metadata?.isFromCache ?: true
                 publishActiveMatch(matchSnapshot?.toMatch(matchId), fromCache)
             }
@@ -539,6 +544,7 @@ object MatchSessionMonitor {
             return
         }
         _activeMatch.value = match
+        NetworkDataActivityTracker.bump()
         val uid = auth.currentUser?.uid ?: return
         if (match.isParticipant(uid) &&
             (match.status == MatchStatus.LOBBY || match.status == MatchStatus.ACTIVE)

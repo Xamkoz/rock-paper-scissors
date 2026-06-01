@@ -4,6 +4,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import java.util.Date
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -153,6 +154,7 @@ class PresenceRepository(
     ) {
         val nowMs = System.currentTimeMillis()
         val requestOnlineCount = includeOnlineCount ?: Companion.shouldRequestOnlineCount(nowMs)
+        NetworkDataActivityTracker.bump()
         val touchResult = PresenceFunctions.tryTouchPresence(includeOnlineCount = requestOnlineCount)
         if (touchResult != null) {
             updateServerTimeOffset(touchResult.serverTimeMs)
@@ -172,6 +174,7 @@ class PresenceRepository(
         forceAuthRefresh: Boolean,
         awaitServerAck: Boolean,
     ) {
+        NetworkDataActivityTracker.bump()
         val payload = mapOf("lastSeen" to Timestamp.now())
         val presenceRef = firestore.collection(COLLECTION).document(uid)
         val attempts = if (awaitServerAck) 3 else 1

@@ -90,6 +90,7 @@ class NetworkConnectionMonitor(
             _status.value = NetworkConnectionStatus.Offline
             return
         }
+        NetworkDataActivityTracker.bump()
         val nowMs = System.currentTimeMillis()
         val serverReachable = withContext(Dispatchers.IO) {
             authRepository.isFirebaseServerReachable()

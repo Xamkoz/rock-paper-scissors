@@ -60,13 +60,14 @@ fun GameScreen(
     viewModel: GameViewModel = viewModel(factory = GameViewModel.factory(matchId)),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val match = uiState.match
     val monitorMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val userId = uiState.userId
+    val screenMatch = uiState.match?.takeIf { it.id == matchId }
+        ?: monitorMatch?.takeIf { it.id == matchId }
     val pulseNotifier = LocalRoundResolutionPulse.current
     val clockSoundMuted = LocalClockSoundMuted.current
     val terminalMatch = when {
-        match?.status == MatchStatus.COMPLETED || match?.status == MatchStatus.ABANDONED -> match
+        screenMatch?.status == MatchStatus.COMPLETED || screenMatch?.status == MatchStatus.ABANDONED -> screenMatch
         monitorMatch?.id == matchId &&
             (monitorMatch?.status == MatchStatus.COMPLETED || monitorMatch?.status == MatchStatus.ABANDONED) ->
             monitorMatch
@@ -78,7 +79,7 @@ fun GameScreen(
     val endTransition = frozenEndTransition ?: run {
         val terminal = terminalMatch ?: return@run null
         val uid = userId ?: return@run null
-        val liveMatch = match?.takeIf { it.status == MatchStatus.ACTIVE }
+        val liveMatch = screenMatch?.takeIf { it.status == MatchStatus.ACTIVE }
         buildMatchEndTransitionUi(
             displayMatch = liveMatch ?: terminal,
             terminal = terminal,
@@ -100,13 +101,13 @@ fun GameScreen(
         onPauseOrDispose { }
     }
 
-    LaunchedEffect(monitorMatch?.status, monitorMatch?.id, match?.status, matchId) {
+    LaunchedEffect(monitorMatch?.status, monitorMatch?.id, screenMatch?.status, matchId) {
         val monitor = monitorMatch ?: return@LaunchedEffect
         if (monitor.id != matchId) return@LaunchedEffect
         if (monitor.status != MatchStatus.COMPLETED && monitor.status != MatchStatus.ABANDONED) {
             return@LaunchedEffect
         }
-        if (match?.status == monitor.status) return@LaunchedEffect
+        if (screenMatch?.status == monitor.status) return@LaunchedEffect
         viewModel.refreshOnResume()
     }
 
@@ -114,7 +115,7 @@ fun GameScreen(
         if (navigatedToResult) return@LaunchedEffect
         if (endTransition == null) return@LaunchedEffect
         val current = terminalMatch
-            ?: match?.takeIf { it.status == MatchStatus.COMPLETED || it.status == MatchStatus.ABANDONED }
+            ?: screenMatch?.takeIf { it.status == MatchStatus.COMPLETED || it.status == MatchStatus.ABANDONED }
             ?: monitorMatch?.takeIf {
                 it.id == matchId &&
                     (it.status == MatchStatus.COMPLETED || it.status == MatchStatus.ABANDONED)
@@ -147,22 +148,22 @@ fun GameScreen(
             .fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (match == null || userId == null) {
+        if (screenMatch == null || userId == null) {
             RpsLoadingColumn(modifier = Modifier.weight(1f))
-        } else if (match.status == MatchStatus.LOBBY) {
+        } else if (screenMatch.status == MatchStatus.LOBBY) {
             RpsLoadingColumn(
                 modifier = Modifier.weight(1f),
                 message = stringResource(R.string.waiting_for_opponent),
             )
         } else {
-        val opponentUid = match.opponentId(userId)
+        val opponentUid = screenMatch.opponentId(userId)
         ProvideOnlinePresence(uids = listOf(opponentUid)) {
         val inMatchEndTransition = endTransition != null
-        val screenMatch = if (inMatchEndTransition) endTransition!!.displayMatch else match
-        val currentRound = screenMatch.currentRoundData()
-        val drawReplay = screenMatch.pendingDrawReplay()
-        val pendingOutcome = screenMatch.pendingRoundOutcome()
-        val openRound = if (inMatchEndTransition) null else screenMatch.openRound()
+        val layoutMatch = if (inMatchEndTransition) endTransition!!.displayMatch else screenMatch
+        val currentRound = layoutMatch.currentRoundData()
+        val drawReplay = layoutMatch.pendingDrawReplay()
+        val pendingOutcome = layoutMatch.pendingRoundOutcome()
+        val openRound = if (inMatchEndTransition) null else layoutMatch.openRound()
         val showDrawReveal = !inMatchEndTransition &&
             currentRound?.winner == "tie" &&
             currentRound.player1Choice != null &&
@@ -182,7 +183,7 @@ fun GameScreen(
                 else -> false
             }
         val showMovePicker = !inMatchEndTransition &&
-            screenMatch.status == MatchStatus.ACTIVE &&
+            layoutMatch.status == MatchStatus.ACTIVE &&
             !uiState.hasSubmittedMove &&
             !uiState.isSubmitting &&
             openRound != null &&
@@ -202,7 +203,7 @@ fun GameScreen(
 
         val lockedChoice = myLockedChoice(
             userId = userId,
-            match = screenMatch,
+            match = layoutMatch,
             openRound = openRound,
             lockedMove = uiState.lockedMove,
         )
@@ -245,7 +246,7 @@ fun GameScreen(
                     endTransition!!.revealMatch,
                 ) ?: (null to null)
             }
-            else -> resolvedRound?.choicesFor(userId, screenMatch) ?: (null to null)
+            else -> resolvedRound?.choicesFor(userId, layoutMatch) ?: (null to null)
         }
         val panelOutcome = if (inMatchEndTransition) {
             endTransition!!.finalResolvedRound?.let { round ->
@@ -315,7 +316,7 @@ fun GameScreen(
             else -> null
         }
         val (panelMyPresentation, panelOpponentPresentation) = resolvePanelMovePresentations(
-            match = screenMatch,
+            match = layoutMatch,
             userId = userId,
             openRound = openRound,
             hasSubmittedMove = panelHasSubmittedMove,
@@ -331,7 +332,7 @@ fun GameScreen(
             panelOutcome = panelOutcome,
             myMove = panelMyPresentation,
             opponentMove = panelOpponentPresentation,
-            match = screenMatch,
+            match = layoutMatch,
             userId = userId,
         )
         val panelStatusMessage = when {
@@ -369,7 +370,7 @@ fun GameScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 PlayerDisplayNameText(
-                    name = screenMatch.opponentName(userId),
+                    name = layoutMatch.opponentName(userId),
                     uid = opponentUid,
                     style = if (compactLayout) {
                         MaterialTheme.typography.titleLarge
@@ -385,15 +386,15 @@ fun GameScreen(
                 MatchLiveEloPreviewRow(
                     preview = preview,
                     style = MaterialTheme.typography.labelMedium,
-                    colorDeltasBySign = match.status == MatchStatus.COMPLETED,
+                    colorDeltasBySign = layoutMatch.status == MatchStatus.COMPLETED,
                 )
                 Spacer(modifier = Modifier.height(if (compactLayout) 2.dp else 4.dp))
             }
             Text(
                 text = stringResource(
                     R.string.round_series,
-                    screenMatch.currentRound,
-                    formatMatchModeCode(screenMatch.matchMode),
+                    layoutMatch.currentRound,
+                    formatMatchModeCode(layoutMatch.matchMode),
                 ),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -402,7 +403,7 @@ fun GameScreen(
 
             GameMatchTimerSection(
                 viewModel = viewModel,
-                match = match,
+                match = layoutMatch,
                 inMatchEndTransition = inMatchEndTransition,
                 endTransition = endTransition,
                 uiState = uiState,
@@ -420,16 +421,16 @@ fun GameScreen(
                     opponentLabel = opponentScoreLabel,
                     opponentMove = panelOpponentPresentation,
                     myMove = panelMyPresentation,
-                    myWins = screenMatch.myWins(userId),
-                    myWinMoves = screenMatch.winMovesFor(userId),
-                    opponentWins = screenMatch.opponentWins(userId),
-                    opponentWinMoves = screenMatch.winMovesFor(screenMatch.opponentId(userId)),
-                    winsToFinish = screenMatch.matchMode.winsToFinish,
+                    myWins = layoutMatch.myWins(userId),
+                    myWinMoves = layoutMatch.winMovesFor(userId),
+                    opponentWins = layoutMatch.opponentWins(userId),
+                    opponentWinMoves = layoutMatch.winMovesFor(layoutMatch.opponentId(userId)),
+                    winsToFinish = layoutMatch.matchMode.winsToFinish,
                     outcome = panelHeaderOutcome,
                     roundNumber = if (inMatchEndTransition) {
                         endTransition!!.roundKey
                     } else {
-                        openRound?.roundNumber ?: screenMatch.currentRound
+                        openRound?.roundNumber ?: layoutMatch.currentRound
                     },
                     compact = compactLayout,
                     tight = tightLayout,

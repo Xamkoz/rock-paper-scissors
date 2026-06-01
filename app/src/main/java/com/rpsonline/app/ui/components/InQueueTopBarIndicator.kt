@@ -12,9 +12,16 @@ import androidx.compose.ui.semantics.semantics
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 
+/** How the top-bar online player count digits should render. */
+sealed interface TopBarOnlineCountDisplay {
+    data object Loading : TopBarOnlineCountDisplay
+    data object Offline : TopBarOnlineCountDisplay
+    data class Value(val count: Int) : TopBarOnlineCountDisplay
+}
+
 @Composable
 fun TopBarSegmentedQueueIndicator(
-    onlineCount: Int?,
+    onlineCount: TopBarOnlineCountDisplay,
     inMatch: Boolean,
     inQueue: Boolean,
     elapsedSeconds: Long,
@@ -33,8 +40,9 @@ fun TopBarSegmentedQueueIndicator(
         else -> stringResource(R.string.queue_timer_idle)
     }
     val onlineDescription = when (onlineCount) {
-        null -> stringResource(R.string.players_online_loading)
-        else -> stringResource(R.string.players_online_count, onlineCount)
+        TopBarOnlineCountDisplay.Loading -> stringResource(R.string.players_online_loading)
+        TopBarOnlineCountDisplay.Offline -> stringResource(R.string.connection_indicator_offline)
+        is TopBarOnlineCountDisplay.Value -> stringResource(R.string.players_online_count, onlineCount.count)
     }
 
     BoxWithConstraints(
@@ -67,7 +75,7 @@ fun InQueueTopBarIndicator(
     modifier: Modifier = Modifier,
 ) {
     TopBarSegmentedQueueIndicator(
-        onlineCount = null,
+        onlineCount = TopBarOnlineCountDisplay.Loading,
         inMatch = false,
         inQueue = true,
         elapsedSeconds = elapsedSeconds,

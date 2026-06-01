@@ -32,6 +32,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import android.Manifest
 import android.os.Build
 import com.rpsonline.app.data.monitoring.NetworkConnectionMonitor
+import com.rpsonline.app.data.monitoring.NetworkConnectionStatus
+import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.AuthRepository
@@ -58,6 +60,7 @@ import com.rpsonline.app.ui.components.MatchFoundNotificationToggleButton
 import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
 import com.rpsonline.app.ui.components.SegmentedDisplayPulseEffect
 import com.rpsonline.app.ui.components.isServerConnected
+import com.rpsonline.app.ui.components.TopBarOnlineCountDisplay
 import com.rpsonline.app.ui.components.TopBarSegmentedQueueIndicator
 import com.rpsonline.app.ui.components.RpsTopStatusBar
 import com.rpsonline.app.ui.util.applyImmersiveFullscreen
@@ -130,6 +133,7 @@ fun RpsApp() {
     val scope = rememberCoroutineScope()
     val connectionMonitor = remember { NetworkConnectionMonitor(context) }
     val connectionStatus by connectionMonitor.status.collectAsStateWithLifecycle()
+    val dataActivityActive by NetworkDataActivityTracker.isActive.collectAsStateWithLifecycle()
 
     DisposableEffect(connectionMonitor, scope) {
         connectionMonitor.start(scope)
@@ -520,16 +524,25 @@ fun RpsApp() {
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)
                                 val resolutionPulseTrigger =
                                     roundResolutionPulseNotifier.pulseTrigger
+                                val onlineCountDisplay = when (connectionStatus) {
+                                    NetworkConnectionStatus.Offline -> TopBarOnlineCountDisplay.Offline
+                                    NetworkConnectionStatus.Checking -> TopBarOnlineCountDisplay.Loading
+                                    NetworkConnectionStatus.Connected -> when (val count = onlinePlayerCount) {
+                                        null -> TopBarOnlineCountDisplay.Loading
+                                        else -> TopBarOnlineCountDisplay.Value(count)
+                                    }
+                                }
+                                val connectionProbeActive =
+                                    connectionStatus == NetworkConnectionStatus.Checking &&
+                                    !dataActivityActive
                                 SegmentedDisplayPulseEffect(
                                     resolutionPulseTrigger = resolutionPulseTrigger,
                                     pulseMove = roundResolutionPulseNotifier.activePulseMove,
+                                    dataTransferActive = dataActivityActive,
+                                    connectionProbeActive = connectionProbeActive,
                                 ) {
                                     TopBarSegmentedQueueIndicator(
-                                        onlineCount = if (connectionStatus.isServerConnected()) {
-                                            onlinePlayerCount
-                                        } else {
-                                            null
-                                        },
+                                        onlineCount = onlineCountDisplay,
                                         inMatch = inMatch,
                                         inQueue = inQueue,
                                         elapsedSeconds = if (inMatch) {
