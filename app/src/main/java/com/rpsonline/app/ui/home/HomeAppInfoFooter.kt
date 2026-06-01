@@ -1,7 +1,5 @@
 package com.rpsonline.app.ui.home
 
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,10 +25,8 @@ import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.update.AppUpdateInfo
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeAppInfoFooter(
-    versionName: String,
     updatesEnabled: Boolean,
     availableUpdate: AppUpdateInfo?,
     isCheckingForUpdate: Boolean,
@@ -38,14 +34,25 @@ fun HomeAppInfoFooter(
     updateMessage: String?,
     onCheckForUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
-    onVersionClick: () -> Unit = {},
-    onVersionLongClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    if (versionName.isBlank() && !updatesEnabled) return
-
     val showUpdateAction = updatesEnabled && !isDownloadingUpdate
     val pendingUpdate = availableUpdate
+    val statusText = when {
+        isDownloadingUpdate -> stringResource(R.string.downloading_update)
+        pendingUpdate != null -> stringResource(
+            R.string.version_available,
+            pendingUpdate.versionLabel,
+        )
+        !updateMessage.isNullOrBlank() -> updateMessage
+        updatesEnabled -> stringResource(R.string.installed_from_github)
+        else -> null
+    }
+    val hasUpdateContent = pendingUpdate != null ||
+        isDownloadingUpdate ||
+        isCheckingForUpdate ||
+        !statusText.isNullOrBlank()
+    if (!hasUpdateContent) return
 
     RpsCard(
         modifier = modifier.fillMaxWidth(),
@@ -57,38 +64,18 @@ fun HomeAppInfoFooter(
         borderColor = if (pendingUpdate != null) {
             MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f)
         } else {
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
         },
+        borderWidth = if (pendingUpdate != null) 1.dp else 2.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                if (versionName.isNotBlank()) {
-                    Text(
-                        text = stringResource(R.string.version_label, versionName),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.combinedClickable(
-                            onClick = onVersionClick,
-                            onLongClick = onVersionLongClick,
-                        ),
-                    )
-                }
-                val statusText = when {
-                    isDownloadingUpdate -> stringResource(R.string.downloading_update)
-                    pendingUpdate != null -> stringResource(
-                        R.string.version_available,
-                        pendingUpdate.versionLabel,
-                    )
-                    !updateMessage.isNullOrBlank() -> updateMessage
-                    updatesEnabled -> stringResource(R.string.installed_from_github)
-                    else -> null
-                }
                 statusText?.let { text ->
                     Text(
                         text = text,
@@ -98,7 +85,6 @@ fun HomeAppInfoFooter(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }

@@ -30,6 +30,7 @@ import com.rpsonline.app.data.model.LeaderboardEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.ui.components.HomeOutlinedButton
 import com.rpsonline.app.ui.components.OnlineOnlyFilterControl
+import com.rpsonline.app.data.preferences.OnlineFilterScreen
 import com.rpsonline.app.ui.components.rememberPersistedOnlineOnlyFilter
 import com.rpsonline.app.ui.components.LocalOnlineUids
 import com.rpsonline.app.ui.components.ProfileSummaryCard
@@ -73,7 +74,9 @@ fun LeaderboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
-    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter()
+    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter(
+        OnlineFilterScreen.LEADERBOARD,
+    )
 
     LifecycleResumeEffect(Unit) {
         viewModel.load()

@@ -375,7 +375,7 @@ fun RpsApp() {
             if (!matchRepository.sendQueueHeartbeat()) {
                 consecutiveFailures += 1
                 if (consecutiveFailures >= 3) {
-                    MatchSessionMonitor.signalQueueDocLost()
+                    runCatching { MatchSessionMonitor.signalQueueDocLostIfAbsentOnServer() }
                     break
                 }
             } else {

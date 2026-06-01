@@ -16,15 +16,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.rpsonline.app.R
 import com.rpsonline.app.data.preferences.OnlineFilterPreferences
+import com.rpsonline.app.data.preferences.OnlineFilterScreen
 
 @Composable
-fun rememberPersistedOnlineOnlyFilter(): Pair<Boolean, (Boolean) -> Unit> {
+fun rememberPersistedOnlineOnlyFilter(
+    screen: OnlineFilterScreen,
+): Pair<Boolean, (Boolean) -> Unit> {
     val context = LocalContext.current
     val preferences = remember { OnlineFilterPreferences(context) }
-    var onlineOnlyFilter by remember { mutableStateOf(preferences.isOnlineOnlyEnabled()) }
+    var onlineOnlyFilter by remember(screen) {
+        mutableStateOf(preferences.isOnlineOnlyEnabled(screen))
+    }
     val setOnlineOnlyFilter: (Boolean) -> Unit = { enabled ->
         onlineOnlyFilter = enabled
-        preferences.setOnlineOnlyEnabled(enabled)
+        preferences.setOnlineOnlyEnabled(screen, enabled)
     }
     return onlineOnlyFilter to setOnlineOnlyFilter
 }

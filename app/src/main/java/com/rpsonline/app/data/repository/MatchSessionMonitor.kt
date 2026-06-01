@@ -1,12 +1,15 @@
 package com.rpsonline.app.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.model.UserProfile
+import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.platform.computeShouldSyncFromServerOnResume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,12 +74,22 @@ object MatchSessionMonitor {
     private var lastServerSyncAtMs = 0L
     private var lastQueueServerVerifyAtMs = 0L
     private var lastQueueRecoveryRequestAtMs = 0L
+    private var queueRecoveryJob: Job? = null
+    private var pendingRecoveryMatchModes: Set<MatchMode>? = null
+    private val authRepository = AuthRepository()
+
+    /** Invoked on the main thread when background queue recovery cannot re-join. */
+    @Volatile
+    var onQueueRecoveryFailed: ((message: String) -> Unit)? = null
 
     /** Min gap between server queue existence checks (avoids hammering Firestore). */
     private const val QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS = 60_000L
     private const val QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS = 15_000L
+    private const val QUEUE_RECOVERY_FAILURE_MESSAGE =
+        "Lost connection to the matchmaking queue. Tap Find Match to try again."
 
     fun ensureStarted() {
+        ensureQueueRecoveryObserver()
         if (authListener != null) return
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
             attachForUser(firebaseAuth.currentUser?.uid)
@@ -84,6 +97,19 @@ object MatchSessionMonitor {
         authListener = listener
         auth.addAuthStateListener(listener)
         attachForUser(auth.currentUser?.uid)
+    }
+
+    fun setRecoveryMatchModes(modes: Set<MatchMode>?) {
+        pendingRecoveryMatchModes = modes
+    }
+
+    private fun ensureQueueRecoveryObserver() {
+        if (queueRecoveryJob?.isActive == true) return
+        queueRecoveryJob = sessionScope.launch {
+            queueRecoveryRequests.collect {
+                performQueueRecovery()
+            }
+        }
     }
 
     /**
@@ -412,18 +438,66 @@ object MatchSessionMonitor {
     suspend fun verifyQueueOnServer(): Boolean {
         if (auth.currentUser?.uid == null) return false
         if (!_matchmakingInProgress.value && !shouldSendQueueHeartbeats()) return true
-        val exists = matchRepository.queueEntryExistsOnServer()
-        if (exists) {
-            if (!_hasQueueEntry.value && _matchmakingInProgress.value) {
-                _hasQueueEntry.value = true
-                notifySessionStateChanged()
+        when (val exists = matchRepository.queueEntryExistsOnServer()) {
+            true -> {
+                if (!_hasQueueEntry.value && _matchmakingInProgress.value) {
+                    _hasQueueEntry.value = true
+                    notifySessionStateChanged()
+                }
+                return true
             }
-            return true
+            null -> return false
+            false -> {
+                if (shouldSendQueueHeartbeats() || _hasQueueEntry.value || _queueJoinedAtMs.value != null) {
+                    signalQueueDocLost()
+                }
+                return false
+            }
         }
-        if (shouldSendQueueHeartbeats() || _hasQueueEntry.value || _queueJoinedAtMs.value != null) {
-            signalQueueDocLost()
+    }
+
+    /**
+     * Clears local queue markers only when the server confirms the queue doc is gone.
+     * Transient read failures are ignored so background search is not dropped on doze/network blips.
+     */
+    suspend fun signalQueueDocLostIfAbsentOnServer() {
+        when (matchRepository.queueEntryExistsOnServer()) {
+            false -> signalQueueDocLost()
+            else -> Unit
         }
-        return false
+    }
+
+    private suspend fun performQueueRecovery() {
+        if (!_matchmakingInProgress.value) return
+        if (isQueueEntryPending()) return
+        if (shouldSendQueueHeartbeats()) {
+            verifyQueueOnServer()
+            return
+        }
+        val serverJoinedAtMs = runCatching { matchRepository.getQueueJoinedAtMs() }.getOrNull()
+        if (serverJoinedAtMs != null) {
+            confirmQueueJoinedAt(serverJoinedAtMs)
+            return
+        }
+        val modes = pendingRecoveryMatchModes ?: return
+        val user = auth.currentUser ?: return
+        val profile = resolveRecoveryProfile(user.uid, user) ?: return
+        runCatching {
+            matchRepository.joinQueue(modes, profile)
+        }.onSuccess { result ->
+            result.immediateMatchId?.let { matchId ->
+                enqueueGameNavigationWhenReady(matchId)
+                return@onSuccess
+            }
+            confirmQueueJoinedAt(result.clientJoinedAtMs ?: System.currentTimeMillis())
+        }.onFailure {
+            onQueueRecoveryFailed?.invoke(QUEUE_RECOVERY_FAILURE_MESSAGE)
+        }
+    }
+
+    private fun resolveRecoveryProfile(uid: String, user: FirebaseUser): UserProfile? {
+        authRepository.queueReadyProfile(uid)?.let { return it }
+        return authRepository.fallbackProfile(user)
     }
 
     private fun resolveQueueJoinedAtMs(snapshot: DocumentSnapshot): Long? {
@@ -548,6 +622,7 @@ object MatchSessionMonitor {
         _queueJoinedAtMs.value = null
         if (endMatchmaking) {
             _matchmakingInProgress.value = false
+            pendingRecoveryMatchModes = null
         }
         notifySessionStateChanged()
     }

@@ -381,11 +381,15 @@ class MatchRepository(
      * Keeps the queue entry alive while the user is actively waiting for a match.
      * Failures are treated as transient; cleanup of truly stale entries is server-driven.
      */
-    suspend fun queueEntryExistsOnServer(userId: String = uid): Boolean {
+    /**
+     * @return true if the queue doc exists on the server, false if it is confirmed absent,
+     * or null if the server could not be reached (caller should retain the local session).
+     */
+    suspend fun queueEntryExistsOnServer(userId: String = uid): Boolean? {
         awaitFirestoreAuth()
         val snap = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
             firestore.collection("queue").document(userId).get(Source.SERVER).await()
-        } ?: return false
+        } ?: return null
         return snap.exists()
     }
 
@@ -398,7 +402,7 @@ class MatchRepository(
             withTimeout(QUEUE_WRITE_TIMEOUT_MS) {
                 ref.update(mapOf("lastHeartbeatAt" to now)).awaitTask()
             }
-            queueEntryExistsOnServer(userId)
+            true
         }.getOrDefault(false)
     }
 

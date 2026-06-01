@@ -39,6 +39,7 @@ import com.rpsonline.app.domain.WeeklyOpponentRow
 import com.rpsonline.app.ui.components.HomeOutlinedButton
 import com.rpsonline.app.ui.components.LocalOnlineUids
 import com.rpsonline.app.ui.components.OnlineOnlyFilterControl
+import com.rpsonline.app.data.preferences.OnlineFilterScreen
 import com.rpsonline.app.ui.components.rememberPersistedOnlineOnlyFilter
 import com.rpsonline.app.ui.components.rememberOnlineUidsPollSnapshot
 import com.rpsonline.app.ui.components.RpsCard
@@ -55,7 +56,9 @@ fun OpponentsScreen(
     viewModel: OpponentsViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter()
+    val (onlineOnlyFilter, setOnlineOnlyFilter) = rememberPersistedOnlineOnlyFilter(
+        OnlineFilterScreen.OPPONENTS,
+    )
     val opponentUids = remember(uiState.opponents) { uiState.opponents.map { it.opponentUid } }
     val presence = rememberOnlineUidsPollSnapshot(opponentUids)
     val displayedOpponents = remember(uiState.opponents, onlineOnlyFilter, presence.onlineUids) {

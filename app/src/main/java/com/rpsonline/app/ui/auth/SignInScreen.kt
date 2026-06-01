@@ -16,11 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +45,8 @@ import com.rpsonline.app.R
 import com.rpsonline.app.ui.components.AppUpdateDialogs
 import com.rpsonline.app.ui.components.AutofillTextField
 import com.rpsonline.app.ui.components.RpsLoadingColumn
+import com.rpsonline.app.ui.components.RpsOutlinedActionButton
+import com.rpsonline.app.ui.components.RpsPrimaryActionButton
 import com.rpsonline.app.ui.components.excludeFromAutofill
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.ui.home.HomeAppInfoFooter
@@ -145,9 +145,10 @@ fun SignInScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(onClick = { viewModel.retryFirebaseAvailabilityCheck() }) {
-                    Text(stringResource(R.string.retry))
-                }
+                RpsOutlinedActionButton(
+                    onClick = { viewModel.retryFirebaseAvailabilityCheck() },
+                    text = stringResource(R.string.retry),
+                )
                 Spacer(modifier = Modifier.height(12.dp))
             }
             AuthButtons(
@@ -181,7 +182,6 @@ fun SignInScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
         HomeAppInfoFooter(
-            versionName = updateState.versionName,
             updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
             availableUpdate = updateState.availableUpdate,
             isCheckingForUpdate = updateState.isCheckingForUpdate,
@@ -192,7 +192,6 @@ fun SignInScreen(
                 activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
                     ?: updateViewModel.showUpdatePrompt()
             },
-            onVersionClick = onChangelog,
         )
     }
 }
@@ -257,20 +256,20 @@ private fun AuthButtons(
     onGuest: () -> Unit,
     enabled: Boolean,
 ) {
-    Button(
-        onClick = onGoogle,
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(stringResource(R.string.sign_in_with_google))
-    }
-    Spacer(modifier = Modifier.height(8.dp))
-    OutlinedButton(
-        onClick = onGuest,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
-    ) {
-        Text(stringResource(R.string.continue_as_guest))
+        RpsPrimaryActionButton(
+            onClick = onGoogle,
+            text = stringResource(R.string.sign_in_with_google),
+            enabled = enabled,
+        )
+        RpsOutlinedActionButton(
+            onClick = onGuest,
+            text = stringResource(R.string.continue_as_guest),
+            enabled = enabled,
+        )
     }
 }
 
@@ -289,19 +288,15 @@ private fun CollapsibleEmailAuthSection(
     var expanded by remember { mutableStateOf(false) }
 
     Spacer(modifier = Modifier.height(16.dp))
-    OutlinedButton(
+    RpsOutlinedActionButton(
         onClick = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth(),
+        text = if (expanded) {
+            stringResource(R.string.hide_email_sign_in)
+        } else {
+            stringResource(R.string.sign_in_with_email)
+        },
         enabled = enabled,
-    ) {
-        Text(
-            if (expanded) {
-                stringResource(R.string.hide_email_sign_in)
-            } else {
-                stringResource(R.string.sign_in_with_email)
-            },
-        )
-    }
+    )
     AnimatedVisibility(
         visible = expanded,
         enter = expandVertically(),
@@ -384,27 +379,25 @@ private fun EmailAuthSection(
     Spacer(modifier = Modifier.height(12.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Button(
+        RpsPrimaryActionButton(
             onClick = {
                 hideKeyboard()
                 onSignIn()
             },
             modifier = Modifier.weight(1f),
+            text = stringResource(R.string.sign_in),
             enabled = enabled,
-        ) {
-            Text(stringResource(R.string.sign_in))
-        }
-        OutlinedButton(
+        )
+        RpsOutlinedActionButton(
             onClick = {
                 hideKeyboard()
                 onRegister()
             },
             modifier = Modifier.weight(1f),
+            text = stringResource(R.string.create_account),
             enabled = enabled,
-        ) {
-            Text(stringResource(R.string.create_account))
-        }
+        )
     }
 }

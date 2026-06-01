@@ -30,6 +30,13 @@
     <string name="home">Home</string>
     <string name="back_to_home">Back</string>
     <string name="version_label">Version %1$s</string>
+    <string name="version_caption">Version</string>
+    <string name="version_status_up_to_date">Up to date</string>
+    <string name="version_status_checking">Checking for updates</string>
+    <string name="version_status_update_available">Update available</string>
+    <string name="sign_out_confirm_title">Sign out?</string>
+    <string name="sign_out_confirm_message">You will leave matchmaking and return to the sign-in screen.</string>
+    <string name="action_cancel">Cancel</string>
     <string name="downloading_update">Downloading update…</string>
     <string name="version_available">v%1$s is available</string>
     <string name="installed_from_github">Installed from GitHub Releases</string>

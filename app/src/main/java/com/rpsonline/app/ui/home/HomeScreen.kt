@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
@@ -60,11 +59,13 @@ import android.widget.Toast
 import com.rpsonline.app.BuildConfig
 import com.rpsonline.app.R
 import com.rpsonline.app.data.repository.MatchSessionMonitor
-import com.rpsonline.app.data.update.ReleaseChangelog
+import com.rpsonline.app.data.update.InstalledVersionApk
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.ui.components.AppUpdateDialogs
 import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
 import com.rpsonline.app.ui.components.ProfileSummaryCard
+import com.rpsonline.app.ui.components.RpsHeroPrimaryButton
+import com.rpsonline.app.ui.components.RpsOutlinedActionButton
 import com.rpsonline.app.ui.components.PlayerDisplayNameText
 import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.isServerConnected
@@ -86,7 +87,6 @@ fun HomeScreen(
     onLeaderboard: () -> Unit,
     onProfile: () -> Unit,
     onPlayerProfile: (String) -> Unit = {},
-    onChangelog: () -> Unit,
     autoStartMatchmaking: Boolean = false,
     viewModel: HomeViewModel = viewModel(),
     updateViewModel: AppUpdateViewModel = viewModel(),
@@ -183,10 +183,41 @@ fun HomeScreen(
         val selectedModes = uiState.selectedMatchModes
         val matchModesLocked = uiState.isJoiningQueue || uiState.isInQueue
 
-        Text(
-            text = "Welcome!",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary,
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+        HomeWelcomeHeaderRow(
+            versionName = updateState.versionName,
+            updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
+            isCheckingForUpdate = updateState.isCheckingForUpdate,
+            isDownloadingUpdate = updateState.isDownloadingUpdate,
+            hasAvailableUpdate = run {
+                val pending = updateState.availableUpdate
+                pending != null && pending.tag != updateState.dismissedUpdateTag
+            },
+            onVersionLongClickCopyApk = {
+                val apkUrl = InstalledVersionApk.downloadUrl(updateState.versionName) ?: return@HomeWelcomeHeaderRow
+                clipboardManager.setText(AnnotatedString(apkUrl))
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.apk_link_copied),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+            onVersionClick = {
+                if (!BuildConfig.GITHUB_UPDATES_ENABLED) return@HomeWelcomeHeaderRow
+                val pendingUpdate = updateState.availableUpdate
+                if (pendingUpdate != null && pendingUpdate.tag != updateState.dismissedUpdateTag) {
+                    activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
+                        ?: updateViewModel.showUpdatePrompt()
+                } else if (!updateState.isCheckingForUpdate && !updateState.isDownloadingUpdate) {
+                    updateViewModel.checkForUpdate(context)
+                }
+            },
+            onSignOutConfirmed = { viewModel.signOut(context) },
         )
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -294,104 +325,63 @@ fun HomeScreen(
 
         when {
             openingMatchId != null -> {
-                Button(
+                RpsHeroPrimaryButton(
                     onClick = {},
+                    text = stringResource(R.string.opening_match),
                     enabled = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.opening_match),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                }
+                )
             }
             uiState.preGameSync != null -> {
                 val readySecondsRemaining = rememberPreGameReadySecondsRemaining(
                     uiState.preGameSync!!.readyDeadlineAtMs,
                 )
-                Button(
+                RpsHeroPrimaryButton(
                     onClick = {},
+                    text = if (readySecondsRemaining > 0) {
+                        stringResource(
+                            R.string.waiting_for_opponent_countdown,
+                            readySecondsRemaining,
+                        )
+                    } else {
+                        stringResource(R.string.waiting_for_opponent)
+                    },
                     enabled = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                ) {
-                    Text(
-                        text = if (readySecondsRemaining > 0) {
-                            stringResource(
-                                R.string.waiting_for_opponent_countdown,
-                                readySecondsRemaining,
-                            )
-                        } else {
-                            stringResource(R.string.waiting_for_opponent)
-                        },
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                }
+                )
             }
             uiState.activeMatchId != null && !matchmakingInProgress && openingMatchId == null -> {
-                Button(
+                RpsHeroPrimaryButton(
                     onClick = { onReconnectToGame(uiState.activeMatchId!!) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.reconnect_to_game),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                }
+                    text = stringResource(R.string.reconnect_to_game),
+                )
             }
             uiState.isJoiningQueue || uiState.isInQueue -> {
-                OutlinedButton(
+                RpsOutlinedActionButton(
                     onClick = { viewModel.leaveQueue() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.leave_queue))
-                }
+                    text = stringResource(R.string.leave_queue),
+                )
             }
             else -> {
-                Button(
+                HomeFindMatchActionCard(
                     onClick = { viewModel.startMatchmaking(context, selectedModes) },
                     enabled = isServerConnected,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.find_match),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                }
+                )
             }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        OutlinedButton(
-            onClick = onMyOpponents,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.my_opponents))
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onLeaderboard,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.leaderboard))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedButton(
-            onClick = { viewModel.signOut(context) },
+        Column(
             modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(stringResource(R.string.sign_out))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
+        RpsOutlinedActionButton(
+            onClick = onMyOpponents,
+            text = stringResource(R.string.my_opponents),
+        )
+        RpsOutlinedActionButton(
+            onClick = onLeaderboard,
+            text = stringResource(R.string.leaderboard),
+        )
         HomeAppInfoFooter(
-            versionName = updateState.versionName,
             updatesEnabled = BuildConfig.GITHUB_UPDATES_ENABLED,
             availableUpdate = updateState.availableUpdate,
             isCheckingForUpdate = updateState.isCheckingForUpdate,
@@ -402,26 +392,49 @@ fun HomeScreen(
                 activity?.let { updateViewModel.downloadAndInstallUpdate(it) }
                     ?: updateViewModel.showUpdatePrompt()
             },
-            onVersionClick = onChangelog,
-            onVersionLongClick = {
-                val version = updateState.versionName.trim()
-                if (version.isBlank() && updateState.availableUpdate?.tag.isNullOrBlank()) return@HomeAppInfoFooter
-                val tag = if (BuildConfig.DEBUG) {
-                    updateState.availableUpdate?.tag?.takeIf { it.isNotBlank() }
-                        ?: ReleaseChangelog.tagForInstalledVersion(version)
-                } else {
-                    ReleaseChangelog.tagForInstalledVersion(version)
-                }
-                val apkUrl = "https://github.com/${BuildConfig.GITHUB_REPO_OWNER}/${BuildConfig.GITHUB_REPO_NAME}/releases/download/$tag/rps-online-$tag.apk"
-                clipboardManager.setText(AnnotatedString(apkUrl))
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.apk_link_copied),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            },
         )
+        }
+    }
+}
+
+@Composable
+private fun HomeWelcomeHeaderRow(
+    versionName: String,
+    updatesEnabled: Boolean,
+    isCheckingForUpdate: Boolean,
+    isDownloadingUpdate: Boolean,
+    hasAvailableUpdate: Boolean,
+    onVersionLongClickCopyApk: () -> Unit,
+    onVersionClick: () -> Unit,
+    onSignOutConfirmed: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Welcome!",
+            style = MaterialTheme.typography.headlineMedium,
+            color = scheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HomeSignOutMiniWidget(onSignOutConfirmed = onSignOutConfirmed)
+            HomeVersionMiniWidget(
+                versionName = versionName,
+                updatesEnabled = updatesEnabled,
+                isCheckingForUpdate = isCheckingForUpdate,
+                isDownloadingUpdate = isDownloadingUpdate,
+                hasAvailableUpdate = hasAvailableUpdate,
+                onLongClickCopyApk = onVersionLongClickCopyApk,
+                onClick = onVersionClick,
+            )
+        }
     }
 }
 
@@ -464,7 +477,7 @@ private fun PreGameSyncStatusCard(
                 opponentReady = state.opponentReady,
                 onOpponentProfile = { onPlayerProfile(state.opponentUid) },
             )
-            HomeQueueStatusSubtitleSlot(
+            HomeMatchmakingStatusSubtitleSlot(
                 text = if (readySecondsRemaining > 0) {
                     stringResource(R.string.pre_game_ready_countdown, readySecondsRemaining)
                 } else {
@@ -606,149 +619,28 @@ private fun HomeQueueStatusCard(
     phase: QueueStatusPhase,
     queueElapsedSeconds: Long,
 ) {
-    val label = stringResource(
-        when (phase) {
-            QueueStatusPhase.MatchFound -> R.string.match_found
-            else -> R.string.in_queue
-        },
-    )
-    val primary = when (phase) {
-        QueueStatusPhase.Joining -> stringResource(R.string.communicating_to_server)
-        QueueStatusPhase.Searching -> formatQueueTime(queueElapsedSeconds)
-        QueueStatusPhase.MatchFound -> stringResource(R.string.opening_game)
-    }
-    val subtitle = when (phase) {
-        QueueStatusPhase.MatchFound -> null
-        else -> stringResource(R.string.finding_opponent)
-    }
     val subtitleReference = stringResource(R.string.finding_opponent)
-    val scheme = MaterialTheme.colorScheme
-
-    RpsCard(
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = scheme.primaryContainer.copy(alpha = 0.94f),
-        borderColor = scheme.primary.copy(alpha = 0.55f),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                color = scheme.onPrimaryContainer.copy(alpha = 0.85f),
-            )
-            HomeQueueStatusPrimaryLine(
-                phase = phase,
-                text = primary,
-            )
-            HomeQueueStatusSubtitleSlot(
-                text = subtitle,
-                referenceText = subtitleReference,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeQueueStatusPrimaryLine(
-    phase: QueueStatusPhase,
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    val primaryColor = MaterialTheme.colorScheme.onPrimaryContainer
-    val timerTypography = MaterialTheme.typography.headlineMedium
-    val timerStyle = timerTypography.copy(fontWeight = FontWeight.Bold)
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val timerReference = formatQueueTime(5_999)
-    val openingReference = stringResource(R.string.opening_game)
-
-    BoxWithConstraints(
-        modifier = modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center,
-    ) {
-        val maxWidthPx = constraints.maxWidth.coerceAtLeast(0)
-        val slotHeightPx = maxOf(
-            textMeasurer.measure(
-                text = timerReference,
-                style = timerStyle,
-                maxLines = 1,
-                constraints = Constraints(maxWidth = maxWidthPx),
-            ).size.height,
-            textMeasurer.measure(
-                text = openingReference,
-                style = timerStyle,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                constraints = Constraints(maxWidth = maxWidthPx),
-            ).size.height,
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(with(density) { slotHeightPx.toDp() }),
-            contentAlignment = Alignment.Center,
-        ) {
+    HomeMatchmakingStatusCard(
+        label = stringResource(
             when (phase) {
-                QueueStatusPhase.Joining -> Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = primaryColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                else -> Text(
-                    text = text,
-                    style = timerTypography,
-                    fontWeight = FontWeight.Bold,
-                    color = primaryColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeQueueStatusSubtitleSlot(
-    text: String?,
-    referenceText: String,
-    modifier: Modifier = Modifier,
-) {
-    val style = MaterialTheme.typography.bodySmall
-    val subtitleColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val slotHeightPx = textMeasurer.measure(
-        text = referenceText,
-        style = style,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    ).size.height
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(with(density) { slotHeightPx.toDp() }),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (text != null) {
-            Text(
-                text = text,
-                style = style,
-                color = subtitleColor,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+                QueueStatusPhase.MatchFound -> R.string.match_found
+                else -> R.string.in_queue
+            },
+        ),
+        labelReference = stringResource(R.string.in_queue),
+        primary = when (phase) {
+            QueueStatusPhase.Joining -> stringResource(R.string.communicating_to_server)
+            QueueStatusPhase.Searching -> formatQueueTime(queueElapsedSeconds)
+            QueueStatusPhase.MatchFound -> stringResource(R.string.opening_game)
+        },
+        primaryStyle = when (phase) {
+            QueueStatusPhase.Joining -> HomeMatchmakingPrimaryStyle.Body
+            QueueStatusPhase.Searching, QueueStatusPhase.MatchFound -> HomeMatchmakingPrimaryStyle.Timer
+        },
+        subtitle = when (phase) {
+            QueueStatusPhase.MatchFound -> null
+            else -> stringResource(R.string.finding_opponent)
+        },
+        subtitleReference = subtitleReference,
+    )
 }

@@ -126,7 +126,9 @@ class MatchmakingForegroundService : Service() {
                     } else {
                         queueFailures += 1
                         if (queueFailures >= 3) {
-                            MatchSessionMonitor.signalQueueDocLost()
+                            runCatching {
+                                MatchSessionMonitor.signalQueueDocLostIfAbsentOnServer()
+                            }
                             queueFailures = 0
                         }
                     }
