@@ -19,13 +19,14 @@ import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.PresenceEngagementTracker
 import com.rpsonline.app.ui.RpsApp
+import com.rpsonline.app.ui.util.GameAudioContext
 import com.rpsonline.app.ui.util.enableImmersiveFullscreen
 
 class MainActivity : ComponentActivity() {
     private var screenReceiver: BroadcastReceiver? = null
 
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(AppLocale.wrap(newBase))
+        super.attachBaseContext(GameAudioContext.wrap(AppLocale.wrap(newBase)))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,7 +105,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AppForegroundTracker.setInForeground(true)
         MatchmakingForegroundService.clearLaunchAlert()
-        MatchmakingForegroundService.refreshNotificationIfRunning()
+        MatchmakingForegroundService.retryPendingStart(this)
+        MatchmakingBackgroundCoordinator.sync(this)
         PresenceEngagementTracker.syncScreenInteractive(this)
         PresenceEngagementTracker.recordInteraction()
     }

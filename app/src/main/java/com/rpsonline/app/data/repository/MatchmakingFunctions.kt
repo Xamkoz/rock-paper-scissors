@@ -27,7 +27,7 @@ internal object MatchmakingFunctions {
         var lastError: Exception? = null
         repeat(JOIN_QUOTA_RETRY_ATTEMPTS) { attempt ->
             try {
-                awaitCallableAuth()
+                awaitCallableAuth() ?: throw IllegalStateException("Could not refresh sign-in token")
                 val functions = FirebaseFunctions.getInstance(
                     FirebaseApp.getInstance(),
                     FIREBASE_FUNCTIONS_REGION,
@@ -79,7 +79,7 @@ internal object MatchmakingFunctions {
         var lastError: Exception? = null
         repeat(5) { attempt ->
             try {
-                awaitCallableAuth()
+                awaitCallableAuth() ?: throw IllegalStateException("Could not refresh sign-in token")
                 val functions = FirebaseFunctions.getInstance(
                     FirebaseApp.getInstance(),
                     FIREBASE_FUNCTIONS_REGION,

@@ -7,54 +7,57 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Refreshes the Firebase ID token when possible. Network and internal auth failures are
+ * swallowed so callers on the main thread never crash the process.
+ */
 internal suspend fun awaitFirestoreAuth(
     auth: FirebaseAuth = FirebaseAuth.getInstance(),
     forceRefresh: Boolean = false,
 ) {
     val user = auth.currentUser ?: return
-    // After OAuth sign-in Firestore may still see the previous session until the token refreshes.
-    withTimeoutOrNull(10_000) {
-        user.getIdToken(forceRefresh).await()
+    runCatching {
+        withTimeout(10_000) {
+            user.getIdToken(forceRefresh).await()
+        }
     }
 }
 
 /**
- * Cloud Functions require a fresh ID token. Unlike [awaitFirestoreAuth], this fails if the
- * token cannot be obtained (callers can fall back to direct Firestore writes).
+ * Cloud Functions require a fresh ID token. Returns null when the token cannot be obtained.
  */
 internal suspend fun awaitCallableAuth(
     auth: FirebaseAuth = FirebaseAuth.getInstance(),
     timeoutMs: Long = 15_000,
-): FirebaseUser {
-    val user = auth.currentUser ?: error("Not signed in")
-    var lastError: Exception? = null
+): FirebaseUser? {
+    val user = auth.currentUser ?: return null
     repeat(2) { attempt ->
-        try {
+        val refreshed = runCatching {
             withTimeout(timeoutMs) {
                 user.getIdToken(true).await()
             }
-            return user
-        } catch (e: Exception) {
-            lastError = e
-            if (attempt == 0) delay(400)
         }
+        if (refreshed.isSuccess) return user
+        if (attempt == 0) delay(400)
     }
-    throw lastError ?: IllegalStateException("Could not refresh sign-in token")
+    return null
 }
 
 /** Prefer cached token for latency; refresh only if needed before a move callable. */
 internal suspend fun awaitCallableAuthForSubmit(
     auth: FirebaseAuth = FirebaseAuth.getInstance(),
-): FirebaseUser {
-    val user = auth.currentUser ?: error("Not signed in")
-    try {
+): FirebaseUser? {
+    val user = auth.currentUser ?: return null
+    val cached = runCatching {
         withTimeout(4_000) {
             user.getIdToken(false).await()
         }
-    } catch (_: Exception) {
+    }
+    if (cached.isSuccess) return user
+    val refreshed = runCatching {
         withTimeout(6_000) {
             user.getIdToken(true).await()
         }
     }
-    return user
+    return refreshed.getOrNull()?.let { user }
 }

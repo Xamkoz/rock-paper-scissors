@@ -107,11 +107,9 @@ fun RpsApp() {
                     PresenceEngagementTracker.recordInteraction()
                     appInForeground = true
                     MatchmakingForegroundService.clearLaunchAlert()
-                    MatchmakingForegroundService.refreshNotificationIfRunning()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     appInForeground = false
-                    MatchmakingForegroundService.refreshNotificationIfRunning()
                 }
                 else -> Unit
             }

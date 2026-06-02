@@ -1,7 +1,6 @@
 package com.rpsonline.app.ui.util
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.MediaPlayer
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Move
@@ -14,7 +13,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 class MoveSoundPlayer(context: Context) {
-    private val appContext = context.applicationContext
+    private val audioContext = GameAudioContext.wrap(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     fun play(move: Move, repetitions: Int) {
@@ -46,17 +45,11 @@ class MoveSoundPlayer(context: Context) {
 
     private suspend fun playOnce(resId: Int) {
         suspendCancellableCoroutine { continuation ->
-            val player = MediaPlayer.create(appContext, resId)
+            val player = createPreparedPlayer(resId)
             if (player == null) {
                 continuation.resume(Unit)
                 return@suspendCancellableCoroutine
             }
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
             continuation.invokeOnCancellation {
                 runCatching {
                     if (player.isPlaying) player.stop()
@@ -76,7 +69,28 @@ class MoveSoundPlayer(context: Context) {
                 }
                 true
             }
-            player.start()
+            runCatching { player.start() }.onFailure {
+                runCatching { player.release() }
+                if (continuation.isActive) {
+                    continuation.resume(Unit)
+                }
+            }
+        }
+    }
+
+    /** Attributes and data source must be set before [MediaPlayer.prepare]. */
+    private fun createPreparedPlayer(resId: Int): MediaPlayer? {
+        val player = MediaPlayer()
+        return try {
+            player.setAudioAttributes(GameAudioContext.gameSoundAttributes())
+            audioContext.resources.openRawResourceFd(resId).use { afd ->
+                player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            }
+            player.prepare()
+            player
+        } catch (_: Exception) {
+            runCatching { player.release() }
+            null
         }
     }
 }

@@ -34,19 +34,21 @@ class GitHubReleaseClient(
 
     fun fetchReleasesPage(page: Int, perPage: Int = RELEASES_PAGE_SIZE): ReleaseChangelogPage {
         var connection: HttpURLConnection? = null
-        try {
+        return try {
             connection = openGetConnection(
                 "https://api.github.com/repos/$owner/$repo/releases?page=$page&per_page=$perPage",
             )
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw IOException("GitHub releases page fetch failed: HTTP ${connection.responseCode}")
+                return ReleaseChangelogPage(entries = emptyList(), hasMore = false)
             }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val entries = parseReleaseList(body)
-            return ReleaseChangelogPage(
+            ReleaseChangelogPage(
                 entries = entries,
                 hasMore = hasNextPage(connection),
             )
+        } catch (_: Exception) {
+            ReleaseChangelogPage(entries = emptyList(), hasMore = false)
         } finally {
             connection?.disconnect()
         }

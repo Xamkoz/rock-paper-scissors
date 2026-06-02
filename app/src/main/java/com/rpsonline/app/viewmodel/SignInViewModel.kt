@@ -474,7 +474,9 @@ class SignInViewModel(
                     )
                 }
             }
-            val available = authRepository.isFirebaseAvailable()
+            val available = withContext(Dispatchers.IO) {
+                authRepository.isFirebaseAvailable()
+            }
             _uiState.update { state ->
                 state.copy(
                     isCheckingFirebase = false,

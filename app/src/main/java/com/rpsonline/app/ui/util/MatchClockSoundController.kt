@@ -13,25 +13,31 @@ import kotlinx.coroutines.launch
 /** App-wide match clock tick loop; foreground UI and background service both call [sync]. */
 object MatchClockSoundController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val player = ClockTickPlayer()
+    private var player: ClockTickPlayer? = null
     private var tickJob: Job? = null
+
+    fun initialize(context: Context) {
+        if (player != null) return
+        player = ClockTickPlayer(context)
+    }
 
     fun sync(shouldPlay: Boolean) {
         if (!shouldPlay) {
             tickJob?.cancel()
             tickJob = null
-            player.stop()
+            player?.stop()
             return
         }
+        val tickPlayer = player ?: return
         if (tickJob?.isActive == true) return
         tickJob = scope.launch {
             try {
                 while (isActive) {
-                    player.playTick()
+                    tickPlayer.playTick()
                     delay(500)
                 }
             } finally {
-                player.stop()
+                tickPlayer.stop()
             }
         }
     }
@@ -39,6 +45,7 @@ object MatchClockSoundController {
     /** Keeps match clock audible while backgrounded; Compose stops receiving match updates there. */
     fun syncFromSessionWhenBackground(context: Context) {
         if (AppForegroundTracker.isInForeground) return
+        initialize(context)
         sync(MatchClockSoundPolicy.shouldPlayMatchClock(context))
     }
 }

@@ -157,4 +157,5 @@
     <string name="replay">Replay</string>
     <string name="vs_label">vs</string>
     <string name="selected">Selected</string>
+    <string name="attribution_game_audio">In-game sound effects</string>
 </resources>

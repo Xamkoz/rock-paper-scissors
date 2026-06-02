@@ -20,7 +20,7 @@ internal object PresenceFunctions {
     suspend fun tryTouchPresence(includeOnlineCount: Boolean = false): TouchPresenceResult? {
         repeat(2) { attempt ->
             try {
-                awaitCallableAuth()
+                if (awaitCallableAuth() == null) return null
                 val functions = FirebaseFunctions.getInstance(
                     FirebaseApp.getInstance(),
                     FIREBASE_FUNCTIONS_REGION,

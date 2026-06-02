@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.rpsonline.app.ui.LocalClockSoundMuted
 import com.rpsonline.app.viewmodel.PreGameSyncUiState
@@ -19,7 +20,8 @@ import kotlinx.coroutines.delay
 fun PreGameReadyFeedbackEffect(preGameSync: PreGameSyncUiState?) {
     val muted = LocalClockSoundMuted.current
     val haptic = LocalHapticFeedback.current
-    val tickPlayer = remember { ClockTickPlayer() }
+    val context = LocalContext.current
+    val tickPlayer = remember(context) { ClockTickPlayer(context) }
 
     var trackedMatchId by remember { mutableStateOf<String?>(null) }
     var lastMyReady by remember { mutableStateOf(false) }

@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -32,16 +34,20 @@ class NetworkConnectionMonitor(
     val status: StateFlow<NetworkConnectionStatus> = _status.asStateFlow()
 
     private var lastServerSuccessAtMs = 0L
+    private var linkWasDown = false
 
     private var probeJob: Job? = null
+    private var restoreJob: Job? = null
     private var networkCallbackRegistered = false
+    private val probeMutex = Mutex()
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            requestProbe(immediate = true, restoreFirestore = true)
+            scheduleConnectivityRestore()
         }
 
         override fun onLost(network: Network) {
+            linkWasDown = true
             if (!hasValidatedNetwork()) {
                 _status.value = NetworkConnectionStatus.Offline
             }
@@ -51,7 +57,7 @@ class NetworkConnectionMonitor(
             network: Network,
             networkCapabilities: NetworkCapabilities,
         ) {
-            requestProbe(immediate = true)
+            requestProbe(restoreFirestore = false)
         }
     }
 
@@ -73,20 +79,45 @@ class NetworkConnectionMonitor(
     fun stop() {
         probeJob?.cancel()
         probeJob = null
+        restoreJob?.cancel()
+        restoreJob = null
         unregisterNetworkCallback()
         monitorScope = null
     }
 
-    private fun requestProbe(immediate: Boolean, restoreFirestore: Boolean = false) {
+    private fun scheduleConnectivityRestore() {
+        val scope = monitorScope ?: return
+        restoreJob?.cancel()
+        restoreJob = scope.launch {
+            delay(RESTORE_DEBOUNCE_MS)
+            awaitValidatedNetwork()
+            val preferHardReset = linkWasDown &&
+                _status.value != NetworkConnectionStatus.Connected
+            linkWasDown = false
+            withContext(Dispatchers.IO) {
+                FirestoreConnectivity.restoreAfterConnectivityLoss(preferHardReset = preferHardReset)
+            }
+            requestProbe(restoreFirestore = false)
+        }
+    }
+
+    private fun requestProbe(restoreFirestore: Boolean) {
+        if (restoreFirestore) {
+            scheduleConnectivityRestore()
+            return
+        }
         val scope = monitorScope ?: return
         scope.launch {
-            if (!immediate) return@launch
-            if (restoreFirestore) {
-                withContext(Dispatchers.IO) {
-                    FirestoreConnectivity.restoreAfterConnectivityLoss()
-                }
+            probeMutex.withLock {
+                probeNow(showChecking = false)
             }
-            probeNow(showChecking = false)
+        }
+    }
+
+    private suspend fun awaitValidatedNetwork() {
+        repeat(VALIDATED_NETWORK_POLL_ATTEMPTS) {
+            if (hasValidatedNetwork()) return
+            delay(VALIDATED_NETWORK_POLL_MS)
         }
     }
 
@@ -161,5 +192,8 @@ class NetworkConnectionMonitor(
     companion object {
         private const val CONNECTED_PROBE_INTERVAL_MS = 12_000L
         private const val OFFLINE_PROBE_INTERVAL_MS = 4_000L
+        private const val RESTORE_DEBOUNCE_MS = 800L
+        private const val VALIDATED_NETWORK_POLL_MS = 200L
+        private const val VALIDATED_NETWORK_POLL_ATTEMPTS = 25
     }
 }

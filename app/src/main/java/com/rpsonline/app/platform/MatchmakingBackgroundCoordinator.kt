@@ -51,8 +51,6 @@ object MatchmakingBackgroundCoordinator {
                     if (snapshot.shouldRun != serviceRunning) {
                         serviceRunning = snapshot.shouldRun
                         MatchmakingForegroundService.sync(appContext, snapshot.shouldRun)
-                    } else if (snapshot.shouldRun) {
-                        MatchmakingForegroundService.refreshNotificationIfRunning()
                     }
                 }
         }

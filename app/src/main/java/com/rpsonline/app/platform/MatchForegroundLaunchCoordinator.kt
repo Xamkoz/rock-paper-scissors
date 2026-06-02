@@ -44,7 +44,6 @@ object MatchForegroundLaunchCoordinator {
         mainHandler.post {
             MatchmakingForegroundService.requestLaunchAlert()
             MatchLaunchHelper.launchMatch(appContext, sessionMatch.id)
-            MatchmakingForegroundService.refreshNotificationIfRunning()
         }
     }
 

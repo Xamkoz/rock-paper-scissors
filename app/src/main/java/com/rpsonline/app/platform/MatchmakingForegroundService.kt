@@ -1,5 +1,6 @@
 package com.rpsonline.app.platform
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -45,47 +46,48 @@ class MatchmakingForegroundService : Service() {
     private var clockSoundJob: Job? = null
     private val matchRepository by lazy { MatchRepository() }
     private val presenceRepository by lazy { PresenceRepository() }
+    private var lastPostedFingerprint: NotificationFingerprint? = null
+    private var lastPostedAtMs = 0L
+    private val notificationPostLock = Any()
+    @Volatile
+    private var forceNextNotificationPost = false
+    private var foregroundPromoted = false
 
     override fun onCreate() {
         super.onCreate()
         runningInstance = this
-        SegmentedNotificationState.setOnContentChangedListener { repostForegroundNotification() }
         ensureForegroundChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // startForeground counts toward enqueue rate — only once per service instance.
+        if (!foregroundPromoted) {
+            promoteToForeground()
+            foregroundPromoted = true
+        }
         if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            }
             stopSelf()
             return START_NOT_STICKY
         }
         MatchSessionMonitor.ensureStarted()
-        val notification = buildForegroundNotification()
-        ServiceCompat.startForeground(
-            this,
-            FOREGROUND_NOTIFICATION_ID,
-            notification,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            } else {
-                0
-            },
-        )
         startHeartbeatLoop()
         startNotificationUpdateLoop()
         startSessionObserver()
         startClockSoundLoop()
-        repostForegroundNotification()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        foregroundPromoted = false
         heartbeatJob?.cancel()
         notificationUpdateJob?.cancel()
         sessionObserverJob?.cancel()
         clockSoundJob?.cancel()
         if (runningInstance === this) {
             runningInstance = null
-            SegmentedNotificationState.setOnContentChangedListener(null)
         }
         MatchClockSoundController.sync(false)
         getSystemService(NotificationManager::class.java)?.cancel(FOREGROUND_NOTIFICATION_ID)
@@ -146,6 +148,7 @@ class MatchmakingForegroundService : Service() {
     private fun startNotificationUpdateLoop() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = serviceScope.launch {
+            delay(NOTIFICATION_TICK_MS)
             while (isActive) {
                 updateForegroundNotification()
                 delay(NOTIFICATION_TICK_MS)
@@ -175,9 +178,7 @@ class MatchmakingForegroundService : Service() {
                         this@MatchmakingForegroundService,
                         snapshot.match,
                     )
-                    if (MatchmakingBackgroundCoordinator.shouldRunService(this@MatchmakingForegroundService)) {
-                        updateForegroundNotification()
-                    } else {
+                    if (!MatchmakingBackgroundCoordinator.shouldRunService(this@MatchmakingForegroundService)) {
                         stopSelf()
                     }
                 }
@@ -202,26 +203,98 @@ class MatchmakingForegroundService : Service() {
         }
     }
 
-    private fun updateForegroundNotification() {
-        if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
-            stopSelf()
-            return
+    private fun promoteToForeground() {
+        val notification = buildForegroundNotification()
+        synchronized(notificationPostLock) {
+            ServiceCompat.startForeground(
+                this,
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                } else {
+                    0
+                },
+            )
+            lastPostedFingerprint = currentNotificationFingerprint()
+            lastPostedAtMs = System.currentTimeMillis()
         }
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        manager.notify(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification())
     }
 
-    /** RemoteViews can miss early binds; repost quickly on a background thread after [startForeground]. */
-    private fun repostForegroundNotification() {
-        serviceScope.launch {
+    /** Sole path for notification updates after [promoteToForeground] — max ~1/s to avoid system shedding. */
+    private fun updateForegroundNotification() {
+        synchronized(notificationPostLock) {
+            if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                }
+                stopSelf()
+                return
+            }
+            val force = forceNextNotificationPost
+            forceNextNotificationPost = false
+            val fingerprint = currentNotificationFingerprint()
+            val nowMs = System.currentTimeMillis()
+            if (
+                !force &&
+                fingerprint == lastPostedFingerprint &&
+                nowMs - lastPostedAtMs < MIN_NOTIFICATION_POST_INTERVAL_MS
+            ) {
+                return
+            }
+            if (!force && fingerprint == lastPostedFingerprint) {
+                return
+            }
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            manager.notify(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification())
+            lastPostedFingerprint = fingerprint
+            lastPostedAtMs = nowMs
+        }
+    }
+
+    private fun requestImmediateNotificationRefresh() {
+        forceNextNotificationPost = true
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = serviceScope.launch {
             updateForegroundNotification()
-            for (delayMs in REPOST_DELAYS_MS) {
-                delay(delayMs)
-                if (!isActive) return@launch
+            delay(NOTIFICATION_TICK_MS)
+            while (isActive) {
                 updateForegroundNotification()
+                delay(NOTIFICATION_TICK_MS)
             }
         }
     }
+
+    private fun currentNotificationFingerprint(): NotificationFingerprint {
+        val match = MatchSessionMonitor.activeMatch.value
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        val display = resolveNotificationDisplay()
+        val launchMatchId = if (
+            uid != null &&
+            match != null &&
+            match.isParticipant(uid) &&
+            (match.status == MatchStatus.LOBBY || match.status == MatchStatus.ACTIVE)
+        ) {
+            match.id
+        } else {
+            null
+        }
+        return NotificationFingerprint(
+            status = display.status,
+            elapsedSeconds = display.elapsedSeconds,
+            onlineCount = display.onlineCount,
+            launchAlert = shouldUseLaunchAlert(display),
+            launchMatchId = launchMatchId,
+        )
+    }
+
+    private data class NotificationFingerprint(
+        val status: SegmentedNotificationStatus,
+        val elapsedSeconds: Long,
+        val onlineCount: Int?,
+        val launchAlert: Boolean,
+        val launchMatchId: String?,
+    )
 
     private fun resolveNotificationDisplay(): TopBarStatusRowSpec {
         val match = MatchSessionMonitor.activeMatch.value
@@ -392,9 +465,10 @@ class MatchmakingForegroundService : Service() {
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background_status"
         private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
-        private const val NOTIFICATION_TICK_MS = 500L
+        /** Queue/match timer display is mm:ss — 1 Hz stays under NotificationService enqueue limits. */
+        private const val NOTIFICATION_TICK_MS = 1_000L
+        private const val MIN_NOTIFICATION_POST_INTERVAL_MS = 1_000L
         private const val LAUNCH_ALERT_WINDOW_MS = 8_000L
-        private val REPOST_DELAYS_MS = longArrayOf(50L, 150L, 350L)
 
         @Volatile
         private var runningInstance: MatchmakingForegroundService? = null
@@ -404,24 +478,61 @@ class MatchmakingForegroundService : Service() {
 
         fun requestLaunchAlert() {
             launchAlertUntilMs = System.currentTimeMillis() + LAUNCH_ALERT_WINDOW_MS
+            runningInstance?.requestImmediateNotificationRefresh()
         }
 
         fun clearLaunchAlert() {
             launchAlertUntilMs = 0L
         }
 
-        fun refreshNotificationIfRunning() {
-            runningInstance?.repostForegroundNotification()
-        }
+        /** No-op: [MatchmakingForegroundService] tick loop owns notification updates. */
+        fun refreshNotificationIfRunning() = Unit
 
         fun isRunning(): Boolean = runningInstance != null
 
+        @Volatile
+        private var pendingStart = false
+
+        /**
+         * Starts or stops the foreground service. When Android blocks background FGS launch
+         * ([ForegroundServiceStartNotAllowedException]), the start is deferred until the app is
+         * foreground again — call [retryPendingStart] from [MainActivity.onResume].
+         */
         fun sync(context: Context, shouldRun: Boolean) {
-            if (shouldRun) {
-                val intent = Intent(context, MatchmakingForegroundService::class.java)
-                ContextCompat.startForegroundService(context, intent)
-            } else {
+            if (!shouldRun) {
+                pendingStart = false
                 context.stopService(Intent(context, MatchmakingForegroundService::class.java))
+                return
+            }
+            if (isRunning()) {
+                pendingStart = false
+                return
+            }
+            if (startForegroundServiceSafe(context)) {
+                pendingStart = false
+            } else {
+                pendingStart = true
+            }
+        }
+
+        fun retryPendingStart(context: Context) {
+            if (!pendingStart) return
+            sync(context, MatchmakingBackgroundCoordinator.shouldRunService(context))
+        }
+
+        private fun startForegroundServiceSafe(context: Context): Boolean {
+            val intent = Intent(context, MatchmakingForegroundService::class.java)
+            return try {
+                ContextCompat.startForegroundService(context, intent)
+                true
+            } catch (_: ForegroundServiceStartNotAllowedException) {
+                false
+            } catch (e: IllegalStateException) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    false
+                } else {
+                    throw e
+                }
             }
         }
     }

@@ -1,13 +1,15 @@
 package com.rpsonline.app.ui.util
 
-import android.media.AudioAttributes
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 
-class ClockTickPlayer {
+class ClockTickPlayer(context: Context) {
+    private val audioContext = GameAudioContext.wrap(context)
     private var clockTrack: AudioTrack? = null
     private var readyTrack: AudioTrack? = null
 
@@ -66,13 +68,8 @@ class ClockTickPlayer {
 
     private fun createAudioTrack(amplitude: Double): AudioTrack {
         val samples = tickSamples(amplitude)
-        return AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
+        val builder = AudioTrack.Builder()
+            .setAudioAttributes(GameAudioContext.gameSoundAttributes())
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setSampleRate(SAMPLE_RATE)
@@ -82,10 +79,12 @@ class ClockTickPlayer {
             )
             .setBufferSizeInBytes(samples.size * Short.SIZE_BYTES)
             .setTransferMode(AudioTrack.MODE_STATIC)
-            .build()
-            .apply {
-                write(samples, 0, samples.size)
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setContext(audioContext)
+        }
+        return builder.build().apply {
+            write(samples, 0, samples.size)
+        }
     }
 
     private fun tickSamples(amplitude: Double): ShortArray {
