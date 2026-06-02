@@ -27,4 +27,10 @@ class GameFunctionsPolicyTest {
         }
         assertTrue(GameFunctions.isRecoverableViaFirestore(timeout))
     }
+
+    @Test
+    fun matchNotActiveSubmitError_isDetected() {
+        val error = IllegalStateException("Match is not active.")
+        assertTrue(GameFunctions.isMatchNotActiveSubmitError(error))
+    }
 }

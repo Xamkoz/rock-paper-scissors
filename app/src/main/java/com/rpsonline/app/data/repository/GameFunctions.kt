@@ -85,6 +85,15 @@ internal object GameFunctions {
             functionsError.message.orEmpty().contains("no longer open", ignoreCase = true)
     }
 
+    /** Server already finalized the match while the client still shows an active round. */
+    fun isMatchNotActiveSubmitError(error: Throwable): Boolean {
+        val message = error.message.orEmpty()
+        if (message.contains("not active", ignoreCase = true)) return true
+        val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
+        return functionsError?.code == FirebaseFunctionsException.Code.FAILED_PRECONDITION &&
+            functionsError.message.orEmpty().contains("not active", ignoreCase = true)
+    }
+
     fun toSubmitErrorMessage(error: Throwable): String? {
         if (isRecoverableViaFirestore(error)) return null
         if (isQuotaExceededError(error)) return quotaExceededUserMessage()

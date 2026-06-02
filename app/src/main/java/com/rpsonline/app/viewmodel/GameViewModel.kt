@@ -90,6 +90,7 @@ class GameViewModel(
     private var matchSnapshotAtTimeoutRequest: String? = null
     private var resolvingRetryJob: Job? = null
     private var stuckRoundNudgeJob: Job? = null
+    private var completionPollJob: Job? = null
     private var lastAppliedMatchFingerprint: String? = null
     init {
         MatchSessionMonitor.ensureStarted()
@@ -293,6 +294,7 @@ class GameViewModel(
         syncCountdown(match)
         syncMatchClocks(match, userId)
         scheduleStuckRoundNudge(match, userId)
+        scheduleCompletionPoll(match)
     }
 
     private fun cancelInFlightSubmit(clearPendingUi: Boolean = false) {
@@ -311,6 +313,27 @@ class GameViewModel(
 
     private fun isSubmitForOpenRound(roundNumber: Int): Boolean =
         _uiState.value.match?.openRound()?.roundNumber == roundNumber
+
+    /** Poll when the match should finalize but the local snapshot is still ACTIVE. */
+    private fun scheduleCompletionPoll(match: Match?) {
+        completionPollJob?.cancel()
+        if (match == null || match.status != MatchStatus.ACTIVE) return
+        val winsToFinish = match.matchMode.winsToFinish
+        val needsPoll = match.openRound() == null ||
+            match.player1Wins >= winsToFinish ||
+            match.player2Wins >= winsToFinish
+        if (!needsPoll) return
+
+        completionPollJob = viewModelScope.launch {
+            repeat(COMPLETION_POLL_ATTEMPTS) {
+                delay(COMPLETION_POLL_INTERVAL_MS)
+                val current = _uiState.value.match ?: return@launch
+                if (current.status != MatchStatus.ACTIVE) return@launch
+                runCatching { syncMatchFromServer() }
+                if (_uiState.value.match?.status != MatchStatus.ACTIVE) return@launch
+            }
+        }
+    }
 
     /** When both players submitted but the server did not resolve, nudge timeout/recovery. */
     private fun scheduleStuckRoundNudge(match: Match?, userId: String?) {
@@ -743,6 +766,7 @@ class GameViewModel(
             }
             var submitError: String? = null
             var staleRoundSubmit = false
+            var matchAlreadyFinished = false
             var skipSubmitConfirmation = false
             try {
                 if (!isSubmitForOpenRound(roundNumber)) return@launch
@@ -758,6 +782,10 @@ class GameViewModel(
                 when {
                     GameFunctions.isStaleRoundSubmitError(e) -> {
                         staleRoundSubmit = true
+                        runCatching { syncMatchFromServer() }
+                    }
+                    GameFunctions.isMatchNotActiveSubmitError(e) -> {
+                        matchAlreadyFinished = true
                         runCatching { syncMatchFromServer() }
                     }
                     isIgnorableFirestoreRace(e) -> Unit
@@ -776,6 +804,23 @@ class GameViewModel(
                     if (generation != submitGeneration) return@withContext
                     if (!isSubmitForOpenRound(roundNumber)) {
                         abandonStaleSubmitUi()
+                        return@withContext
+                    }
+                    if (matchAlreadyFinished) {
+                        val terminal = _uiState.value.match?.status == MatchStatus.COMPLETED ||
+                            _uiState.value.match?.status == MatchStatus.ABANDONED
+                        if (terminal) {
+                            abandonStaleSubmitUi()
+                        } else {
+                            revertMoveIfServerMissing(
+                                generation,
+                                roundNumber,
+                                skipServerConfirmation = true,
+                            ) {
+                                "Match ended. Loading results…"
+                            }
+                            scheduleCompletionPoll(_uiState.value.match)
+                        }
                         return@withContext
                     }
                     if (staleRoundSubmit) {
@@ -945,6 +990,7 @@ class GameViewModel(
         clockJob?.cancel()
         resolvingRetryJob?.cancel()
         stuckRoundNudgeJob?.cancel()
+        completionPollJob?.cancel()
         cancelInFlightSubmit()
         super.onCleared()
     }
@@ -954,6 +1000,8 @@ class GameViewModel(
         private const val SUBMIT_STUCK_WATCHDOG_MS = 22_000L
         private const val SUBMIT_CONFIRM_ATTEMPTS = 4
         private const val SUBMIT_CONFIRM_DELAY_MS = 300L
+        private const val COMPLETION_POLL_INTERVAL_MS = 2_000L
+        private const val COMPLETION_POLL_ATTEMPTS = 15
 
         fun factory(matchId: String): androidx.lifecycle.ViewModelProvider.Factory =
             object : androidx.lifecycle.ViewModelProvider.Factory {

@@ -185,6 +185,7 @@ fun GameScreen(
             }
         val showMovePicker = !inMatchEndTransition &&
             layoutMatch.status == MatchStatus.ACTIVE &&
+            !uiState.error.orEmpty().contains("not active", ignoreCase = true) &&
             (!uiState.hasSubmittedMove || uiState.error != null) &&
             !uiState.isSubmitting &&
             openRound != null &&
