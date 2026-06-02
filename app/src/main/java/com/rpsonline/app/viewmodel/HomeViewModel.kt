@@ -128,6 +128,7 @@ class HomeViewModel(
                     MatchSessionMonitor.consumeGameNavigation()
                     MatchSessionMonitor.setMatchmakingInProgress(false)
                     MatchSessionMonitor.onQueueRecoveryFailed = null
+                    MatchSessionMonitor.onMatchSessionEnded = null
                     MatchSessionMonitor.setRecoveryMatchModes(null)
                     _uiState.update {
                         it.copy(
@@ -170,6 +171,9 @@ class HomeViewModel(
                     observeQueue()
                     MatchSessionMonitor.onQueueRecoveryFailed = { message ->
                         failMatchmaking(matchmakingGeneration, message)
+                    }
+                    MatchSessionMonitor.onMatchSessionEnded = {
+                        resetQueueUiAfterMatchFinished()
                     }
                 }
             }
@@ -978,6 +982,23 @@ class HomeViewModel(
                 isInQueue = false,
                 queueElapsedSeconds = null,
                 matchmakingError = null,
+            )
+        }
+    }
+
+    private fun resetQueueUiAfterMatchFinished() {
+        awaitingMatchFromQueue = false
+        awaitingMatchStartedAtMs = null
+        stopQueueTimer()
+        gameNavigationVerifyJob?.cancel()
+        gameNavigationVerifyJob = null
+        _uiState.update {
+            it.copy(
+                isJoiningQueue = false,
+                isInQueue = false,
+                queueElapsedSeconds = null,
+                preGameSync = null,
+                activeMatchId = null,
             )
         }
     }

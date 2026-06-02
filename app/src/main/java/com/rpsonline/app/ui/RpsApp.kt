@@ -315,17 +315,11 @@ fun RpsApp() {
         userEngaged = true
         val uid = user?.uid
         if (uid != null) {
-            if (
-                MatchSessionMonitor.hasQueueEntry.value ||
-                MatchSessionMonitor.queueJoinedAtMs.value != null
-            ) {
-                MatchSessionMonitor.setMatchmakingInProgress(true)
-            }
             scope.launch {
-                val inQueueSession = MatchSessionMonitor.hasQueueEntry.value ||
-                    MatchSessionMonitor.queueJoinedAtMs.value != null
                 runCatching {
-                    MatchSessionMonitor.refreshOnResume(forceServerSync = !inQueueSession)
+                    MatchSessionMonitor.refreshOnResume(
+                        forceServerSync = MatchSessionMonitor.isMatchmakingInProgress(),
+                    )
                 }
             }
         }

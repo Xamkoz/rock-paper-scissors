@@ -93,6 +93,10 @@ object MatchSessionMonitor {
     @Volatile
     var onQueueRecoveryFailed: ((message: String) -> Unit)? = null
 
+    /** Invoked when a match session ends and local queue UI should reset. */
+    @Volatile
+    var onMatchSessionEnded: (() -> Unit)? = null
+
     private const val QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS = 15_000L
     private const val QUEUE_RECOVERY_FAILURE_MESSAGE =
         "Lost connection to the matchmaking queue. Tap Find Match to try again."
@@ -235,6 +239,12 @@ object MatchSessionMonitor {
         consumeGameNavigation()
         clearQueueState(endMatchmaking = true)
         autoGameNavigationSuppressedMatchId = matchId
+        auth.currentUser?.uid?.let { uid ->
+            sessionScope.launch {
+                matchRepository.leaveQueueBestEffort(uid)
+            }
+        }
+        notifyMatchSessionEnded()
         val finished = _activeMatch.value?.takeIf { it.id == matchId }
         if (_activeMatch.value?.id == matchId) {
             _activeMatch.value = null
@@ -626,10 +636,21 @@ object MatchSessionMonitor {
                     notifyActiveMatchPublished(match)
                 }
                 MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
-                    // Stale terminal snapshots can arrive while Find Match is running; do not
-                    // clear matchmaking or the new queue session in that case.
-                    if (!_hasQueueEntry.value) {
+                    if (
+                        shouldEndMatchmakingOnTerminalMatch(
+                            terminalMatchId = match.id,
+                            trackedMatchId = current?.id,
+                            listeningMatchId = listeningMatchId,
+                            hasQueueEntry = _hasQueueEntry.value,
+                            matchmakingInProgress = _matchmakingInProgress.value,
+                        )
+                    ) {
                         clearQueueState(endMatchmaking = true)
+                        if (match.id == current?.id || match.id == listeningMatchId) {
+                            sessionScope.launch {
+                                matchRepository.leaveQueueBestEffort(uid)
+                            }
+                        }
                     }
                 }
             }
@@ -713,6 +734,10 @@ object MatchSessionMonitor {
 
     private fun notifySessionStateChanged() {
         onSessionStateChanged?.invoke()
+    }
+
+    private fun notifyMatchSessionEnded() {
+        onMatchSessionEnded?.invoke()
     }
 
     private fun notifyActiveMatchPublished(match: Match) {
