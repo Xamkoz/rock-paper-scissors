@@ -238,7 +238,6 @@ object MatchSessionMonitor {
         enqueueNavigationJob = null
         consumeGameNavigation()
         clearQueueState(endMatchmaking = true)
-        autoGameNavigationSuppressedMatchId = matchId
         auth.currentUser?.uid?.let { uid ->
             sessionScope.launch {
                 matchRepository.leaveQueueBestEffort(uid)

@@ -23,6 +23,8 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.data.repository.shouldDropPendingGameNavigation
+import com.rpsonline.app.data.repository.shouldOpenPendingGameScreen
 import com.rpsonline.app.ui.auth.SignInScreen
 import com.rpsonline.app.ui.changelog.ChangelogScreen
 import com.rpsonline.app.ui.components.RpsLoadingColumn
@@ -79,16 +81,11 @@ private fun MatchFoundNavigationEffect(navController: NavHostController) {
             return@LaunchedEffect
         }
         val sessionMatch = activeMatch
-        if (sessionMatch?.id == matchId) {
-            when (sessionMatch.status) {
-                MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
-                    MatchSessionMonitor.consumeGameNavigation()
-                    return@LaunchedEffect
-                }
-                MatchStatus.ACTIVE -> Unit
-                else -> return@LaunchedEffect
-            }
-        } else {
+        if (shouldDropPendingGameNavigation(matchId, sessionMatch)) {
+            MatchSessionMonitor.consumeGameNavigation()
+            return@LaunchedEffect
+        }
+        if (!shouldOpenPendingGameScreen(matchId, sessionMatch)) {
             return@LaunchedEffect
         }
         if (currentRoute == Routes.game(matchId)) {

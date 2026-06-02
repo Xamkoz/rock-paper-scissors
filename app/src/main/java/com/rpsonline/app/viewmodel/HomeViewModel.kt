@@ -524,7 +524,14 @@ class HomeViewModel(
             ) { match, _, _ -> match }
                 .collect { match ->
                 val uid = authRepository.currentUserId
-                if (match == null || uid == null || !match.isParticipant(uid)) {
+                if (match == null) {
+                    stopPreGameReadyLoop()
+                    if (!MatchSessionMonitor.hasPendingGameNavigation()) {
+                        _uiState.update { it.copy(preGameSync = null, activeMatchId = null) }
+                    }
+                    return@collect
+                }
+                if (uid == null || !match.isParticipant(uid)) {
                     stopPreGameReadyLoop()
                     if (MatchSessionMonitor.hasPendingGameNavigation()) {
                         abortFalseMatchFoundAssignment()
@@ -752,6 +759,7 @@ class HomeViewModel(
     }
 
     private fun beginAutoGameNavigation(matchId: String) {
+        MatchSessionMonitor.clearAutoGameNavigationSuppression(matchId)
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
         stopPreGameReadyLoop()
         awaitingMatchFromQueue = false
