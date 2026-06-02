@@ -4,6 +4,7 @@ import { pickTimeBudgetMs } from "./compactMatch.js";
 import type { MatchDbContext } from "./matchContext.js";
 import {
   buildFastMoveUserPrompt,
+  buildRecentPicksForRound1,
   MOVE_SYSTEM_PROMPT,
   pickMoveContextLimits,
 } from "./movePrompt.js";
@@ -23,12 +24,14 @@ export async function pickMoveWithLlm(
 ): Promise<PickMoveResult> {
   const budget = timeoutMs ?? pickTimeBudgetMs(match);
   const userPrompt = buildFastMoveUserPrompt(match, ctx);
+  const recentLen =
+    match.currentRound === 1 ? buildRecentPicksForRound1(ctx).length : 0;
   const { text, durationMs } = await chatComplete(MOVE_SYSTEM_PROMPT, userPrompt, {
     maxTokens: 16,
     temperature: 0.1,
     json: true,
     logLabel: `move r${match.currentRound}`,
-    logSummary: `match=${match.id} round=${match.currentRound} chars=${userPrompt.length}${budget ? ` budgetMs=${budget}` : ""}`,
+    logSummary: `match=${match.id} round=${match.currentRound} chars=${userPrompt.length} recentLen=${recentLen}${budget ? ` budgetMs=${budget}` : ""}`,
     timeoutMs: budget,
   });
 

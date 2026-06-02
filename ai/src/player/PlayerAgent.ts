@@ -45,6 +45,7 @@ export class PlayerAgent {
   private queueTimer: ReturnType<typeof setInterval> | null = null;
   /** One pick pipeline at a time (LLM + submit); never overlap across rounds. */
   private pickInProgress = false;
+  private matchEndHandled: string | null = null;
 
   constructor(
     private readonly ctx: FirebaseContext,
@@ -152,6 +153,7 @@ export class PlayerAgent {
     this.matchUnsub = null;
     this.activeMatchId = null;
     this.pickInProgress = false;
+    this.matchEndHandled = null;
     if (this.phase === "lobby" || this.phase === "active") {
       this.phase = "idle";
     }
@@ -271,8 +273,23 @@ export class PlayerAgent {
     }
 
     if (match.status === "completed" || match.status === "abandoned") {
+      if (this.matchEndHandled === match.id) return;
+      await this.waitForPickPipeline();
+      if (this.matchEndHandled === match.id) return;
+      this.matchEndHandled = match.id;
       await this.onMatchEnded(match);
       this.detachMatch();
+    }
+  }
+
+  /** Let an in-flight rN pick finish before match-end work (avoids stale direct writes). */
+  private async waitForPickPipeline(maxMs = 45_000): Promise<void> {
+    const deadline = Date.now() + maxMs;
+    while (this.pickInProgress && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (this.pickInProgress) {
+      warn("[match-end] pick pipeline still running — proceeding anyway");
     }
   }
 

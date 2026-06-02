@@ -2,7 +2,7 @@ import "dotenv/config";
 import { loadConfig } from "./config.js";
 import { initFirebase } from "./firebase/client.js";
 import { initLlm } from "./llm/client.js";
-import { probeLlm } from "./llm/chat.js";
+import { probeLlm, verifyLlmAfterStart } from "./llm/chat.js";
 import { MatchDatabase } from "./db/matchDatabase.js";
 import { error, log, msSince } from "./log.js";
 import { PlayerAgent } from "./player/PlayerAgent.js";
@@ -45,6 +45,19 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
 
   await player.start();
+
+  const postStartStartedAt = Date.now();
+  const llmChatOk = await verifyLlmAfterStart();
+  if (!llmChatOk) {
+    error(
+      `[ai] LLM chat check failed for model "${config.llmModel}" at ${config.llmBaseUrl} — ensure the model is pulled and responds to chat/completions`,
+    );
+    await player.stop();
+    db.close();
+    process.exit(1);
+  }
+  log(`[ai] llm post-start verify ${msSince(postStartStartedAt)}ms`);
+
   log(
     `[ai] running ${msSince(bootStartedAt)}ms boot — ${config.botDisplayName} (${config.projectId}, llm=${config.llmModel}) auto-queue=${config.autoQueue} modes=${config.matchModes.join(",")}`,
   );

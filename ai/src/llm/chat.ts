@@ -1,5 +1,10 @@
 import { getLlmConfig } from "./client.js";
 import { error, log, msSince } from "../log.js";
+import { MOVE_SYSTEM_PROMPT } from "./movePrompt.js";
+import { parseMoveChoice } from "./parse.js";
+
+/** Tiny payload for post-start chat verification. */
+const POST_START_WARMUP_USER = '{"r":1,"sc":[0,0],"vs":"warmup","prior":[],"h2h":[]}';
 
 function truncateForLog(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -136,7 +141,37 @@ export async function chatComplete(
   }
 }
 
-/** Optional sanity check at startup (Ollama, vLLM, LocalAI, etc.). */
+/** After bot start: one real chat/completions call to confirm the model loads and returns a move. */
+export async function verifyLlmAfterStart(): Promise<boolean> {
+  const { timeoutMs } = getLlmConfig();
+  const startedAt = Date.now();
+  try {
+    const { text, durationMs } = await chatComplete(
+      MOVE_SYSTEM_PROMPT,
+      POST_START_WARMUP_USER,
+      {
+        maxTokens: 16,
+        temperature: 0,
+        json: true,
+        logLabel: "post-start",
+        logSummary: "warmup",
+        timeoutMs: Math.min(timeoutMs, 30_000),
+      },
+    );
+    const choice = parseMoveChoice(text);
+    if (!choice) {
+      error(`[ai] llm post-start invalid response (${durationMs}ms): ${text.slice(0, 120)}`);
+      return false;
+    }
+    log(`[ai] llm post-start ok ${durationMs}ms choice=${choice}`);
+    return true;
+  } catch (err) {
+    error(`[ai] llm post-start failed ${msSince(startedAt)}ms`, err);
+    return false;
+  }
+}
+
+/** Pre-start: HTTP reachability via GET /models. */
 export async function probeLlm(): Promise<boolean> {
   const { baseUrl, apiKey, timeoutMs } = getLlmConfig();
   const headers: Record<string, string> = {};

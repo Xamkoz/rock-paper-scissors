@@ -4,6 +4,7 @@ import type { Firestore } from "firebase/firestore";
 import { submitMatchMove } from "./callables.js";
 import { getMatch, submitMoveDirect } from "./firestoreApi.js";
 import { selfSubmitted } from "./matchDoc.js";
+import { warn } from "../log.js";
 import type { Match, Move } from "../types.js";
 
 const SUBMIT_CONFIRM_DELAY_MS = 500;
@@ -17,6 +18,11 @@ function errorMessage(err: unknown): string {
   if (err instanceof FirebaseError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function isPermissionDenied(err: unknown): boolean {
+  if (err instanceof FirebaseError) return err.code === "permission-denied";
+  return errorMessage(err).toLowerCase().includes("permission");
 }
 
 export function isStaleRoundError(err: unknown): boolean {
@@ -40,8 +46,19 @@ async function waitUntilSubmitted(
     if (!fresh) continue;
     if (fresh.currentRound !== roundNumber) return true;
     if (selfSubmitted(fresh, uid)) return true;
+    if (fresh.status === "completed" || fresh.status === "abandoned") {
+      return selfSubmitted(fresh, uid);
+    }
   }
   return false;
+}
+
+function canSubmitToRound(match: Match, uid: string, roundNumber: number): boolean {
+  return (
+    match.status === "active" &&
+    match.currentRound === roundNumber &&
+    !selfSubmitted(match, uid)
+  );
 }
 
 /**
@@ -55,9 +72,8 @@ export async function submitRoundMove(
   uid: string,
   choice: Move,
 ): Promise<boolean> {
-  if (match.status !== "active" || selfSubmitted(match, uid)) return false;
-
   const roundNumber = match.currentRound;
+  if (!canSubmitToRound(match, uid, roundNumber)) return false;
 
   try {
     await submitMatchMove(functions, match.id, roundNumber, choice);
@@ -70,15 +86,19 @@ export async function submitRoundMove(
       if (await waitUntilSubmitted(db, match.id, uid, roundNumber)) return true;
     }
 
+    const fresh = await getMatch(db, match.id);
+    if (!fresh || !canSubmitToRound(fresh, uid, roundNumber)) {
+      return waitUntilSubmitted(db, match.id, uid, roundNumber);
+    }
+
     try {
       await submitMoveDirect(db, match.id, roundNumber, uid, choice);
       return true;
     } catch (directErr) {
-      const code = directErr instanceof FirebaseError ? directErr.code : "";
-      if (code === "permission-denied") {
-        return waitUntilSubmitted(db, match.id, uid, roundNumber);
-      }
-      if (isStaleRoundError(directErr)) {
+      if (isPermissionDenied(directErr) || isStaleRoundError(directErr)) {
+        warn(
+          `[move] direct choice write skipped (match ${match.id} r${roundNumber}): ${errorMessage(directErr)}`,
+        );
         return waitUntilSubmitted(db, match.id, uid, roundNumber);
       }
       throw directErr;
