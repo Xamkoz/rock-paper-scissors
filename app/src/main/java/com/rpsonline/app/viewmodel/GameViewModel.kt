@@ -264,7 +264,7 @@ class GameViewModel(
                 !localSubmitPending &&
                 !it.isResolvingTimeout
             val clearError = it.error != null &&
-                (clearResolving || openRoundChanged || canPickAgain)
+                (clearResolving || openRoundChanged || canPickAgain || alreadySubmitted)
             it.copy(
                 match = match,
                 userId = userId,
@@ -968,6 +968,10 @@ class GameViewModel(
                 }
                 return
             }
+        }
+        if (isMoveConfirmedLocally(roundNumber)) {
+            finalizeConfirmedMove(roundNumber, confirmedMove)
+            return
         }
         locallySubmittedRound = null
         lockedMoveRound = null

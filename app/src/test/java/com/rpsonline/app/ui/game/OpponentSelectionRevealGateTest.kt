@@ -30,4 +30,15 @@ class OpponentSelectionRevealGateTest {
         val allowed = holdOpponentMoveReveal(revealed, revealAllowed = true)
         assertEquals(PanelMoveDisplay.Revealed, allowed.display)
     }
+
+    @Test
+    fun livePanelRecapHold_extendsMinimumDisplayAfterLivePanelEnds() {
+        val shownAt = 1_000L
+        val endedAt = 1_100L
+        assertEquals(
+            400L,
+            (OPPONENT_SELECTION_MIN_DISPLAY_MS -
+                opponentSelectionElapsedMs(shownAt, endedAt)).coerceAtLeast(0L),
+        )
+    }
 }

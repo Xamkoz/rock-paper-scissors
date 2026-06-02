@@ -317,6 +317,23 @@ fun GameScreen(
             }
             else -> null
         }
+        val panelRoundKey = if (inMatchEndTransition) {
+            endTransition!!.roundKey
+        } else {
+            openRound?.roundNumber ?: layoutMatch.currentRound
+        }
+        val livePanelActive = !inMatchEndTransition && openRoundShowsLiveMoves(
+            openRound = openRound,
+            match = layoutMatch,
+            userId = userId,
+            hasSubmittedMove = panelHasSubmittedMove,
+            isSubmitting = panelIsSubmitting,
+            opponentHasSubmitted = panelOpponentHasSubmitted,
+        )
+        val livePanelRecapRevealAllowed = rememberLivePanelRecapRevealAllowed(
+            roundKey = panelRoundKey,
+            livePanelActive = livePanelActive,
+        )
         val (panelMyPresentation, panelOpponentPresentationRaw) = resolvePanelMovePresentations(
             match = layoutMatch,
             userId = userId,
@@ -328,13 +345,8 @@ fun GameScreen(
             panelOutcome = panelOutcome,
             resolvedMyChoice = resolvedMyChoice,
             resolvedOpponentChoice = resolvedOpponentChoice,
-            lockLiveSubmittedPanel = false,
+            lockLiveSubmittedPanel = !livePanelRecapRevealAllowed,
         )
-        val panelRoundKey = if (inMatchEndTransition) {
-            endTransition!!.roundKey
-        } else {
-            openRound?.roundNumber ?: layoutMatch.currentRound
-        }
         val opponentWouldReveal = panelOpponentPresentationRaw.display == PanelMoveDisplay.Revealed
         val opponentRevealAllowed = rememberOpponentSelectionRevealAllowed(
             roundKey = panelRoundKey,

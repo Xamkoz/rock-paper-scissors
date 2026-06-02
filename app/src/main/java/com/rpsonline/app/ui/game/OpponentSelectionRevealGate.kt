@@ -88,3 +88,42 @@ fun holdOpponentMoveReveal(
     } else {
         opponentMove
     }
+
+/**
+ * After the live pick panel (secret icons) is shown, block round-recap reveals for
+ * [OPPONENT_SELECTION_MIN_DISPLAY_MS] so resolved icons do not override picks too quickly.
+ */
+@Composable
+fun rememberLivePanelRecapRevealAllowed(
+    roundKey: Int?,
+    livePanelActive: Boolean,
+): Boolean {
+    var holdUntilMs by remember(roundKey) { mutableLongStateOf(0L) }
+    var recapRevealAllowed by remember(roundKey) { mutableStateOf(true) }
+
+    LaunchedEffect(roundKey, livePanelActive) {
+        if (roundKey == null) {
+            holdUntilMs = 0L
+            recapRevealAllowed = true
+            return@LaunchedEffect
+        }
+
+        if (livePanelActive) {
+            val until = SystemClock.elapsedRealtime() + OPPONENT_SELECTION_MIN_DISPLAY_MS
+            if (until > holdUntilMs) holdUntilMs = until
+            recapRevealAllowed = false
+            return@LaunchedEffect
+        }
+
+        val remaining = holdUntilMs - SystemClock.elapsedRealtime()
+        if (remaining <= 0L) {
+            recapRevealAllowed = true
+        } else {
+            recapRevealAllowed = false
+            delay(remaining)
+            recapRevealAllowed = true
+        }
+    }
+
+    return recapRevealAllowed
+}
