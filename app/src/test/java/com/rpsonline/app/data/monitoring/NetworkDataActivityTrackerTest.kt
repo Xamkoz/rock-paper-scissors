@@ -33,6 +33,17 @@ class NetworkDataActivityTrackerTest {
     }
 
     @Test
+    fun queueJoinSuppression_blocksQueueAndPresenceBursts() {
+        NetworkDataActivityTracker.beginQueueJoinBurstSuppression(durationMs = 5_000L)
+        NetworkDataActivityTracker.bump(NetworkDataActivityKind.Queue)
+        NetworkDataActivityTracker.bump(NetworkDataActivityKind.Presence)
+        assertEquals(emptySet<NetworkDataActivityKind>(), NetworkDataActivityTracker.activeKinds.value)
+        NetworkDataActivityTracker.bump(NetworkDataActivityKind.Match)
+        assertEquals(setOf(NetworkDataActivityKind.Match), NetworkDataActivityTracker.activeKinds.value)
+        NetworkDataActivityTracker.endQueueJoinBurstSuppression()
+    }
+
+    @Test
     fun bump_tracksKindsIndependently() = runBlocking {
         NetworkDataActivityTracker.bump(NetworkDataActivityKind.Match, durationMs = 300L)
         NetworkDataActivityTracker.bump(NetworkDataActivityKind.Presence, durationMs = 50L)

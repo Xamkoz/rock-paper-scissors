@@ -83,6 +83,7 @@
     <string name="in_match">In match</string>
     <string name="in_match_with_time">In match: %1$s</string>
     <string name="in_queue_with_time">In queue: %1$s</string>
+    <string name="match_found_with_time">Match found: %1$s</string>
     <string name="queue_timer_idle">Queue timer</string>
     <string name="play_again">Play Again</string>
     <string name="final_score">Final score: %1$s</string>

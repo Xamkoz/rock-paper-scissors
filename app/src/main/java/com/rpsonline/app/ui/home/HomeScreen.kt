@@ -81,6 +81,7 @@ import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.ui.util.PreGameReadyFeedbackEffect
 import com.rpsonline.app.ui.util.formatQueueTime
+import com.rpsonline.app.ui.util.rememberQueueElapsedSeconds
 import com.rpsonline.app.ui.util.findActivity
 import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.viewmodel.AppUpdateViewModel
@@ -103,6 +104,9 @@ fun HomeScreen(
     val isServerConnected = LocalNetworkConnectionStatus.current.isServerConnected()
     val openingMatchId by viewModel.navigateToGameMatchId.collectAsState()
     val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
+    val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
+    val queueTimerAnchorMs by MatchSessionMonitor.queueTimerAnchorMs.collectAsStateWithLifecycle()
+    val queueAnchorMs = queueTimerAnchorMs ?: queueJoinedAtMs
     val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val updateState by updateViewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -303,13 +307,18 @@ fun HomeScreen(
             val showMatchFoundPhase = openingMatchId != null &&
                 activeMatch?.id == openingMatchId &&
                 activeMatch?.status == MatchStatus.ACTIVE
+            val liveQueueElapsed = rememberQueueElapsedSeconds(
+                anchorMs = queueAnchorMs?.takeIf {
+                    uiState.isInQueue || uiState.isJoiningQueue || matchmakingInProgress
+                },
+            )
             HomeQueueStatusCard(
                 phase = when {
                     showMatchFoundPhase -> QueueStatusPhase.MatchFound
-                    uiState.isJoiningQueue -> QueueStatusPhase.Joining
+                    uiState.isJoiningQueue || queueAnchorMs == null -> QueueStatusPhase.Joining
                     else -> QueueStatusPhase.Searching
                 },
-                queueElapsedSeconds = uiState.queueElapsedSeconds,
+                queueElapsedSeconds = liveQueueElapsed ?: uiState.queueElapsedSeconds,
             )
             if (uiState.isJoiningQueue || uiState.isInQueue) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -648,7 +657,7 @@ private fun preGameReadySecondsRemaining(deadlineAtMs: Long): Int {
 @Composable
 private fun HomeQueueStatusCard(
     phase: QueueStatusPhase,
-    queueElapsedSeconds: Long,
+    queueElapsedSeconds: Long?,
 ) {
     HomeMatchmakingStatusCard(
         label = stringResource(
@@ -659,7 +668,7 @@ private fun HomeQueueStatusCard(
         ),
         primary = when (phase) {
             QueueStatusPhase.Joining -> stringResource(R.string.communicating_to_server)
-            QueueStatusPhase.Searching -> formatQueueTime(queueElapsedSeconds)
+            QueueStatusPhase.Searching -> formatQueueTime(checkNotNull(queueElapsedSeconds))
             QueueStatusPhase.MatchFound -> stringResource(R.string.opening_game)
         },
         primaryStyle = when (phase) {

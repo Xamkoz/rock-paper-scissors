@@ -22,7 +22,20 @@ internal fun shouldShowWaitingForOpponentMessage(
     isResolvingTimeout: Boolean,
     hasOpenRound: Boolean,
     hasPanelOutcome: Boolean,
+    roundRecapActive: Boolean = false,
+    awaitingServerRoundResolve: Boolean = false,
+    opponentSubmittedOnServer: Boolean = false,
 ): Boolean {
-    if (isSubmitting || isResolvingTimeout || hasPanelOutcome || !hasOpenRound) return false
+    if (
+        isSubmitting ||
+        isResolvingTimeout ||
+        hasPanelOutcome ||
+        !hasOpenRound ||
+        roundRecapActive ||
+        awaitingServerRoundResolve
+    ) {
+        return false
+    }
+    if (opponentSubmittedOnServer) return false
     return hasSubmittedMove && !opponentHasSubmitted
 }

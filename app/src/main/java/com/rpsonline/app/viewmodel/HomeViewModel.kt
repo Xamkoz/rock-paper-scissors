@@ -12,7 +12,9 @@ import com.rpsonline.app.data.preferences.MatchModePreferences
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.HighlightedMatchFunctions
 import com.rpsonline.app.data.repository.MatchRepository
+import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.data.repository.shouldAutoNavigateToLiveMatch
 import com.rpsonline.app.data.repository.MatchmakingFunctions
 import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.data.repository.UserProfileSync
@@ -20,6 +22,7 @@ import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
+import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -55,7 +58,8 @@ data class HomeUiState(
     val preGameSync: PreGameSyncUiState? = null,
     val isJoiningQueue: Boolean = false,
     val isInQueue: Boolean = false,
-    val queueElapsedSeconds: Long = 0,
+    /** Null until Firestore `joinedAt` is available for the queue doc. */
+    val queueElapsedSeconds: Long? = null,
     val matchmakingError: String? = null,
     val highlightedMatch: MatchHistoryEntry? = null,
     val isHighlightedMatchDismissed: Boolean = false,
@@ -132,7 +136,7 @@ class HomeViewModel(
                             activeMatchId = null,
                             isJoiningQueue = false,
                             isInQueue = false,
-                            queueElapsedSeconds = 0,
+                            queueElapsedSeconds = null,
                             matchmakingError = null,
                             highlightedMatch = null,
                             isHighlightedMatchDismissed = false,
@@ -189,6 +193,7 @@ class HomeViewModel(
         val generation = ++matchmakingGeneration
         refreshJob?.cancel()
         MatchSessionMonitor.discardTerminalActiveMatchIfPresent()
+        NetworkDataActivityTracker.beginQueueJoinBurstSuppression()
         MatchSessionMonitor.setMatchmakingInProgress(true)
         queuedMatchModes = matchModes
         MatchSessionMonitor.setRecoveryMatchModes(matchModes)
@@ -198,7 +203,7 @@ class HomeViewModel(
             it.copy(
                 isJoiningQueue = true,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
                 matchmakingError = null,
             )
         }
@@ -225,6 +230,7 @@ class HomeViewModel(
                     message = "Could not join the matchmaking queue in time. Check your connection and try again.",
                 )
             }
+            var queueJoinPendingServerConfirm = false
             try {
                 withTimeout(JOIN_QUEUE_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) {
@@ -267,22 +273,35 @@ class HomeViewModel(
                                 it.copy(
                                     isJoiningQueue = false,
                                     isInQueue = false,
-                                    queueElapsedSeconds = 0,
+                                    queueElapsedSeconds = null,
                                     matchmakingError = null,
                                 )
                             }
                             return@withContext
                         }
-                        val joinedAtMs = joinResult.clientJoinedAtMs ?: System.currentTimeMillis()
-                        enterConfirmedQueue(joinedAtMs)
+                        joinResult.serverJoinedAtMs?.let { serverJoinedAtMs ->
+                            withContext(Dispatchers.Main) {
+                                enterConfirmedQueue(serverJoinedAtMs)
+                            }
+                        }
+                        queueJoinPendingServerConfirm = joinResult.serverJoinedAtMs == null
                     }
                 }
-                if (generation == matchmakingGeneration && _uiState.value.isInQueue) {
+                if (generation == matchmakingGeneration && queueJoinPendingServerConfirm) {
                     launch {
-                        val serverJoinedAtMs = matchRepository.awaitQueueJoinedAtFromServer(timeoutMs = 30_000)
+                        val serverJoinedAtMs =
+                            matchRepository.awaitQueueJoinedAtFromServer(timeoutMs = 15_000)
                         if (generation != matchmakingGeneration) return@launch
-                        if (serverJoinedAtMs != null && _uiState.value.isInQueue) {
+                        if (serverJoinedAtMs != null) {
                             enterConfirmedQueue(serverJoinedAtMs)
+                        } else if (
+                            _uiState.value.isJoiningQueue &&
+                            !_uiState.value.isInQueue
+                        ) {
+                            failMatchmaking(
+                                generation = generation,
+                                message = "Could not confirm queue join on the server. Check your connection and try again.",
+                            )
                         }
                     }
                 }
@@ -317,7 +336,8 @@ class HomeViewModel(
                 if (
                     generation == matchmakingGeneration &&
                     _uiState.value.isJoiningQueue &&
-                    !_uiState.value.isInQueue
+                    !_uiState.value.isInQueue &&
+                    !queueJoinPendingServerConfirm
                 ) {
                     failMatchmaking(
                         generation = generation,
@@ -335,13 +355,14 @@ class HomeViewModel(
             it.copy(
                 isJoiningQueue = false,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
                 matchmakingError = message,
             )
         }
     }
 
     private fun cleanupMatchmakingSession() {
+        NetworkDataActivityTracker.endQueueJoinBurstSuppression()
         MatchSessionMonitor.setMatchmakingInProgress(false)
         awaitingMatchFromQueue = false
         awaitingMatchStartedAtMs = null
@@ -403,16 +424,8 @@ class HomeViewModel(
                 .collect { (hasEntry, joinedAtMs, timerAnchorMs) ->
                 val elapsedAnchorMs = timerAnchorMs ?: joinedAtMs
                 if (elapsedAnchorMs != null && !hasEntry && MatchSessionMonitor.isMatchmakingInProgress()) {
+                    MatchSessionMonitor.confirmQueueJoinedAt(elapsedAnchorMs)
                     syncConfirmedQueueUi()
-                    viewModelScope.launch {
-                        when (
-                            runCatching { matchRepository.queueEntryExistsOnServer() }.getOrNull()
-                        ) {
-                            true -> MatchSessionMonitor.confirmQueueJoinedAt(elapsedAnchorMs)
-                            false -> MatchSessionMonitor.signalQueueDocLost()
-                            null -> Unit
-                        }
-                    }
                     return@collect
                 }
                 if (elapsedAnchorMs == null) {
@@ -422,15 +435,6 @@ class HomeViewModel(
                         return@collect
                     }
                     if (MatchSessionMonitor.isMatchmakingInProgress()) {
-                        if (!_uiState.value.isInQueue && !_uiState.value.isJoiningQueue) {
-                            _uiState.update {
-                                it.copy(
-                                    isInQueue = true,
-                                    isJoiningQueue = false,
-                                    matchmakingError = null,
-                                )
-                            }
-                        }
                         MatchSessionMonitor.requestQueueRecovery()
                         return@collect
                     }
@@ -446,7 +450,7 @@ class HomeViewModel(
                         it.copy(
                             isJoiningQueue = false,
                             isInQueue = false,
-                            queueElapsedSeconds = 0,
+                            queueElapsedSeconds = null,
                         )
                     }
                 } else {
@@ -456,16 +460,16 @@ class HomeViewModel(
         }
     }
 
-    private fun enterConfirmedQueue(joinedAtMs: Long) {
-        MatchSessionMonitor.confirmQueueJoinedAt(joinedAtMs)
+    /** Applies server `joinedAt` from the queue doc (listener or SERVER fetch). */
+    private fun enterConfirmedQueue(serverJoinedAtMs: Long) {
+        MatchSessionMonitor.confirmQueueJoinedAt(serverJoinedAtMs)
         syncConfirmedQueueUi()
     }
 
     private fun syncConfirmedQueueUi() {
         val joinedAtMs = MatchSessionMonitor.queueElapsedAnchorMs() ?: return
-        val elapsed = ((System.currentTimeMillis() - joinedAtMs) / 1_000).coerceAtLeast(0)
+        val elapsed = queueElapsedSecondsFromAnchor(joinedAtMs)
         awaitingMatchFromQueue = true
-        awaitingMatchStartedAtMs = System.currentTimeMillis()
         _uiState.update {
             it.copy(
                 isJoiningQueue = false,
@@ -477,13 +481,21 @@ class HomeViewModel(
         ensureQueueElapsedTicker()
     }
 
-    /** Single ticker; reads [MatchSessionMonitor.queueElapsedAnchorMs] so background recovery cannot reset elapsed time. */
+    /** Single ticker driven by [MatchSessionMonitor.queueElapsedAnchorMs] (Firestore `joinedAt`). */
     private fun ensureQueueElapsedTicker() {
-        if (queueTimerJob?.isActive == true) return
+        queueTimerJob?.cancel()
         queueTimerJob = viewModelScope.launch {
             while (isActive) {
-                val anchorMs = MatchSessionMonitor.queueElapsedAnchorMs() ?: break
-                val elapsed = ((System.currentTimeMillis() - anchorMs) / 1_000).coerceAtLeast(0)
+                if (!_uiState.value.isInQueue) {
+                    delay(250)
+                    continue
+                }
+                val anchorMs = MatchSessionMonitor.queueElapsedAnchorMs()
+                if (anchorMs == null) {
+                    delay(250)
+                    continue
+                }
+                val elapsed = queueElapsedSecondsFromAnchor(anchorMs)
                 _uiState.update { it.copy(queueElapsedSeconds = elapsed) }
                 delay(1_000)
             }
@@ -527,6 +539,25 @@ class HomeViewModel(
                         val shouldSync = inMatchmakingFlow ||
                             _uiState.value.preGameSync?.matchId == match.id
                         if (!shouldSync) {
+                            val lobbyUid = authRepository.currentUserId
+                            val resumingQueueOrJoin = _uiState.value.isInQueue ||
+                                _uiState.value.isJoiningQueue ||
+                                MatchSessionMonitor.hasQueueEntry.value
+                            if (
+                                lobbyUid != null &&
+                                shouldAutoNavigateToLiveMatch(
+                                    match = match,
+                                    userId = lobbyUid,
+                                    fromCache = false,
+                                    matchmakingInProgress = inMatchmakingFlow,
+                                    autoNavigationSuppressed =
+                                        MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id),
+                                    resumingFromQueueOrJoin = resumingQueueOrJoin,
+                                )
+                            ) {
+                                beginAutoGameNavigation(match.id)
+                                return@collect
+                            }
                             if (match.status == MatchStatus.LOBBY && match.isReadyDeadlineExpired()) {
                                 viewModelScope.launch(Dispatchers.IO) {
                                     runCatching { matchRepository.confirmMatchReady(match.id) }
@@ -544,7 +575,7 @@ class HomeViewModel(
                             it.copy(
                                 isJoiningQueue = false,
                                 isInQueue = false,
-                                queueElapsedSeconds = 0,
+                                queueElapsedSeconds = null,
                                 matchmakingError = null,
                                 activeMatchId = null,
                                 preGameSync = PreGameSyncUiState(
@@ -561,8 +592,20 @@ class HomeViewModel(
                         ensurePreGameReadyLoop(match.id)
                     }
                     MatchStatus.ACTIVE -> {
-                        val shouldAutoNavigate = !MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id) &&
-                            (inMatchmakingFlow || _uiState.value.preGameSync?.matchId == match.id)
+                        val uid = authRepository.currentUserId
+                        val resumingQueueOrJoin = _uiState.value.isInQueue ||
+                            _uiState.value.isJoiningQueue ||
+                            MatchSessionMonitor.hasQueueEntry.value
+                        val shouldAutoNavigate = uid != null &&
+                            shouldAutoNavigateToLiveMatch(
+                                match = match,
+                                userId = uid,
+                                fromCache = false,
+                                matchmakingInProgress = inMatchmakingFlow,
+                                autoNavigationSuppressed =
+                                    MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id),
+                                resumingFromQueueOrJoin = resumingQueueOrJoin,
+                            )
                         if (shouldAutoNavigate) {
                             beginAutoGameNavigation(match.id)
                             return@collect
@@ -690,7 +733,7 @@ class HomeViewModel(
                 activeMatchId = null,
                 isJoiningQueue = false,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
                 matchmakingError = message,
             )
         }
@@ -713,7 +756,7 @@ class HomeViewModel(
             it.copy(
                 isJoiningQueue = false,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
                 matchmakingError = null,
                 preGameSync = null,
                 activeMatchId = null,
@@ -742,8 +785,12 @@ class HomeViewModel(
         }
         MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)
         when (serverMatch.status) {
-            MatchStatus.ACTIVE -> MatchSessionMonitor.requestGameNavigation(matchId)
-            MatchStatus.LOBBY -> Unit
+            MatchStatus.ACTIVE, MatchStatus.LOBBY ->
+                if (serverMatch.isLiveForReconnect()) {
+                    MatchSessionMonitor.requestGameNavigation(matchId)
+                } else {
+                    abortFalseMatchFoundAssignment()
+                }
             else -> abortFalseMatchFoundAssignment()
         }
     }
@@ -760,8 +807,9 @@ class HomeViewModel(
             joinedAtMs?.let { enterConfirmedQueue(it) }
                 ?: _uiState.update {
                     it.copy(
-                        isJoiningQueue = false,
-                        isInQueue = true,
+                        isJoiningQueue = true,
+                        isInQueue = false,
+                        queueElapsedSeconds = null,
                         matchmakingError = null,
                     )
                 }
@@ -774,7 +822,7 @@ class HomeViewModel(
                 activeMatchId = null,
                 isJoiningQueue = false,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
             )
         }
     }
@@ -854,12 +902,15 @@ class HomeViewModel(
                 MatchSessionMonitor.setMatchmakingInProgress(true)
             }
             runCatching {
-                MatchSessionMonitor.refreshOnResume(forceServerSync = reconcilingQueue)
+                val forceServerSync = reconcilingQueue && !MatchSessionMonitor.hasQueueEntry.value
+                MatchSessionMonitor.refreshOnResume(forceServerSync = forceServerSync)
             }
             val uid = authRepository.currentUserId ?: return@launch
-            userRepository.getUserProfile(uid)?.let { profile ->
-                _uiState.update { it.copy(profile = profile) }
-                loadHighlightedMatch(uid, profile.elo)
+            if (_uiState.value.profile == null) {
+                userRepository.getUserProfile(uid)?.let { profile ->
+                    _uiState.update { it.copy(profile = profile) }
+                    loadHighlightedMatch(uid, profile.elo)
+                }
             }
 
             val serverJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
@@ -879,12 +930,16 @@ class HomeViewModel(
 
             if (waitingForMatch) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
-                MatchSessionMonitor.signalQueueDocLost()
                 if (_uiState.value.isJoiningQueue && matchmakingJob?.isActive != true) {
                     failMatchmaking(
                         generation = matchmakingGeneration,
                         message = "Matchmaking was interrupted. Tap Find Match to try again.",
                     )
+                } else if (
+                    !_uiState.value.isJoiningQueue &&
+                    !MatchSessionMonitor.hasQueueEntry.value
+                ) {
+                    MatchSessionMonitor.requestQueueRecovery()
                 }
                 return@launch
             }
@@ -911,6 +966,7 @@ class HomeViewModel(
     }
 
     private fun clearQueueUiState() {
+        NetworkDataActivityTracker.endQueueJoinBurstSuppression()
         awaitingMatchFromQueue = false
         awaitingMatchStartedAtMs = null
         stopQueueTimer()
@@ -920,7 +976,7 @@ class HomeViewModel(
             it.copy(
                 isJoiningQueue = false,
                 isInQueue = false,
-                queueElapsedSeconds = 0,
+                queueElapsedSeconds = null,
                 matchmakingError = null,
             )
         }

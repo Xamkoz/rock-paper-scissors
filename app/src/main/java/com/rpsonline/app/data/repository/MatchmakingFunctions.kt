@@ -11,6 +11,8 @@ import kotlinx.coroutines.withTimeout
 
 internal data class JoinQueueCallableResult(
     val clientJoinedAtMs: Long,
+    /** Server `joinedAt` from the queue write (preferred timer anchor). */
+    val serverJoinedAtMs: Long,
     val activeMatchId: String? = null,
 )
 
@@ -42,8 +44,11 @@ internal object MatchmakingFunctions {
                 val activeMatchId = (body["activeMatchId"] as? String)?.takeIf { it.isNotBlank() }
                 val clientJoinedAtMs = (body["clientJoinedAtMs"] as? Number)?.toLong()
                     ?: System.currentTimeMillis()
+                val serverJoinedAtMs = (body["joinedAtMs"] as? Number)?.toLong()
+                    ?: clientJoinedAtMs
                 return JoinQueueCallableResult(
                     clientJoinedAtMs = clientJoinedAtMs,
+                    serverJoinedAtMs = serverJoinedAtMs,
                     activeMatchId = activeMatchId,
                 )
             } catch (e: FirebaseFunctionsException) {

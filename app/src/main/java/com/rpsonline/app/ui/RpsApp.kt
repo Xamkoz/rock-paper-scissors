@@ -71,6 +71,7 @@ import com.rpsonline.app.ui.util.MatchClockSoundController
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.RoundResolutionFeedbackEffect
 import com.rpsonline.app.ui.util.RoundResolutionPulseNotifier
+import com.rpsonline.app.ui.util.rememberQueueElapsedSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -161,6 +162,7 @@ fun RpsApp() {
     val hasQueueEntry by MatchSessionMonitor.hasQueueEntry.collectAsStateWithLifecycle()
     val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
     val queueTimerAnchorMs by MatchSessionMonitor.queueTimerAnchorMs.collectAsStateWithLifecycle()
+    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
     var userEngaged by remember { mutableStateOf(PresenceEngagementTracker.isEngaged()) }
 
     LaunchedEffect(Unit) {
@@ -216,14 +218,11 @@ fun RpsApp() {
         }
     }
 
-    val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
-
     LaunchedEffect(
         user?.uid,
         appInForeground,
         userEngaged,
         hasQueueEntry,
-        queueJoinedAtMs,
         matchmakingInProgress,
         activeMatch?.id,
         activeMatch?.status,
@@ -261,11 +260,32 @@ fun RpsApp() {
         if (serviceOwnsHeartbeats()) {
             return@LaunchedEffect
         }
+        val queueOnlyPresence = matchmakingInProgress && activeMatch == null
+        if (queueOnlyPresence && onlinePlayerCount == null) {
+            runCatching {
+                presenceRepository.touchPresence(
+                    uid,
+                    forceAuthRefresh = false,
+                    awaitServerAck = false,
+                    includeOnlineCount = true,
+                )
+            }
+        }
+        if (queueOnlyPresence) {
+            val joinDeadlineMs = System.currentTimeMillis() + 12_000L
+            while (
+                MatchSessionMonitor.queueElapsedAnchorMs() == null &&
+                System.currentTimeMillis() < joinDeadlineMs
+            ) {
+                if (!shouldMaintainPresence()) return@LaunchedEffect
+                delay(200)
+            }
+        }
         presenceRepository.touchPresence(
             uid,
-            forceAuthRefresh = true,
-            awaitServerAck = true,
-            includeOnlineCount = true,
+            forceAuthRefresh = false,
+            awaitServerAck = false,
+            includeOnlineCount = onlinePlayerCount == null,
         )
         var heartbeat = 0
         while (true) {
@@ -283,8 +303,9 @@ fun RpsApp() {
             val nowMs = System.currentTimeMillis()
             presenceRepository.touchPresence(
                 uid,
-                awaitServerAck = heartbeat % 2 == 0,
-                includeOnlineCount = PresenceRepository.shouldRequestOnlineCount(nowMs),
+                awaitServerAck = false,
+                includeOnlineCount = !queueOnlyPresence &&
+                    PresenceRepository.shouldRequestOnlineCount(nowMs),
             )
         }
     }
@@ -301,25 +322,20 @@ fun RpsApp() {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
             }
             scope.launch {
-                runCatching { MatchSessionMonitor.refreshOnResume() }
+                val inQueueSession = MatchSessionMonitor.hasQueueEntry.value ||
+                    MatchSessionMonitor.queueJoinedAtMs.value != null
+                runCatching {
+                    MatchSessionMonitor.refreshOnResume(forceServerSync = !inQueueSession)
+                }
             }
         }
         onPauseOrDispose { }
     }
-    var queueElapsedSeconds by remember { mutableStateOf(0L) }
+    val queueAnchorMs = queueTimerAnchorMs ?: queueJoinedAtMs
+    val queueElapsedSeconds = rememberQueueElapsedSeconds(
+        anchorMs = queueAnchorMs?.takeIf { matchmakingInProgress },
+    ) ?: 0L
     var matchElapsedSeconds by remember(activeMatch?.id) { mutableStateOf(0L) }
-
-    LaunchedEffect(queueTimerAnchorMs, matchmakingInProgress) {
-        while (true) {
-            val anchor = queueTimerAnchorMs
-            if (anchor == null || !matchmakingInProgress) {
-                queueElapsedSeconds = 0L
-                return@LaunchedEffect
-            }
-            queueElapsedSeconds = ((System.currentTimeMillis() - anchor) / 1_000).coerceAtLeast(0L)
-            delay(1_000)
-        }
-    }
 
     LaunchedEffect(activeMatch?.id, activeMatch?.status, activeMatch?.createdAt) {
         val match = activeMatch
@@ -331,11 +347,11 @@ fun RpsApp() {
             matchElapsedSeconds = ((System.currentTimeMillis() - match.createdAt) / 1_000).coerceAtLeast(0L)
             return@LaunchedEffect
         }
-        if (match.status != MatchStatus.ACTIVE) {
+        if (match.status != MatchStatus.ACTIVE && match.status != MatchStatus.LOBBY) {
             matchElapsedSeconds = 0L
             return@LaunchedEffect
         }
-        val startedAtMs = match.createdAt
+        val startedAtMs = match.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         while (true) {
             matchElapsedSeconds = ((System.currentTimeMillis() - startedAtMs) / 1_000).coerceAtLeast(0L)
             delay(1_000)
@@ -344,15 +360,11 @@ fun RpsApp() {
 
     LaunchedEffect(
         hasQueueEntry,
-        queueJoinedAtMs,
         matchmakingInProgress,
         backgroundUsageEnabled,
-        connectionStatus,
     ) {
         if (!MatchSessionMonitor.shouldSendQueueHeartbeats()) return@LaunchedEffect
         var consecutiveFailures = 0
-        var queueBeat = 0
-        runCatching { MatchSessionMonitor.verifyQueueOnServer() }
         fun serviceOwnsHeartbeats(): Boolean =
             MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
                 context,
@@ -367,10 +379,6 @@ fun RpsApp() {
                 delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
                 continue
             }
-            queueBeat++
-            if (queueBeat % 3 == 0) {
-                runCatching { MatchSessionMonitor.verifyQueueOnServer() }
-            }
             if (!matchRepository.sendQueueHeartbeat()) {
                 consecutiveFailures += 1
                 if (consecutiveFailures >= 3) {
@@ -384,15 +392,16 @@ fun RpsApp() {
         }
     }
 
-    LaunchedEffect(connectionStatus, matchmakingInProgress, hasQueueEntry, queueJoinedAtMs) {
+    LaunchedEffect(connectionStatus, matchmakingInProgress, hasQueueEntry) {
         if (!connectionStatus.isServerConnected()) return@LaunchedEffect
         if (!matchmakingInProgress) return@LaunchedEffect
-        if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
-            runCatching { MatchSessionMonitor.verifyQueueOnServer() }
-            MatchmakingBackgroundCoordinator.sync(context)
-            return@LaunchedEffect
+        if (
+            !MatchSessionMonitor.shouldSendQueueHeartbeats() &&
+            !hasQueueEntry &&
+            MatchSessionMonitor.queueJoinedAtMs.value == null
+        ) {
+            MatchSessionMonitor.requestQueueRecovery()
         }
-        MatchSessionMonitor.requestQueueRecovery()
         MatchmakingBackgroundCoordinator.sync(context)
     }
 
@@ -514,6 +523,10 @@ fun RpsApp() {
                                     matchmakingInProgress &&
                                     !inMatch &&
                                     !inLobby
+                                val sessionTimerSeconds = when {
+                                    inMatch || inLobby -> matchElapsedSeconds
+                                    else -> queueElapsedSeconds
+                                }
                                 val playerClockStopped = inMatch &&
                                     (matchEndTransitionActive ||
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)
@@ -526,7 +539,7 @@ fun RpsApp() {
                                     }
                                 }
                                 val connectionProbeActive =
-                                    (inQueue || inMatch) &&
+                                    (inQueue || inLobby || inMatch) &&
                                     connectionStatus == NetworkConnectionStatus.Checking &&
                                     NetworkDataActivityKind.Connection !in activeNetworkKinds &&
                                     NetworkDataActivityKind.Queue !in activeNetworkKinds
@@ -538,11 +551,8 @@ fun RpsApp() {
                                         onlineCount = onlineCountDisplay,
                                         inMatch = inMatch,
                                         inQueue = inQueue,
-                                        elapsedSeconds = if (inMatch) {
-                                            matchElapsedSeconds
-                                        } else {
-                                            queueElapsedSeconds
-                                        },
+                                        inLobby = inLobby,
+                                        elapsedSeconds = sessionTimerSeconds,
                                         playerClockStopped = playerClockStopped,
                                     )
                                 }

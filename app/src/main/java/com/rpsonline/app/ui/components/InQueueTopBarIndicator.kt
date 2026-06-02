@@ -25,12 +25,17 @@ fun TopBarSegmentedQueueIndicator(
     inMatch: Boolean,
     inQueue: Boolean,
     elapsedSeconds: Long,
+    inLobby: Boolean = false,
     playerClockStopped: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val timerDescription = when {
         inMatch -> stringResource(
             R.string.in_match_with_time,
+            formatQueueTimeMmSs(elapsedSeconds),
+        )
+        inLobby -> stringResource(
+            R.string.match_found_with_time,
             formatQueueTimeMmSs(elapsedSeconds),
         )
         inQueue -> stringResource(
@@ -55,6 +60,7 @@ fun TopBarSegmentedQueueIndicator(
             onlineCount = onlineCount,
             inMatch = inMatch,
             inQueue = inQueue,
+            inLobby = inLobby,
             elapsedSeconds = elapsedSeconds,
             playerClockStopped = playerClockStopped,
             digitWidth = digitWidth,

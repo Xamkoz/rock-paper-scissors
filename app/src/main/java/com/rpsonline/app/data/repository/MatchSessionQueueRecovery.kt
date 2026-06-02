@@ -1,5 +1,18 @@
 package com.rpsonline.app.data.repository
 
+/** True once per server-confirmed [joinedAtMs] (not cache / pending-write / heartbeat churn). */
+internal fun shouldBumpQueueNetworkActivity(
+    joinedAtMs: Long?,
+    fromCache: Boolean,
+    hasPendingWrites: Boolean,
+    lastBumpedJoinedAtMs: Long?,
+): Boolean {
+    if (fromCache || hasPendingWrites) return false
+    if (joinedAtMs == null) return false
+    if (joinedAtMs == lastBumpedJoinedAtMs) return false
+    return true
+}
+
 internal enum class QueueRecoveryStep {
     SKIP,
     RETRY_LATER,

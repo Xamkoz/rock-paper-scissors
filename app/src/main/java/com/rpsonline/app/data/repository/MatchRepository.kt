@@ -30,6 +30,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -220,6 +222,8 @@ class MatchRepository(
         val immediateMatchId: String?,
         /** Wall-clock ms written as `clientJoinedAt` when queued; null for immediate-match path. */
         val clientJoinedAtMs: Long?,
+        /** Firestore `joinedAt` or callable `joinedAtMs`; used for queue elapsed display. */
+        val serverJoinedAtMs: Long? = null,
     )
 
     /**
@@ -241,13 +245,15 @@ class MatchRepository(
 
         val queueProfile = resolveQueueProfile(userId, profile)
 
-        val joinOutcome = try {
+        var serverJoinedAtMs: Long? = null
+        val clientJoinedAtMs = try {
             val callable = MatchmakingFunctions.joinQueue(matchModes, queueProfile)
             callable.activeMatchId?.let { matchId ->
                 resolveJoinableActiveMatchId(matchId)?.let { liveMatchId ->
                     return JoinQueueResult(immediateMatchId = liveMatchId, clientJoinedAtMs = null)
                 }
             }
+            serverJoinedAtMs = callable.serverJoinedAtMs
             callable.clientJoinedAtMs
         } catch (callableError: Exception) {
             if (!MatchmakingFunctions.isRecoverableViaFirestore(callableError)) {
@@ -270,9 +276,12 @@ class MatchRepository(
                 throw IllegalStateException(message ?: directError.message, directError)
             }
         }
-        MatchSessionMonitor.confirmQueueJoinedAt(joinOutcome)
 
-        return JoinQueueResult(immediateMatchId = null, clientJoinedAtMs = joinOutcome)
+        return JoinQueueResult(
+            immediateMatchId = null,
+            clientJoinedAtMs = clientJoinedAtMs,
+            serverJoinedAtMs = serverJoinedAtMs,
+        )
     }
 
     /** Avoid re-queuing when the server already assigned an active match (race after pairing). */
@@ -454,16 +463,31 @@ class MatchRepository(
 
     suspend fun getQueueJoinedAtMs(): Long? = readQueueJoinedAtFromServer()
 
-    suspend fun awaitQueueJoinedAtFromServer(timeoutMs: Long = 15_000): Long? {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            readQueueJoinedAtFromServer()?.let { return it }
-            delay(250)
-        }
-        return null
+    /** Reads joinedAt from the local queue listener cache only (no SERVER get). */
+    suspend fun peekQueueJoinedAtMs(): Long? {
+        awaitFirestoreAuth()
+        val doc = firestore.collection("queue").document(uid)
+        val cached = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
+            runCatching { doc.get(Source.CACHE).await() }.getOrNull()
+        } ?: return null
+        if (!cached.exists()) return null
+        return resolveQueueJoinedAtMs(cached)
     }
 
-    private suspend fun readQueueJoinedAtFromServer(): Long? {
+    /**
+     * Waits for [MatchSessionMonitor] to learn `joinedAt` from the queue listener (no poll loop).
+     * Falls back to a single server read if the listener does not populate in time.
+     */
+    suspend fun awaitQueueJoinedAtFromServer(timeoutMs: Long = 15_000): Long? {
+        MatchSessionMonitor.queueJoinedAtMs.value?.let { return it }
+        val fromListener = withTimeoutOrNull(timeoutMs.coerceAtLeast(500L)) {
+            MatchSessionMonitor.queueJoinedAtMs.filterNotNull().first()
+        }
+        if (fromListener != null) return fromListener
+        return readQueueJoinedAtFromServerOnce()
+    }
+
+    private suspend fun readQueueJoinedAtFromServerOnce(): Long? {
         awaitFirestoreAuth()
         val snap = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
             firestore.collection("queue").document(uid).get(Source.SERVER).await()
@@ -472,10 +496,20 @@ class MatchRepository(
         return resolveQueueJoinedAtMs(snap)
     }
 
-    private fun resolveQueueJoinedAtMs(snap: DocumentSnapshot): Long? {
-        return snap.getTimestamp("joinedAt")?.toDate()?.time
-            ?: snap.getLong("clientJoinedAt")?.takeIf { it > 0L }
+    private suspend fun readQueueJoinedAtFromServer(): Long? {
+        awaitFirestoreAuth()
+        val doc = firestore.collection("queue").document(uid)
+        val cached = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
+            runCatching { doc.get(Source.CACHE).await() }.getOrNull()
+        }
+        if (cached != null && cached.exists()) {
+            resolveQueueJoinedAtMs(cached)?.let { return it }
+        }
+        return readQueueJoinedAtFromServerOnce()
     }
+
+    private fun resolveQueueJoinedAtMs(snap: DocumentSnapshot): Long? =
+        snap.getTimestamp("joinedAt")?.toDate()?.time
 
     suspend fun requestRoundTimeout(matchId: String, roundNumber: Int) {
         if (RoundTimeoutRequestDeduper.wasSent(matchId, roundNumber)) {

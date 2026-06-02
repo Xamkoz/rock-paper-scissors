@@ -1,9 +1,48 @@
 package com.rpsonline.app.data.repository
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MatchSessionQueueRecoveryTest {
+
+    @Test
+    fun shouldBumpQueueNetworkActivity_requiresServerJoinedAtOnce() {
+        assertFalse(
+            shouldBumpQueueNetworkActivity(
+                joinedAtMs = null,
+                fromCache = false,
+                hasPendingWrites = false,
+                lastBumpedJoinedAtMs = null,
+            ),
+        )
+        assertFalse(
+            shouldBumpQueueNetworkActivity(
+                joinedAtMs = 1_000L,
+                fromCache = true,
+                hasPendingWrites = false,
+                lastBumpedJoinedAtMs = null,
+            ),
+        )
+        assertTrue(
+            shouldBumpQueueNetworkActivity(
+                joinedAtMs = 1_000L,
+                fromCache = false,
+                hasPendingWrites = false,
+                lastBumpedJoinedAtMs = null,
+            ),
+        )
+        assertFalse(
+            shouldBumpQueueNetworkActivity(
+                joinedAtMs = 1_000L,
+                fromCache = false,
+                hasPendingWrites = false,
+                lastBumpedJoinedAtMs = 1_000L,
+            ),
+        )
+    }
+
     @Test
     fun skipWhenNotMatchmaking() {
         assertEquals(

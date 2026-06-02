@@ -1,8 +1,11 @@
 package com.rpsonline.app.ui.game
 
+import com.rpsonline.app.data.model.Move
+import com.rpsonline.app.data.model.RoundResult
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -10,120 +13,357 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 
-/** Minimum time the opponent's hidden pick stays visible before round reveal. */
-const val OPPONENT_SELECTION_MIN_DISPLAY_MS = 500L
+/** Minimum time both moves stay hidden after round resolve before icons and outcome banner show. */
+const val DUAL_SELECTION_MIN_DISPLAY_MS = 1_000L
 
-fun opponentSelectionElapsedMs(firstShownAtMs: Long, nowMs: Long): Long =
-    if (firstShownAtMs == 0L) 0L else (nowMs - firstShownAtMs).coerceAtLeast(0L)
+/** Minimum time revealed recap (both icons + round banner) stays before next-round clocks. */
+const val ROUND_RECAP_REVEALED_MIN_DISPLAY_MS = 1_000L
 
-fun canRevealOpponentSelection(firstShownAtMs: Long, nowMs: Long): Boolean =
-    firstShownAtMs == 0L ||
-        opponentSelectionElapsedMs(firstShownAtMs, nowMs) >= OPPONENT_SELECTION_MIN_DISPLAY_MS
+@Deprecated("Use DUAL_SELECTION_MIN_DISPLAY_MS", ReplaceWith("DUAL_SELECTION_MIN_DISPLAY_MS"))
+const val OPPONENT_SELECTION_MIN_DISPLAY_MS = DUAL_SELECTION_MIN_DISPLAY_MS
 
-fun opponentSelectionRevealHoldMs(firstShownAtMs: Long, nowMs: Long): Long =
-    if (firstShownAtMs == 0L) {
-        OPPONENT_SELECTION_MIN_DISPLAY_MS
+fun dualSelectionElapsedMs(holdStartedAtMs: Long, nowMs: Long): Long =
+    if (holdStartedAtMs == 0L) 0L else (nowMs - holdStartedAtMs).coerceAtLeast(0L)
+
+fun canRevealDualSelection(holdStartedAtMs: Long, nowMs: Long): Boolean =
+    holdStartedAtMs == 0L ||
+        dualSelectionElapsedMs(holdStartedAtMs, nowMs) >= DUAL_SELECTION_MIN_DISPLAY_MS
+
+fun dualSelectionRevealHoldMs(holdStartedAtMs: Long, nowMs: Long): Long =
+    if (holdStartedAtMs == 0L) {
+        DUAL_SELECTION_MIN_DISPLAY_MS
     } else {
-        (OPPONENT_SELECTION_MIN_DISPLAY_MS - opponentSelectionElapsedMs(firstShownAtMs, nowMs))
+        (DUAL_SELECTION_MIN_DISPLAY_MS - dualSelectionElapsedMs(holdStartedAtMs, nowMs))
             .coerceAtLeast(0L)
     }
 
+/** Last round outcome while the next round is already open (e.g. local player submitted first). */
+fun shouldShowPendingRoundOutcome(
+    awaitingNextRound: Boolean,
+    pendingOutcome: RoundResult?,
+): Boolean = awaitingNextRound && pendingOutcome != null
+
+/** Prefer resolved-round icons over blind-play on the new open round. */
+fun preferResolvedRoundPanel(
+    showOutcomeReveal: Boolean,
+    showDrawReveal: Boolean,
+    showPreviousRoundRecap: Boolean,
+    showPendingRoundOutcome: Boolean,
+    hasDrawReplay: Boolean,
+    roundRecapComplete: Boolean,
+    inRecapDualHold: Boolean = false,
+    recapDismissed: Boolean = false,
+): Boolean {
+    if (inRecapDualHold) return true
+    if (recapDismissed) return showOutcomeReveal || showDrawReveal
+    if (roundRecapComplete) {
+        return showOutcomeReveal || showDrawReveal
+    }
+    return showOutcomeReveal ||
+        showDrawReveal ||
+        showPreviousRoundRecap ||
+        showPendingRoundOutcome ||
+        (hasDrawReplay && showPreviousRoundRecap)
+}
+
+/** Move picker only after recap finishes — open round may already be the next one. */
+fun shouldAllowRoundMovePicker(
+    showRecapRoundMoves: Boolean,
+    holdForResolvedRound: Boolean,
+    recapDismissed: Boolean,
+    showOutcomeReveal: Boolean,
+    showDrawReveal: Boolean,
+): Boolean {
+    if (showRecapRoundMoves) return false
+    if (holdForResolvedRound && !recapDismissed) return false
+    if (showOutcomeReveal || showDrawReveal) return false
+    return true
+}
+
+/** Post-resolve recap: both moves revealed together with the round outcome banner. */
+fun resolveRecapMovePresentations(
+    myChoice: String?,
+    opponentChoice: String?,
+): Pair<PanelMovePresentation, PanelMovePresentation> =
+    PanelMovePresentation(
+        move = Move.fromString(myChoice),
+        display = PanelMoveDisplay.Revealed,
+    ) to PanelMovePresentation(
+        move = Move.fromString(opponentChoice),
+        display = PanelMoveDisplay.Revealed,
+    )
+
+/** Open round is live and neither player has picked yet (clock placeholders). */
+fun isOpenRoundAwaitingPicks(
+    openRound: RoundResult?,
+    hasSubmittedMove: Boolean,
+    isSubmitting: Boolean,
+    opponentHasSubmitted: Boolean,
+    player1: String,
+    userId: String,
+): Boolean {
+    if (openRound == null) return false
+    if (hasSubmittedMove || isSubmitting || opponentHasSubmitted) return false
+    if (openRound.hasSubmittedFor(userId, player1)) return false
+    if (openRound.opponentHasSubmittedFor(userId, player1)) return false
+    return true
+}
+
+/** Open round still in blind play or waiting on the server — not a fresh next round. */
+fun isOpenRoundAwaitingServerResolve(openRound: RoundResult?): Boolean {
+    if (openRound == null) return false
+    if (openRound.resolvedAt != null || openRound.winner != null) return false
+    return openRound.player1Submitted ||
+        openRound.player2Submitted ||
+        openRound.player1Choice != null ||
+        openRound.player2Choice != null
+}
+
+/** Server shows the open round is mid-resolve (blind play done, winner not set yet). */
+fun isOpenRoundResolving(openRound: RoundResult?): Boolean =
+    isOpenRoundAwaitingServerResolve(openRound)
+
+/** Block between-rounds recap while both players are locked in blind play before server echo. */
+fun shouldSuppressBetweenRoundsRecap(
+    openRound: RoundResult?,
+    localHasSubmitted: Boolean,
+    localOpponentSubmitted: Boolean,
+    serverRoundSettled: Boolean,
+): Boolean =
+    !serverRoundSettled &&
+        localHasSubmitted &&
+        localOpponentSubmitted &&
+        !isOpenRoundAwaitingServerResolve(openRound)
+
 /**
- * Delays opponent move reveal until their hidden pick has been on screen for
- * [OPPONENT_SELECTION_MIN_DISPLAY_MS].
+ * Last resolved winner round while the next round is opening (or not yet in the snapshot).
+ * Covers the gap when the opponent moved first and pendingRoundOutcome is not ready yet.
+ */
+fun resolveBetweenRoundsRecapRound(
+    pendingOutcome: RoundResult?,
+    lastResolved: RoundResult?,
+    openRound: RoundResult?,
+    suppressWhileLocalBlindComplete: Boolean = false,
+): RoundResult? {
+    pendingOutcome?.let { return it }
+    if (suppressWhileLocalBlindComplete) return null
+    val last = lastResolved ?: return null
+    if (last.winner == null || last.winner == "tie") return null
+    if (last.player1Choice == null || last.player2Choice == null) return null
+    if (openRound != null && openRound.roundNumber <= last.roundNumber) return null
+    if (isOpenRoundAwaitingServerResolve(openRound)) return null
+    return last
+}
+
+fun isServerRoundSettled(
+    showOutcomeReveal: Boolean,
+    showDrawReveal: Boolean,
+    awaitingNextRound: Boolean,
+    hasPendingOutcome: Boolean,
+): Boolean = showOutcomeReveal || showDrawReveal || awaitingNextRound || hasPendingOutcome
+
+/** Winning/tie-less round to recap, including the frame where the open round already has a winner. */
+fun resolveRecapRound(
+    resolvedRound: RoundResult?,
+    pendingOutcome: RoundResult?,
+    lastResolved: RoundResult?,
+    openRound: RoundResult?,
+): RoundResult? {
+    resolvedRound?.let { return it }
+    resolveBetweenRoundsRecapRound(pendingOutcome, lastResolved, openRound)?.let { return it }
+    val open = openRound ?: return null
+    if (open.player1Choice == null || open.player2Choice == null) return null
+    if (open.winner == null || open.winner == "tie") return null
+    return open
+}
+
+/** Recap owns the panel once the server settled a round (even if hold state lags one frame). */
+fun shouldActivateRoundRecapPhase(
+    shouldHoldForResolvedRound: Boolean,
+    openRoundResolving: Boolean,
+    serverRoundSettled: Boolean,
+): Boolean = shouldHoldForResolvedRound && (!openRoundResolving || serverRoundSettled)
+
+/** Keep recap panel until timed dismiss — not when the next open round merely exists. */
+fun shouldShowRecapRoundMoves(
+    recapRound: RoundResult?,
+    recapPhaseActive: Boolean,
+    recapDismissed: Boolean,
+    serverRoundSettled: Boolean = false,
+): Boolean =
+    recapRound != null &&
+        !recapDismissed &&
+        (recapPhaseActive || serverRoundSettled)
+
+/** Live panel must not flash resolved icons before the timed recap sequence. */
+fun shouldBlockLiveResolvedMoveReveal(
+    serverRoundSettled: Boolean,
+    recapRound: RoundResult?,
+    recapPhaseActive: Boolean,
+    openRoundResolving: Boolean,
+): Boolean =
+    recapPhaseActive ||
+        openRoundResolving ||
+        (serverRoundSettled && recapRound != null)
+
+fun recapRevealedRemainingMs(revealedAtMs: Long, nowMs: Long): Long =
+    if (revealedAtMs == 0L) {
+        ROUND_RECAP_REVEALED_MIN_DISPLAY_MS
+    } else {
+        (ROUND_RECAP_REVEALED_MIN_DISPLAY_MS - (nowMs - revealedAtMs).coerceAtLeast(0L))
+            .coerceAtLeast(0L)
+    }
+
+/** Distinct remember key so in-round play state does not reuse post-resolve hold timing. */
+fun dualRevealHoldRoundKey(recapRound: RoundResult?): Int? =
+    recapRound?.roundNumber?.let { it * 10_000 + 1 }
+
+fun shouldHoldForResolvedRound(
+    resolvedRound: RoundResult?,
+    player1Choice: String?,
+    player2Choice: String?,
+    showOutcomeReveal: Boolean,
+    showDrawReveal: Boolean,
+    awaitingNextRound: Boolean,
+    betweenRoundsRecapRound: RoundResult?,
+): Boolean {
+    if (resolvedRound == null || player1Choice == null || player2Choice == null) return false
+    return showOutcomeReveal ||
+        showDrawReveal ||
+        awaitingNextRound ||
+        betweenRoundsRecapRound != null
+}
+
+/** True while resolved moves should stay on secret placeholders. */
+fun shouldDelayDualSelectionReveal(
+    holdStartedAtMs: Long,
+    nowMs: Long,
+    holdForResolvedRound: Boolean,
+): Boolean {
+    if (!holdForResolvedRound) return false
+    if (holdStartedAtMs == 0L) return true
+    return dualSelectionElapsedMs(holdStartedAtMs, nowMs) < DUAL_SELECTION_MIN_DISPLAY_MS
+}
+
+/**
+ * After a round resolves ([holdForResolvedRound]), keeps both moves on secret placeholders and
+ * delays outcome banner for [DUAL_SELECTION_MIN_DISPLAY_MS] from that moment.
  */
 @Composable
-fun rememberOpponentSelectionRevealAllowed(
+fun rememberDualSelectionRevealAllowed(
     roundKey: Int?,
-    opponentHasSubmitted: Boolean,
-    opponentWouldReveal: Boolean,
+    holdForResolvedRound: Boolean,
 ): Boolean {
-    var selectionFirstShownAtMs by remember(roundKey) { mutableLongStateOf(0L) }
-    var revealAllowed by remember(roundKey) { mutableStateOf(false) }
+    var resolveHoldStartedAtMs by remember(roundKey, holdForResolvedRound) { mutableLongStateOf(0L) }
+    var revealAllowed by remember(roundKey, holdForResolvedRound) {
+        mutableStateOf(!holdForResolvedRound)
+    }
 
-    LaunchedEffect(roundKey, opponentHasSubmitted, opponentWouldReveal) {
-        if (roundKey == null) {
-            selectionFirstShownAtMs = 0L
+    SideEffect {
+        if (holdForResolvedRound && resolveHoldStartedAtMs == 0L) {
+            resolveHoldStartedAtMs = SystemClock.elapsedRealtime()
             revealAllowed = false
-            return@LaunchedEffect
-        }
-
-        if (!opponentHasSubmitted && !opponentWouldReveal) {
-            selectionFirstShownAtMs = 0L
-            revealAllowed = false
-            return@LaunchedEffect
-        }
-
-        if (selectionFirstShownAtMs == 0L) {
-            selectionFirstShownAtMs = SystemClock.elapsedRealtime()
-        }
-
-        if (!opponentWouldReveal) {
-            revealAllowed = false
-            return@LaunchedEffect
-        }
-
-        val holdMs = opponentSelectionRevealHoldMs(
-            firstShownAtMs = selectionFirstShownAtMs,
-            nowMs = SystemClock.elapsedRealtime(),
-        )
-        if (holdMs == 0L) {
-            revealAllowed = true
-        } else {
-            revealAllowed = false
-            delay(holdMs)
-            revealAllowed = true
         }
     }
 
-    return !opponentWouldReveal || revealAllowed
+    LaunchedEffect(roundKey, holdForResolvedRound) {
+        if (roundKey == null) {
+            resolveHoldStartedAtMs = 0L
+            revealAllowed = true
+            return@LaunchedEffect
+        }
+
+        if (!holdForResolvedRound) {
+            resolveHoldStartedAtMs = 0L
+            revealAllowed = true
+            return@LaunchedEffect
+        }
+
+        if (resolveHoldStartedAtMs == 0L) {
+            resolveHoldStartedAtMs = SystemClock.elapsedRealtime()
+        }
+
+        val nowMs = SystemClock.elapsedRealtime()
+        if (!shouldDelayDualSelectionReveal(resolveHoldStartedAtMs, nowMs, holdForResolvedRound = true)) {
+            revealAllowed = true
+            return@LaunchedEffect
+        }
+
+        revealAllowed = false
+        delay(dualSelectionRevealHoldMs(resolveHoldStartedAtMs, nowMs))
+        revealAllowed = true
+    }
+
+    if (!holdForResolvedRound) return true
+    if (resolveHoldStartedAtMs == 0L) return false
+    return revealAllowed
 }
 
+/**
+ * Keeps revealed recap (icons + banner) for [ROUND_RECAP_REVEALED_MIN_DISPLAY_MS]
+ * before the UI may switch to next-round clock placeholders without a banner.
+ */
+@Composable
+fun rememberRoundRecapDismissed(
+    roundKey: Int?,
+    recapPhaseActive: Boolean,
+): Boolean {
+    var recapShownAtMs by remember(roundKey, recapPhaseActive) { mutableLongStateOf(0L) }
+    var dismissed by remember(roundKey, recapPhaseActive) { mutableStateOf(false) }
+
+    SideEffect {
+        if (recapPhaseActive && recapShownAtMs == 0L) {
+            recapShownAtMs = SystemClock.elapsedRealtime()
+        }
+    }
+
+    LaunchedEffect(roundKey, recapPhaseActive) {
+        if (roundKey == null || !recapPhaseActive) {
+            recapShownAtMs = 0L
+            dismissed = false
+            return@LaunchedEffect
+        }
+        if (recapShownAtMs == 0L) {
+            recapShownAtMs = SystemClock.elapsedRealtime()
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        val remaining = recapRevealedRemainingMs(recapShownAtMs, nowMs)
+        if (remaining > 0L) {
+            dismissed = false
+            delay(remaining)
+        }
+        dismissed = true
+    }
+
+    if (!recapPhaseActive) return false
+    if (recapShownAtMs == 0L) return false
+    return dismissed
+}
+
+fun holdMoveReveal(
+    move: PanelMovePresentation,
+    revealAllowed: Boolean,
+): PanelMovePresentation =
+    if (move.display == PanelMoveDisplay.Revealed && !revealAllowed) {
+        PanelMovePresentation(move = move.move, display = PanelMoveDisplay.Secret)
+    } else {
+        move
+    }
+
+@Deprecated("Use holdMoveReveal", ReplaceWith("holdMoveReveal(move, revealAllowed)"))
 fun holdOpponentMoveReveal(
     opponentMove: PanelMovePresentation,
     revealAllowed: Boolean,
-): PanelMovePresentation =
-    if (opponentMove.display == PanelMoveDisplay.Revealed && !revealAllowed) {
-        PanelMovePresentation(display = PanelMoveDisplay.Secret)
-    } else {
-        opponentMove
-    }
+): PanelMovePresentation = holdMoveReveal(opponentMove, revealAllowed)
 
-/**
- * After the live pick panel (secret icons) is shown, block round-recap reveals for
- * [OPPONENT_SELECTION_MIN_DISPLAY_MS] so resolved icons do not override picks too quickly.
- */
-@Composable
-fun rememberLivePanelRecapRevealAllowed(
-    roundKey: Int?,
-    livePanelActive: Boolean,
-): Boolean {
-    var holdUntilMs by remember(roundKey) { mutableLongStateOf(0L) }
-    var recapRevealAllowed by remember(roundKey) { mutableStateOf(true) }
+@Deprecated("Use canRevealDualSelection", ReplaceWith("canRevealDualSelection(holdStartedAtMs, nowMs)"))
+fun canRevealOpponentSelection(firstShownAtMs: Long, nowMs: Long): Boolean =
+    canRevealDualSelection(firstShownAtMs, nowMs)
 
-    LaunchedEffect(roundKey, livePanelActive) {
-        if (roundKey == null) {
-            holdUntilMs = 0L
-            recapRevealAllowed = true
-            return@LaunchedEffect
-        }
+@Deprecated("Use dualSelectionElapsedMs", ReplaceWith("dualSelectionElapsedMs(holdStartedAtMs, nowMs)"))
+fun opponentSelectionElapsedMs(firstShownAtMs: Long, nowMs: Long): Long =
+    dualSelectionElapsedMs(firstShownAtMs, nowMs)
 
-        if (livePanelActive) {
-            val until = SystemClock.elapsedRealtime() + OPPONENT_SELECTION_MIN_DISPLAY_MS
-            if (until > holdUntilMs) holdUntilMs = until
-            recapRevealAllowed = false
-            return@LaunchedEffect
-        }
-
-        val remaining = holdUntilMs - SystemClock.elapsedRealtime()
-        if (remaining <= 0L) {
-            recapRevealAllowed = true
-        } else {
-            recapRevealAllowed = false
-            delay(remaining)
-            recapRevealAllowed = true
-        }
-    }
-
-    return recapRevealAllowed
-}
+@Deprecated("Use dualSelectionRevealHoldMs", ReplaceWith("dualSelectionRevealHoldMs(holdStartedAtMs, nowMs)"))
+fun opponentSelectionRevealHoldMs(firstShownAtMs: Long, nowMs: Long): Long =
+    dualSelectionRevealHoldMs(firstShownAtMs, nowMs)

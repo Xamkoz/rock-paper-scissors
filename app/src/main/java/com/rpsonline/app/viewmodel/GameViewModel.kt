@@ -808,6 +808,7 @@ class GameViewModel(
                     serverSyncJob.cancel()
                     if (generation != submitGeneration) return@withContext
                     if (!isSubmitForOpenRound(roundNumber)) {
+                        if (acknowledgeSubmitOnRound(roundNumber, move)) return@withContext
                         abandonStaleSubmitUi()
                         return@withContext
                     }
@@ -830,15 +831,11 @@ class GameViewModel(
                     }
                     if (staleRoundSubmit) {
                         runCatching { syncMatchFromServer() }
-                        if (isMoveConfirmedLocally(roundNumber)) {
-                            finalizeConfirmedMove(roundNumber, move)
-                            return@withContext
-                        }
+                        if (acknowledgeSubmitOnRound(roundNumber, move)) return@withContext
                         abandonStaleSubmitUi()
                         return@withContext
                     }
-                    if (submitError == null && isMoveConfirmedLocally(roundNumber)) {
-                        finalizeConfirmedMove(roundNumber, move)
+                    if (submitError == null && acknowledgeSubmitOnRound(roundNumber, move)) {
                         return@withContext
                     }
                     revertMoveIfServerMissing(
@@ -908,6 +905,44 @@ class GameViewModel(
         return _uiState.value.match?.hasSubmittedInRound(userId, roundNumber) == true
     }
 
+    /**
+     * Submit succeeded on [roundNumber] but the open round may have advanced (recap / fast resolve).
+     * Sync once, then finalize or clear local state without a false failure message.
+     */
+    private suspend fun acknowledgeSubmitOnRound(roundNumber: Int, move: Move?): Boolean {
+        if (!isMoveConfirmedLocally(roundNumber)) {
+            runCatching { syncMatchFromServer() }
+        }
+        if (!isMoveConfirmedLocally(roundNumber)) return false
+        if (isSubmitForOpenRound(roundNumber)) {
+            finalizeConfirmedMove(roundNumber, move)
+        } else {
+            clearLocalSubmitForAdvancedRound()
+        }
+        return true
+    }
+
+    /** Move is on a completed round; refresh UI for the new open round without an error. */
+    private fun clearLocalSubmitForAdvancedRound() {
+        locallySubmittedRound = null
+        lockedMoveRound = null
+        val userId = authRepository.currentUserId
+        val match = _uiState.value.match
+        val openRound = match?.openRound()
+        val serverSubmitted = userId != null && match != null && openRound != null &&
+            openRound.hasSubmittedFor(userId, match.player1)
+        _uiState.update {
+            it.copy(
+                isSubmitting = false,
+                pendingMove = null,
+                hasSubmittedMove = serverSubmitted,
+                serverMoveSubmitted = serverSubmitted,
+                lockedMove = if (serverSubmitted) it.lockedMove else null,
+                error = null,
+            )
+        }
+    }
+
     private fun finalizeConfirmedMove(roundNumber: Int, confirmedMove: Move?) {
         locallySubmittedRound = null
         lockedMoveRound = roundNumber
@@ -948,37 +983,18 @@ class GameViewModel(
         errorMessage: () -> String,
     ) {
         if (generation != submitGeneration) return
+        if (acknowledgeSubmitOnRound(roundNumber, confirmedMove)) return
         if (!isSubmitForOpenRound(roundNumber)) {
             abandonStaleSubmitUi()
             return
         }
-        if (isMoveConfirmedLocally(roundNumber)) {
-            finalizeConfirmedMove(roundNumber, confirmedMove)
-            return
-        }
         if (!skipServerConfirmation) {
             val confirmedMatch = confirmMoveOnServer(roundNumber)
-            if (confirmedMatch != null) {
-                locallySubmittedRound = roundNumber
-                lockedMoveRound = roundNumber
-                _uiState.update {
-                    it.copy(
-                        match = confirmedMatch,
-                        hasSubmittedMove = true,
-                        serverMoveSubmitted = true,
-                        lockedMove = confirmedMove ?: it.lockedMove ?: it.pendingMove,
-                        isSubmitting = false,
-                        pendingMove = null,
-                        error = null,
-                    )
-                }
+            if (confirmedMatch != null && acknowledgeSubmitOnRound(roundNumber, confirmedMove)) {
                 return
             }
         }
-        if (isMoveConfirmedLocally(roundNumber)) {
-            finalizeConfirmedMove(roundNumber, confirmedMove)
-            return
-        }
+        if (acknowledgeSubmitOnRound(roundNumber, confirmedMove)) return
         locallySubmittedRound = null
         lockedMoveRound = null
         _uiState.update {
@@ -1008,8 +1024,8 @@ class GameViewModel(
     companion object {
         private const val LOBBY_ACTIVE_TIMEOUT_MS = 8_000L
         private const val SUBMIT_STUCK_WATCHDOG_MS = 22_000L
-        private const val SUBMIT_CONFIRM_ATTEMPTS = 4
-        private const val SUBMIT_CONFIRM_DELAY_MS = 300L
+        private const val SUBMIT_CONFIRM_ATTEMPTS = 6
+        private const val SUBMIT_CONFIRM_DELAY_MS = 400L
         private const val COMPLETION_POLL_INTERVAL_MS = 2_000L
         private const val COMPLETION_POLL_ATTEMPTS = 15
 

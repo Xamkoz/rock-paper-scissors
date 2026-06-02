@@ -495,14 +495,15 @@ fun TopBarSegmentedStatusRow(
     inMatch: Boolean,
     inQueue: Boolean,
     elapsedSeconds: Long,
+    inLobby: Boolean = false,
     playerClockStopped: Boolean = false,
     modifier: Modifier = Modifier,
     digitWidth: Dp = TopBarSegmentedDigitWidth,
     digitHeight: Dp = SegmentedDigitHeight,
 ) {
     val offColor = sevenSegmentGhostColor()
-    val showLiveTime = inQueue || inMatch
-    val animateSpinner = inQueue || (inMatch && !playerClockStopped)
+    val showLiveTime = inQueue || inMatch || inLobby
+    val animateSpinner = inQueue || inLobby || (inMatch && !playerClockStopped)
     val spinnerStyle = when {
         !inMatch -> SegmentedSpinnerStyle.QUEUE
         playerClockStopped -> SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED

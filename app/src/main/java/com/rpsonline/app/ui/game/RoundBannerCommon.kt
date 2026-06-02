@@ -38,6 +38,30 @@ enum class RoundBannerKind {
     Draw,
 }
 
+data class RoundOutcomeBannerColors(
+    val containerColor: Color,
+    val contentColor: Color,
+)
+
+@Composable
+fun roundOutcomeBannerColors(kind: RoundBannerKind): RoundOutcomeBannerColors {
+    val colorScheme = MaterialTheme.colorScheme
+    return when (kind) {
+        RoundBannerKind.Win -> RoundOutcomeBannerColors(
+            containerColor = colorScheme.primaryContainer,
+            contentColor = colorScheme.onPrimaryContainer,
+        )
+        RoundBannerKind.Lose -> RoundOutcomeBannerColors(
+            containerColor = colorScheme.errorContainer,
+            contentColor = colorScheme.onErrorContainer,
+        )
+        RoundBannerKind.Draw -> RoundOutcomeBannerColors(
+            containerColor = colorScheme.tertiaryContainer,
+            contentColor = colorScheme.onTertiaryContainer,
+        )
+    }
+}
+
 @Composable
 fun panelRoundOutcomeHeadline(kind: RoundBannerKind, roundNumber: Int): String = when (kind) {
     RoundBannerKind.Win -> stringResource(R.string.panel_round_won, roundNumber)
@@ -88,27 +112,15 @@ fun RoundOutcomeBanner(
     compact: Boolean = false,
     opponentLabel: String = "Opponent",
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val (containerColor, contentColor, icon) = when (kind) {
-        RoundBannerKind.Win -> Triple(
-            colorScheme.primaryContainer,
-            colorScheme.onPrimaryContainer,
-            Icons.Default.EmojiEvents,
-        )
-        RoundBannerKind.Lose -> Triple(
-            colorScheme.errorContainer,
-            colorScheme.onErrorContainer,
-            Icons.Default.HeartBroken,
-        )
-        RoundBannerKind.Draw -> Triple(
-            colorScheme.tertiaryContainer,
-            colorScheme.onTertiaryContainer,
-            Icons.Default.Balance,
-        )
+    val bannerColors = roundOutcomeBannerColors(kind)
+    val icon = when (kind) {
+        RoundBannerKind.Win -> Icons.Default.EmojiEvents
+        RoundBannerKind.Lose -> Icons.Default.HeartBroken
+        RoundBannerKind.Draw -> Icons.Default.Balance
     }
     RoundOutcomeCard(
-        containerColor = containerColor,
-        contentColor = contentColor,
+        containerColor = bannerColors.containerColor,
+        contentColor = bannerColors.contentColor,
         icon = icon,
         headline = roundBannerHeadline(kind, roundNumber),
         subtitle = roundBannerSubtitle(kind, compact, showFollowUpHint),

@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -104,9 +107,11 @@ fun MatchRoundMovesPanel(
         mutableStateOf(moveDisplayPreferences.isOwnMoveRevealed())
     }
     var cachedSecretMove by remember(roundNumber) { mutableStateOf<Move?>(null) }
-    LaunchedEffect(myMove.move) {
-        if (myMove.move != null) {
-            cachedSecretMove = myMove.move
+    LaunchedEffect(myMove.move, myMove.display, roundNumber) {
+        when {
+            myMove.display != PanelMoveDisplay.Secret -> cachedSecretMove = null
+            myMove.move != null -> cachedSecretMove = myMove.move
+            else -> cachedSecretMove = null
         }
     }
     val panelMyMove = if (
@@ -121,10 +126,20 @@ fun MatchRoundMovesPanel(
     val allowOwnMoveTapToReveal =
         panelMyMove.display == PanelMoveDisplay.Secret && panelMyMove.move != null
 
+    val colorScheme = MaterialTheme.colorScheme
+    val outcomeChrome = outcome?.let { roundOutcomeBannerColors(it.kind) }
+    val cardContainerColor = outcomeChrome?.containerColor
+        ?: colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)
+    val cardBorderColor = outcomeChrome?.contentColor?.copy(alpha = 0.38f)
+        ?: colorScheme.outline.copy(alpha = 0.45f)
+    val onCardContent = outcomeChrome?.contentColor ?: colorScheme.onSurface
+    val onCardLabel = outcomeChrome?.contentColor?.copy(alpha = 0.82f)
+        ?: colorScheme.onSurfaceVariant
+
     RpsCard(
         modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
-        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+        containerColor = cardContainerColor,
+        borderColor = cardBorderColor,
     ) {
         Column(
             modifier = Modifier
@@ -134,6 +149,7 @@ fun MatchRoundMovesPanel(
         ) {
             RoundOutcomeHeader(
                 outcome = outcome,
+                contentColor = onCardContent,
                 compact = compact,
                 tight = tight,
             )
@@ -166,6 +182,10 @@ fun MatchRoundMovesPanel(
                         compact = compact,
                         tight = tight,
                         emphasized = !compact && !tight,
+                        scoreColor = onCardContent,
+                        labelColor = onCardLabel,
+                        progressEmptyFill = progressBarEmptyFill(outcomeChrome, colorScheme),
+                        progressEmptyBorder = progressBarEmptyBorder(outcomeChrome, colorScheme),
                         modifier = Modifier.weight(1f),
                     )
                     ScoreColon(
@@ -173,6 +193,7 @@ fun MatchRoundMovesPanel(
                         tight = tight,
                         emphasized = !compact && !tight,
                         moveSquareSide = moveSquareSide,
+                        color = onCardContent,
                     )
                     PlayerScoreMoveColumn(
                         playerLabel = opponentLabel,
@@ -184,6 +205,10 @@ fun MatchRoundMovesPanel(
                         compact = compact,
                         tight = tight,
                         emphasized = !compact && !tight,
+                        scoreColor = onCardContent,
+                        labelColor = onCardLabel,
+                        progressEmptyFill = progressBarEmptyFill(outcomeChrome, colorScheme),
+                        progressEmptyBorder = progressBarEmptyBorder(outcomeChrome, colorScheme),
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -192,32 +217,38 @@ fun MatchRoundMovesPanel(
     }
 }
 
+private fun progressBarEmptyFill(
+    outcomeChrome: RoundOutcomeBannerColors?,
+    colorScheme: ColorScheme,
+): Color =
+    outcomeChrome?.contentColor?.copy(alpha = 0.14f) ?: colorScheme.surface
+
+private fun progressBarEmptyBorder(
+    outcomeChrome: RoundOutcomeBannerColors?,
+    colorScheme: ColorScheme,
+): Color =
+    outcomeChrome?.contentColor?.copy(alpha = 0.32f) ?: colorScheme.outline
+
 @Composable
 private fun RoundOutcomeHeader(
     outcome: MatchRoundOutcome?,
+    contentColor: Color,
     compact: Boolean,
     tight: Boolean,
 ) {
-    val headerHeight = when {
+    val headerMinHeight = when {
         tight -> 22.dp
         compact -> 26.dp
         else -> 30.dp
-    }
-    val textColor = outcome?.let {
-        when (it.kind) {
-            RoundBannerKind.Win -> MaterialTheme.colorScheme.primary
-            RoundBannerKind.Lose -> MaterialTheme.colorScheme.error
-            RoundBannerKind.Draw -> MaterialTheme.colorScheme.tertiary
-        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(headerHeight),
+            .heightIn(min = headerMinHeight),
         contentAlignment = Alignment.Center,
     ) {
-        if (outcome != null && textColor != null) {
+        if (outcome != null) {
             Text(
                 text = panelRoundOutcomeHeadline(outcome.kind, outcome.roundNumber),
                 style = when {
@@ -228,7 +259,7 @@ private fun RoundOutcomeHeader(
                     fontWeight = FontWeight.Bold,
                     platformStyle = PlatformTextStyle(includeFontPadding = false),
                 ),
-                color = textColor,
+                color = contentColor,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -247,6 +278,10 @@ private fun PlayerScoreMoveColumn(
     moveSquareSide: Dp,
     compact: Boolean,
     tight: Boolean,
+    scoreColor: Color,
+    labelColor: Color,
+    progressEmptyFill: Color,
+    progressEmptyBorder: Color,
     emphasized: Boolean = false,
     moveRevealed: Boolean = false,
     allowTapToReveal: Boolean = false,
@@ -273,11 +308,15 @@ private fun PlayerScoreMoveColumn(
             compact = compact,
             tight = tight,
             emphasized = emphasized,
+            scoreColor = scoreColor,
+            labelColor = labelColor,
         )
         MatchWinProgressBar(
             wins = score,
             winsToFinish = winsToFinish,
             winMoves = winMoves,
+            emptyFill = progressEmptyFill,
+            emptyBorder = progressEmptyBorder,
         )
     }
 }
@@ -312,6 +351,8 @@ private fun PlayerScoreLine(
     compact: Boolean,
     tight: Boolean,
     emphasized: Boolean,
+    scoreColor: Color,
+    labelColor: Color,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -324,7 +365,7 @@ private fun PlayerScoreLine(
                 compact,
                 scoreNumberStyle(compact, tight, emphasized),
             ),
-            color = MaterialTheme.colorScheme.onSurface,
+            color = scoreColor,
             textAlign = TextAlign.Center,
         )
         Text(
@@ -333,7 +374,7 @@ private fun PlayerScoreLine(
                 tight -> MaterialTheme.typography.labelSmall
                 else -> MaterialTheme.typography.labelMedium
             },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = labelColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -347,6 +388,7 @@ private fun ScoreColon(
     tight: Boolean,
     emphasized: Boolean,
     moveSquareSide: Dp,
+    color: Color,
 ) {
     Text(
         text = ":",
@@ -354,7 +396,7 @@ private fun ScoreColon(
             compact,
             scoreColonStyle(compact, tight, emphasized),
         ),
-        color = MaterialTheme.colorScheme.onSurface,
+        color = color,
         modifier = Modifier.padding(top = scoreColonTopPadding(moveSquareSide, compact, tight)),
     )
 }
@@ -392,11 +434,11 @@ private fun MatchWinProgressBar(
     wins: Int,
     winsToFinish: Int,
     winMoves: List<Move>,
+    emptyFill: Color,
+    emptyBorder: Color,
     modifier: Modifier = Modifier,
 ) {
     val segmentShape = RoundedCornerShape(3.dp)
-    val emptyFill = MaterialTheme.colorScheme.surface
-    val emptyBorder = MaterialTheme.colorScheme.outline
     val fallbackFill = MaterialTheme.colorScheme.onSurfaceVariant
     val barHeight = 8.dp
     val segmentGap = 3.dp

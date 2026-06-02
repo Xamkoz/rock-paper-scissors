@@ -83,8 +83,8 @@ object MatchSessionMonitor {
     private var listeningMatchId: String? = null
     private var attachedUid: String? = null
     private var lastServerSyncAtMs = 0L
-    private var lastQueueServerVerifyAtMs = 0L
     private var lastQueueRecoveryRequestAtMs = 0L
+    private var lastQueueNetworkBumpJoinedAtMs: Long? = null
     private var queueRecoveryJob: Job? = null
     private var pendingRecoveryMatchModes: Set<MatchMode>? = null
     private val authRepository = AuthRepository()
@@ -93,8 +93,6 @@ object MatchSessionMonitor {
     @Volatile
     var onQueueRecoveryFailed: ((message: String) -> Unit)? = null
 
-    /** Min gap between server queue existence checks (avoids hammering Firestore). */
-    private const val QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS = 60_000L
     private const val QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS = 15_000L
     private const val QUEUE_RECOVERY_FAILURE_MESSAGE =
         "Lost connection to the matchmaking queue. Tap Find Match to try again."
@@ -267,19 +265,22 @@ object MatchSessionMonitor {
         if (!_matchmakingInProgress.value) return
         _hasQueueEntry.value = true
         _matchmakingInProgress.value = true
-        mergeQueueJoinedAtMs(joinedAtMs)
-        ensureQueueTimerAnchor(joinedAtMs)
+        val anchorMs = normalizeQueueAnchorMs(joinedAtMs)
+        mergeQueueJoinedAtMs(anchorMs)
+        ensureQueueTimerAnchor(anchorMs)
         notifySessionStateChanged()
     }
 
     private fun mergeQueueJoinedAtMs(candidateMs: Long) {
-        _queueJoinedAtMs.value = mergeQueueJoinedAtMs(_queueJoinedAtMs.value, candidateMs)
-        ensureQueueTimerAnchor(candidateMs)
+        val anchorMs = normalizeQueueAnchorMs(candidateMs)
+        _queueJoinedAtMs.value = mergeQueueJoinedAtMs(_queueJoinedAtMs.value, anchorMs)
+        ensureQueueTimerAnchor(anchorMs)
     }
 
     private fun ensureQueueTimerAnchor(candidateMs: Long) {
-        if (candidateMs <= 0L || _queueTimerAnchorMs.value != null) return
-        _queueTimerAnchorMs.value = candidateMs
+        val anchorMs = normalizeQueueAnchorMs(candidateMs)
+        if (anchorMs <= 0L || _queueTimerAnchorMs.value != null) return
+        _queueTimerAnchorMs.value = anchorMs
     }
 
     private fun clearQueueTimerAnchor() {
@@ -326,6 +327,7 @@ object MatchSessionMonitor {
     private fun resetSessionUiState() {
         _activeMatch.value = null
         _queueJoinedAtMs.value = null
+        lastQueueNetworkBumpJoinedAtMs = null
         clearQueueTimerAnchor()
         _hasQueueEntry.value = false
         _matchmakingInProgress.value = false
@@ -342,26 +344,37 @@ object MatchSessionMonitor {
         attachListeners(uid)
     }
 
+    private fun hasStableQueueListenerSession(): Boolean =
+        _matchmakingInProgress.value &&
+            queueListener != null &&
+            (_hasQueueEntry.value || _queueJoinedAtMs.value != null)
+
     private suspend fun syncFromServer(uid: String) {
+        if (hasStableQueueListenerSession() && _activeMatch.value == null) {
+            return
+        }
+
         val userSnap = runCatching {
             firestore.collection("users").document(uid).get(Source.SERVER).await()
         }.getOrNull() ?: return
 
-        val queueSnap = runCatching {
-            firestore.collection("queue").document(uid).get(Source.SERVER).await()
-        }.getOrNull()
-        val queueExists = queueSnap != null && queueSnap.exists()
-        if (queueExists) {
-            if (_matchmakingInProgress.value) {
-                _hasQueueEntry.value = true
-                resolveQueueJoinedAtMs(queueSnap!!)?.let { mergeQueueJoinedAtMs(it) }
-            }
-        } else {
-            _hasQueueEntry.value = false
-            if (!_matchmakingInProgress.value) {
-                _queueJoinedAtMs.value = null
-                clearQueueTimerAnchor()
-                runCatching { matchRepository.clearStaleSessionQueue(uid) }
+        if (!hasStableQueueListenerSession()) {
+            val queueSnap = runCatching {
+                firestore.collection("queue").document(uid).get(Source.SERVER).await()
+            }.getOrNull()
+            val queueExists = queueSnap != null && queueSnap.exists()
+            if (queueExists) {
+                if (_matchmakingInProgress.value) {
+                    _hasQueueEntry.value = true
+                    resolveQueueJoinedAtMs(queueSnap!!)?.let { mergeQueueJoinedAtMs(it) }
+                }
+            } else {
+                _hasQueueEntry.value = false
+                if (!_matchmakingInProgress.value) {
+                    _queueJoinedAtMs.value = null
+                    clearQueueTimerAnchor()
+                    runCatching { matchRepository.clearStaleSessionQueue(uid) }
+                }
             }
         }
 
@@ -451,24 +464,20 @@ object MatchSessionMonitor {
             signalQueueDocLost()
             return
         }
-        NetworkDataActivityTracker.bump(NetworkDataActivityKind.Queue)
+        val joinedAtMs = resolveQueueJoinedAtMs(snapshot!!)
+        if (
+            shouldBumpQueueNetworkActivity(
+                joinedAtMs = joinedAtMs,
+                fromCache = fromCache,
+                hasPendingWrites = snapshot.metadata.hasPendingWrites(),
+                lastBumpedJoinedAtMs = lastQueueNetworkBumpJoinedAtMs,
+            )
+        ) {
+            NetworkDataActivityTracker.bump(NetworkDataActivityKind.Queue)
+            lastQueueNetworkBumpJoinedAtMs = joinedAtMs
+        }
         _hasQueueEntry.value = true
-        resolveQueueJoinedAtMs(snapshot!!)?.let { mergeQueueJoinedAtMs(it) }
-        if (snapshot.metadata.hasPendingWrites()) {
-            return
-        }
-        if (fromCache) {
-            maybeVerifyQueueOnServerThrottled()
-        }
-    }
-
-    private fun maybeVerifyQueueOnServerThrottled() {
-        val now = System.currentTimeMillis()
-        if (now - lastQueueServerVerifyAtMs < QUEUE_SERVER_VERIFY_MIN_INTERVAL_MS) return
-        lastQueueServerVerifyAtMs = now
-        sessionScope.launch {
-            verifyQueueOnServer()
-        }
+        joinedAtMs?.let { mergeQueueJoinedAtMs(it) }
     }
 
     /**
@@ -508,17 +517,26 @@ object MatchSessionMonitor {
     }
 
     private suspend fun performQueueRecovery() {
+        if (_hasQueueEntry.value && _queueJoinedAtMs.value != null) return
+        if (isQueueEntryPending()) return
+
+        val serverQueueExists = when {
+            _hasQueueEntry.value && queueListener != null -> true
+            else -> matchRepository.queueEntryExistsOnServer()
+        }
         val step = resolveQueueRecoveryStep(
             matchmakingInProgress = _matchmakingInProgress.value,
-            queueEntryPending = isQueueEntryPending(),
-            serverQueueExists = matchRepository.queueEntryExistsOnServer(),
+            queueEntryPending = false,
+            serverQueueExists = serverQueueExists,
         )
         when (step) {
             QueueRecoveryStep.SKIP, QueueRecoveryStep.RETRY_LATER -> return
             QueueRecoveryStep.SYNC -> {
                 _hasQueueEntry.value = true
                 notifySessionStateChanged()
-                matchRepository.getQueueJoinedAtMs()?.let { confirmQueueJoinedAt(it) }
+                val joinedAtMs = _queueJoinedAtMs.value
+                    ?: matchRepository.peekQueueJoinedAtMs()
+                joinedAtMs?.let { confirmQueueJoinedAt(it) }
             }
             QueueRecoveryStep.REJOIN -> {
                 _hasQueueEntry.value = false
@@ -542,7 +560,9 @@ object MatchSessionMonitor {
                 enqueueGameNavigationWhenReady(matchId)
                 return@onSuccess
             }
-            confirmQueueJoinedAt(result.clientJoinedAtMs ?: System.currentTimeMillis())
+            result.serverJoinedAtMs?.let { confirmQueueJoinedAt(it) }
+                ?: _queueJoinedAtMs.value?.let { confirmQueueJoinedAt(it) }
+                ?: matchRepository.peekQueueJoinedAtMs()?.let { confirmQueueJoinedAt(it) }
         }.onFailure {
             onQueueRecoveryFailed?.invoke(QUEUE_RECOVERY_FAILURE_MESSAGE)
         }
@@ -559,10 +579,8 @@ object MatchSessionMonitor {
         return authRepository.fallbackProfile(user)
     }
 
-    private fun resolveQueueJoinedAtMs(snapshot: DocumentSnapshot): Long? {
-        return snapshot.getTimestamp("joinedAt")?.toDate()?.time
-            ?: snapshot.getLong("clientJoinedAt")?.takeIf { it > 0L }
-    }
+    private fun resolveQueueJoinedAtMs(snapshot: DocumentSnapshot): Long? =
+        snapshot.getTimestamp("joinedAt")?.toDate()?.time
 
     /** Server-polled or game-screen snapshot; wins over stale cached listener data. */
     fun ingestAuthoritativeMatch(match: Match) {
@@ -617,11 +635,14 @@ object MatchSessionMonitor {
             }
         }
         if (
-            match.status == MatchStatus.ACTIVE &&
-            match.isParticipant(uid) &&
-            _matchmakingInProgress.value &&
-            !isAutoGameNavigationSuppressed(match.id) &&
-            !fromCache
+            shouldAutoNavigateToLiveMatch(
+                match = match,
+                userId = uid,
+                fromCache = fromCache,
+                matchmakingInProgress = _matchmakingInProgress.value,
+                autoNavigationSuppressed = isAutoGameNavigationSuppressed(match.id),
+                resumingFromQueueOrJoin = _hasQueueEntry.value,
+            )
         ) {
             requestGameNavigation(match.id)
             pendingLaunchMatchId = null
@@ -668,6 +689,7 @@ object MatchSessionMonitor {
     fun clearQueueState(endMatchmaking: Boolean = true) {
         _hasQueueEntry.value = false
         _queueJoinedAtMs.value = null
+        lastQueueNetworkBumpJoinedAtMs = null
         clearQueueTimerAnchor()
         if (endMatchmaking) {
             _matchmakingInProgress.value = false

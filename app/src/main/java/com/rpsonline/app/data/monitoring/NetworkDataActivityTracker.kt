@@ -26,6 +26,17 @@ enum class NetworkDataActivityKind {
 object NetworkDataActivityTracker {
     private const val DEFAULT_ACTIVE_MS = 250L
 
+    /** Hides queue/presence segment bursts during matchmaking join (listener cache/server churn). */
+    private const val QUEUE_JOIN_BURST_SUPPRESSION_MS = 15_000L
+
+    private val kindsSuppressedDuringQueueJoin = setOf(
+        NetworkDataActivityKind.Queue,
+        NetworkDataActivityKind.Presence,
+    )
+
+    @Volatile
+    private var suppressKindsUntilMs = 0L
+
     private val activeUntilByKind = NetworkDataActivityKind.entries.associateWith { AtomicLong(0L) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _activeKinds = MutableStateFlow<Set<NetworkDataActivityKind>>(emptySet())
@@ -37,10 +48,25 @@ object NetworkDataActivityTracker {
     @Volatile
     private var decayJob: Job? = null
 
+    fun beginQueueJoinBurstSuppression(
+        durationMs: Long = QUEUE_JOIN_BURST_SUPPRESSION_MS,
+    ) {
+        suppressKindsUntilMs = System.currentTimeMillis() + durationMs
+    }
+
+    fun endQueueJoinBurstSuppression() {
+        suppressKindsUntilMs = 0L
+    }
+
+    internal fun isBurstSuppressed(kind: NetworkDataActivityKind): Boolean =
+        kind in kindsSuppressedDuringQueueJoin &&
+            System.currentTimeMillis() < suppressKindsUntilMs
+
     fun bump(
         kind: NetworkDataActivityKind,
         durationMs: Long = DEFAULT_ACTIVE_MS,
     ) {
+        if (isBurstSuppressed(kind)) return
         val until = System.currentTimeMillis() + durationMs
         val counter = activeUntilByKind.getValue(kind)
         while (true) {
@@ -67,6 +93,7 @@ object NetworkDataActivityTracker {
     /** Clears all kinds (unit tests only). */
     internal fun resetForTest() {
         activeUntilByKind.values.forEach { it.set(0L) }
+        suppressKindsUntilMs = 0L
         decayJob?.cancel()
         decayJob = null
         publishActiveKinds()

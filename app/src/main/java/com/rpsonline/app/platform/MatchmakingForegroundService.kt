@@ -25,6 +25,7 @@ import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
 import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
 import com.rpsonline.app.ui.util.MatchClockSoundController
 import com.rpsonline.app.ui.util.formatQueueTimeMmSs
+import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -99,16 +100,22 @@ class MatchmakingForegroundService : Service() {
         heartbeatJob = serviceScope.launch {
             var queueFailures = 0
             var presenceBeat = 0
-            var queueBeat = 0
             while (isActive) {
                 FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
                     runCatching {
                         presenceBeat++
                         val nowMs = System.currentTimeMillis()
+                        val queueSearchOnly = MatchSessionMonitor.isMatchmakingInProgress() &&
+                            MatchSessionMonitor.activeMatch.value == null
+                        val needsOnlineCount = presenceRepository.onlineCount.value == null
                         presenceRepository.touchPresence(
                             uid,
-                            awaitServerAck = presenceBeat == 1 || presenceBeat % 2 == 0,
-                            includeOnlineCount = PresenceRepository.shouldRequestOnlineCount(nowMs),
+                            awaitServerAck = false,
+                            includeOnlineCount = needsOnlineCount ||
+                                (
+                                    !queueSearchOnly &&
+                                        PresenceRepository.shouldRequestOnlineCount(nowMs)
+                                    ),
                         )
                     }.onSuccess {
                         presenceRepository.onlineCount.value?.let { count ->
@@ -117,10 +124,6 @@ class MatchmakingForegroundService : Service() {
                     }
                 }
                 if (MatchSessionMonitor.shouldSendQueueHeartbeats()) {
-                    queueBeat++
-                    if (queueBeat % 3 == 0) {
-                        MatchSessionMonitor.verifyQueueOnServer()
-                    }
                     if (matchRepository.sendQueueHeartbeat()) {
                         queueFailures = 0
                     } else {
@@ -265,7 +268,7 @@ class MatchmakingForegroundService : Service() {
             status = SegmentedNotificationStatus.IN_QUEUE,
             onlineCount = SegmentedNotificationState.onlineCount,
             showLiveTime = inQueue,
-            elapsedSeconds = joinedAt?.let { ((now - it) / 1_000).coerceAtLeast(0L) } ?: 0L,
+            elapsedSeconds = joinedAt?.let { queueElapsedSecondsFromAnchor(it, now) } ?: 0L,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
     }
