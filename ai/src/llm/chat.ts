@@ -1,10 +1,15 @@
 import { getLlmConfig } from "./client.js";
 import { error, log, msSince } from "../log.js";
-import { MOVE_SYSTEM_PROMPT } from "./movePrompt.js";
-import { parseMoveChoice } from "./parse.js";
+import { MOVE_PICK_JSON_SHAPE, parseMoveChoice, parseMovePick } from "./parse.js";
 
-/** Tiny payload for post-start chat verification. */
-const POST_START_WARMUP_USER = '{"r":1,"sc":[0,0],"vs":"warmup","prior":[],"h2h":[]}';
+/** Minimal prompts — full MOVE_SYSTEM_PROMPT is too large; 16 tokens truncated JSON. */
+export const POST_START_SYSTEM_PROMPT = [
+  "Pick one rock-paper-scissors move for warmup.",
+  `Reply JSON only: ${MOVE_PICK_JSON_SHAPE}.`,
+].join(" ");
+
+export const POST_START_WARMUP_USER =
+  '{"bot":"warmup","opponent":"warmup","round":1,"score":{"bot":0,"opponent":0},"thisMatchRounds":[],"intelCatalog":[{"source":"thisMatch","signals":["thisMatchRounds"]}]}';
 
 function truncateForLog(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -71,6 +76,25 @@ export interface ChatResult {
   durationMs: number;
 }
 
+/** Ollama/vLLM extras: LLM_OPTIONS_JSON object merge; LLM_NUM_CTX sets options.num_ctx. */
+function applyLlmServerOptions(body: Record<string, unknown>, maxTokens: number): void {
+  const rawJson = process.env.LLM_OPTIONS_JSON?.trim();
+  if (rawJson) {
+    try {
+      const extra = JSON.parse(rawJson) as Record<string, unknown>;
+      Object.assign(body, extra);
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  const rawCtx = process.env.LLM_NUM_CTX?.trim();
+  if (!rawCtx) return;
+  const numCtx = Number(rawCtx);
+  if (!Number.isFinite(numCtx) || numCtx < 512) return;
+  const existing = (body.options as Record<string, unknown> | undefined) ?? {};
+  body.options = { ...existing, num_ctx: numCtx, num_predict: maxTokens };
+}
+
 export async function chatComplete(
   systemPrompt: string,
   userPrompt: string,
@@ -83,9 +107,12 @@ export async function chatComplete(
     logSummary?: string;
     /** Per-call timeout (e.g. round deadline budget); defaults to config llmTimeoutMs. */
     timeoutMs?: number;
+    /** Override active model (startup warmup / A-B without changing config). */
+    model?: string;
   } = {},
 ): Promise<ChatResult> {
-  const { baseUrl, model, apiKey, timeoutMs: configTimeoutMs } = getLlmConfig();
+  const { baseUrl, model: activeModel, apiKey, timeoutMs: configTimeoutMs } = getLlmConfig();
+  const model = options.model ?? activeModel;
   const timeoutMs = options.timeoutMs ?? configTimeoutMs;
   const url = `${baseUrl}/chat/completions`;
 
@@ -94,6 +121,7 @@ export async function chatComplete(
   };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
+  const maxTokens = options.maxTokens ?? 128;
   const body: Record<string, unknown> = {
     model,
     messages: [
@@ -101,12 +129,13 @@ export async function chatComplete(
       { role: "user", content: userPrompt },
     ],
     temperature: options.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? 128,
+    max_tokens: maxTokens,
     stream: false,
   };
   if (options.json) {
     body.response_format = { type: "json_object" };
   }
+  applyLlmServerOptions(body, maxTokens);
 
   const tag = options.logLabel ?? "chat";
   logLlmRequest(tag, model, systemPrompt, userPrompt, options.logSummary);
@@ -149,10 +178,10 @@ export async function verifyLlmAfterStart(): Promise<boolean> {
   const startedAt = Date.now();
   try {
     const { text, durationMs } = await chatComplete(
-      MOVE_SYSTEM_PROMPT,
+      POST_START_SYSTEM_PROMPT,
       POST_START_WARMUP_USER,
       {
-        maxTokens: 16,
+        maxTokens: 64,
         temperature: 0,
         json: true,
         logLabel: "post-start",
@@ -160,12 +189,23 @@ export async function verifyLlmAfterStart(): Promise<boolean> {
         timeoutMs: Math.min(timeoutMs, 30_000),
       },
     );
-    const choice = parseMoveChoice(text);
-    if (!choice) {
-      error(`[ai] llm post-start invalid response (${durationMs}ms): ${text.slice(0, 120)}`);
+    const pick = parseMovePick(text);
+    if (!pick) {
+      const choiceOnly = parseMoveChoice(text);
+      if (choiceOnly) {
+        log(
+          `[ai] llm post-start ok ${durationMs}ms choice=${choiceOnly} (partial JSON, len=${text.length})`,
+        );
+        return true;
+      }
+      error(
+        `[ai] llm post-start invalid response (${durationMs}ms, ${text.length} chars): ${text.slice(0, 200)}`,
+      );
       return false;
     }
-    log(`[ai] llm post-start ok ${durationMs}ms choice=${choice}`);
+    log(
+      `[ai] llm post-start ok ${durationMs}ms choice=${pick.choice} (${pick.intelSource}/${pick.intelSignal})`,
+    );
     return true;
   } catch (err) {
     error(`[ai] llm post-start failed ${msSince(startedAt)}ms`, err);

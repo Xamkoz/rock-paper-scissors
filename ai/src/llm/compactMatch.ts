@@ -9,9 +9,8 @@ export function compactMatchForPick(match: Match, botUid: string): Record<string
     id: match.id,
     mode: match.matchMode,
     round: match.currentRound,
-    you: botIsP1 ? match.player1Name : match.player2Name,
-    opponent: botIsP1 ? match.player2Name : match.player1Name,
-    yourWins: botIsP1 ? match.player1Wins : match.player2Wins,
+    botName: botIsP1 ? match.player1Name : match.player2Name,
+    botWins: botIsP1 ? match.player1Wins : match.player2Wins,
     opponentWins: botIsP1 ? match.player2Wins : match.player1Wins,
     roundDeadlineMs: open?.deadline,
     priorRounds: match.rounds
@@ -23,16 +22,21 @@ export function compactMatchForPick(match: Match, botUid: string): Record<string
       )
       .map((r) => ({
         n: r.roundNumber,
-        you: botIsP1 ? r.player1Choice : r.player2Choice,
-        opp: botIsP1 ? r.player2Choice : r.player1Choice,
+        bot: botIsP1 ? r.player1Choice : r.player2Choice,
+        opponent: botIsP1 ? r.player2Choice : r.player1Choice,
         winner: r.winner,
       })),
   };
 }
 
-/** Ms until round deadline minus reserve for submit + margin (min 5s). */
-export function pickTimeBudgetMs(match: Match, reserveMs = 4000): number | undefined {
+import { pickMoveTimeoutCapMs, pickSubmitReserveMs } from "./timing.js";
+
+/** Ms for the move LLM call: round deadline minus submit reserve, capped by pickMoveTimeoutCapMs. */
+export function pickTimeBudgetMs(match: Match): number | undefined {
   const open = match.rounds.find((r) => r.roundNumber === match.currentRound);
   if (!open?.deadline) return undefined;
-  return Math.max(5000, open.deadline - Date.now() - reserveMs);
+  const submitReserve = pickSubmitReserveMs();
+  const cap = pickMoveTimeoutCapMs();
+  const remaining = open.deadline - Date.now() - submitReserve;
+  return Math.max(3000, Math.min(cap, remaining));
 }

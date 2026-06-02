@@ -12,6 +12,8 @@ const REQUIRED_TABLES = [
   "rounds",
   "match_descriptions",
   "round_timings",
+  "tactical_intel_snapshots",
+  "tactical_intel_outcomes",
 ] as const;
 
 function tableExists(db: DatabaseSync, name: string): boolean {
@@ -58,6 +60,46 @@ export function initSchema(db: DatabaseSync): void {
     `);
   }
   db.exec(SCHEMA_DDL);
+  migrateRoundTimingsPickCitation(db);
+  migrateMatchesBotUid(db);
+}
+
+function matchColumnNamesList(db: DatabaseSync): string[] {
+  if (!tableExists(db, "matches")) return [];
+  return matchColumnNames(db);
+}
+
+function roundTimingsColumnNames(db: DatabaseSync): string[] {
+  const rows = db.prepare(`PRAGMA table_info(round_timings)`).all() as Array<{
+    name: string;
+  }>;
+  return rows.map((r) => r.name);
+}
+
+/** Add pick citation columns without wiping existing timing rows. */
+function migrateRoundTimingsPickCitation(db: DatabaseSync): void {
+  if (!tableExists(db, "round_timings")) return;
+  const cols = roundTimingsColumnNames(db);
+  if (!cols.includes("pick_reason")) {
+    db.exec(`ALTER TABLE round_timings ADD COLUMN pick_reason TEXT`);
+  }
+  if (!cols.includes("pick_intel_source")) {
+    db.exec(`ALTER TABLE round_timings ADD COLUMN pick_intel_source TEXT`);
+  }
+  if (!cols.includes("pick_intel_signal")) {
+    db.exec(`ALTER TABLE round_timings ADD COLUMN pick_intel_signal TEXT`);
+  }
+  if (!cols.includes("llm_model")) {
+    db.exec(`ALTER TABLE round_timings ADD COLUMN llm_model TEXT`);
+  }
+}
+
+function migrateMatchesBotUid(db: DatabaseSync): void {
+  if (!tableExists(db, "matches")) return;
+  const cols = matchColumnNamesList(db);
+  if (!cols.includes("bot_uid")) {
+    db.exec(`ALTER TABLE matches ADD COLUMN bot_uid TEXT`);
+  }
 }
 
 export const SCHEMA_DDL = `
@@ -76,6 +118,7 @@ CREATE TABLE IF NOT EXISTS matches (
   resolution TEXT,
   player1_elo_delta INTEGER,
   player2_elo_delta INTEGER,
+  bot_uid TEXT,
   created_at INTEGER NOT NULL,
   last_activity_at INTEGER NOT NULL,
   saved_at INTEGER NOT NULL
@@ -116,4 +159,39 @@ CREATE TABLE IF NOT EXISTS round_timings (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (match_id, round_number)
 );
+
+CREATE TABLE IF NOT EXISTS tactical_intel_snapshots (
+  match_id TEXT PRIMARY KEY,
+  primary_source TEXT NOT NULL,
+  lifetime_dominant TEXT,
+  lifetime_open_with TEXT,
+  h2h_dominant TEXT,
+  h2h_open_with TEXT,
+  recent_dominant TEXT,
+  recent_open_with TEXT,
+  tactics_fallback INTEGER NOT NULL DEFAULT 0,
+  saved_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tactical_intel_outcomes (
+  match_id TEXT PRIMARY KEY,
+  bot_won INTEGER NOT NULL,
+  primary_source TEXT NOT NULL,
+  rounds_played INTEGER NOT NULL,
+  lifetime_lean_hits INTEGER NOT NULL DEFAULT 0,
+  lifetime_lean_rounds INTEGER NOT NULL DEFAULT 0,
+  h2h_lean_hits INTEGER NOT NULL DEFAULT 0,
+  h2h_lean_rounds INTEGER NOT NULL DEFAULT 0,
+  recent_lean_hits INTEGER NOT NULL DEFAULT 0,
+  recent_lean_rounds INTEGER NOT NULL DEFAULT 0,
+  lifetime_open_hit INTEGER,
+  h2h_open_hit INTEGER,
+  recent_open_hit INTEGER,
+  best_lean_source TEXT,
+  primary_matched_best INTEGER NOT NULL DEFAULT 0,
+  saved_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tactical_outcomes_primary
+  ON tactical_intel_outcomes (primary_source);
 `;

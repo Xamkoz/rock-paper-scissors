@@ -1,6 +1,22 @@
 import { httpsCallable, type Functions } from "firebase/functions";
 import type { Move } from "../types.js";
 import type { MatchMode } from "../types.js";
+import { withRetries } from "./errors.js";
+
+export async function touchPresence(
+  functions: Functions,
+  includeOnlineCount = false,
+): Promise<void> {
+  const fn = httpsCallable<{ includeOnlineCount?: boolean }, { ok: boolean }>(
+    functions,
+    "touchPresence",
+  );
+  await withRetries(() => fn({ includeOnlineCount }), {
+    attempts: 3,
+    baseDelayMs: 500,
+    label: "touchPresence",
+  });
+}
 
 export async function joinMatchmakingQueue(
   functions: Functions,

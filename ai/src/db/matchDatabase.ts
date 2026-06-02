@@ -9,7 +9,17 @@ import {
   type MatchRow,
   type RoundRow,
 } from "./matchRows.js";
+import type { TacticalIntel } from "../llm/tacticalIntel.js";
+import type { TacticalIntelOutcome } from "../llm/tacticalIntelTracking.js";
 import { initSchema, pairKey } from "./schema.js";
+import { getPickIntelCitationStats } from "./tacticalIntelCitationDb.js";
+import {
+  getPrimaryMatchedBestStats,
+  getTacticalIntelLeanAccuracy,
+  getTacticalIntelPrimaryLeaderboard,
+  saveTacticalIntelOutcome as persistTacticalIntelOutcome,
+  saveTacticalIntelSnapshot as persistTacticalIntelSnapshot,
+} from "./tacticalIntelDb.js";
 import type { RoundTimingRecord } from "./timing.js";
 
 function isConcluded(status: MatchStatus): boolean {
@@ -35,14 +45,52 @@ export class MatchDatabase {
     this.db.close();
   }
 
+  /** Raw SQLite handle (startup model ranking, tests). */
+  getSqlite(): DatabaseSync {
+    return this.db;
+  }
+
+  saveTacticalIntelSnapshot(
+    matchId: string,
+    intel: TacticalIntel,
+    tacticsFallback: boolean,
+  ): void {
+    persistTacticalIntelSnapshot(this.db, matchId, intel, tacticsFallback);
+  }
+
+  saveTacticalIntelOutcome(outcome: TacticalIntelOutcome): void {
+    persistTacticalIntelOutcome(this.db, outcome);
+  }
+
+  getTacticalIntelPrimaryLeaderboard() {
+    return getTacticalIntelPrimaryLeaderboard(this.db);
+  }
+
+  getTacticalIntelLeanAccuracy() {
+    return getTacticalIntelLeanAccuracy(this.db);
+  }
+
+  getPrimaryMatchedBestStats() {
+    return getPrimaryMatchedBestStats(this.db);
+  }
+
+  getPickIntelCitationStats() {
+    return getPickIntelCitationStats(this.db);
+  }
+
   recordRoundTiming(record: RoundTimingRecord): void {
     this.db
       .prepare(
         `INSERT INTO round_timings (
-          match_id, round_number, choice, context_ms, pick_ms, submit_ms, total_ms, ok, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          match_id, round_number, choice, pick_reason, pick_intel_source, pick_intel_signal,
+          llm_model, context_ms, pick_ms, submit_ms, total_ms, ok, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(match_id, round_number) DO UPDATE SET
           choice = excluded.choice,
+          pick_reason = excluded.pick_reason,
+          pick_intel_source = excluded.pick_intel_source,
+          pick_intel_signal = excluded.pick_intel_signal,
+          llm_model = excluded.llm_model,
           context_ms = excluded.context_ms,
           pick_ms = excluded.pick_ms,
           submit_ms = excluded.submit_ms,
@@ -54,6 +102,10 @@ export class MatchDatabase {
         record.matchId,
         record.roundNumber,
         record.choice ?? null,
+        record.pickReason ?? null,
+        record.pickIntelSource ?? null,
+        record.pickIntelSignal ?? null,
+        record.llmModel ?? null,
         record.contextMs,
         record.pickMs,
         record.submitMs,
@@ -63,7 +115,7 @@ export class MatchDatabase {
       );
   }
 
-  saveConcluded(match: Match, description?: string): void {
+  saveConcluded(match: Match, botUid: string, description?: string): void {
     if (!isConcluded(match.status)) return;
 
     const row = matchToRow(match, Date.now());
@@ -73,13 +125,14 @@ export class MatchDatabase {
       INSERT INTO matches (
         id, player1, player2, player1_name, player2_name, pair_key, match_mode, status,
         player1_wins, player2_wins, winner_id, resolution, player1_elo_delta, player2_elo_delta,
-        created_at, last_activity_at, saved_at
+        bot_uid, created_at, last_activity_at, saved_at
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         player1_name = excluded.player1_name,
         player2_name = excluded.player2_name,
+        bot_uid = excluded.bot_uid,
         status = excluded.status,
         player1_wins = excluded.player1_wins,
         player2_wins = excluded.player2_wins,
@@ -129,6 +182,7 @@ export class MatchDatabase {
         row.resolution,
         row.player1_elo_delta,
         row.player2_elo_delta,
+        botUid,
         row.created_at,
         row.last_activity_at,
         row.saved_at,

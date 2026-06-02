@@ -29,9 +29,11 @@ In `ai/.env`:
 ```bash
 LLM_BASE_URL=http://127.0.0.1:11434/v1
 LLM_MODEL=gemma3:12b
+# Optional: up to three models — warmed at startup, ranked by match win rate + ELO delta, best becomes active
+# LLM_MODELS=gemma3:4b,qwen2.5:3b,llama3.2:3b
 ```
 
-Use `ollama list` to see exact model names on your machine (`gemma3:4b` for a lighter GPU, etc.).
+Use `ollama list` to see exact model names on your machine (`gemma3:4b` for a lighter GPU, etc.). With `LLM_MODELS`, startup logs `[bot-start:llm-models]` with rank, historical ok%, and warmup latency per model.
 
 ## Setup
 
@@ -44,17 +46,28 @@ npm run build
 npm run start
 ```
 
-On startup the bot probes `GET {LLM_BASE_URL}/models`, then after Firebase/queue setup runs a **post-start** warmup `chat/completions` (minified move JSON) and **exits** if the model does not return a valid `{"choice":...}`. No offline fallback for moves.
+From the **repo root** (after `npm install` in `ai/` once):
+
+```bash
+npm start
+```
+
+This runs `build` + `start` in `ai/`. Pull missing Ollama models: `npm run pull-models` (root) or `npm run pull-models` in `ai/`.
+
+On startup the bot probes `GET {LLM_BASE_URL}/models`, opens SQLite, warms each configured model (see `LLM_MODELS`), ranks them by **match win rate and average ELO change** using archived rows (`matches.bot_uid`, `round_timings.llm_model`), sets the winner as the active model, logs intel leaderboards from SQLite, then signs into Firebase. Post-start **exits** if the active model fails warmup chat. No offline fallback for moves.
 
 ## What it does
 
 | Concern | Behavior |
 |--------|----------|
-| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); heartbeat every `BOT_QUEUE_INTERVAL_MS` (default 30s). After a game, waits `BOT_REQUEUE_DELAY_MS` (default 30s) before re-queuing; initial boot joins immediately. |
+| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); **30s queue doc heartbeat + `touchPresence`** while waiting. Transient `ECONNRESET` / `functions/internal` errors are retried; the bot re-joins after ~15s if the queue session drops while `BOT_AUTO_QUEUE=true`. |
+| **Match** | **30s `touchPresence`** for lobby and active play (no queue doc updates). Heartbeats stop when the match ends. |
+| **Re-queue** | After a game ends, waits `BOT_REQUEUE_DELAY_MS` (default 60000 = 60s, **milliseconds**) then re-queues. Boot log shows `requeueDelay=…ms`. |
 | **Lobby** | `confirmMatchReady` when paired. |
-| **Moves** | One pick at a time. Minified JSON; **round 1** `recent` uses throw pairs from **SQLite** (prior concluded games vs this opponent + recent bot games). Saved as soon as a match ends (before the describe LLM). If the DB is empty, `recent` falls back to a short `oTrend:R/P/S` from the opponent profile. Use `gemma3:4b`. |
+| **Moves** | JSON: `choice`, `reason`, `intelSource`, `intelSignal` (e.g. `h2h` + `transitions`). Prompt includes `intelCatalog` per source. Stored in `round_timings.pick_*`. |
+| **LLM speed** | Default `gemma3:4b`, `LLM_PICK_MAX_TOKENS=96`, deterministic tactics (`LLM_TACTICS_USE_LLM=false` skips round-1 tactics LLM). Set `LLM_TACTICS_USE_LLM=true` for prose plans. |
 | **Database** | `MATCH_DB_PATH` (default `data/matches.db`) — SQLite `matches` + `match_descriptions` tables; indexed by player and activity time. |
-| **Description** | LLM one-liner using the same query bundle; stored in `match_descriptions`. |
+| **Description** | Short recap (~36 words, up to 2 sentences); stored in `match_descriptions`. Tune with `LLM_DESCRIBE_MAX_*`. |
 | **LLM logs** | `[llm:<tag>:req]` full system + user prompts; `[llm:<tag>:res]` reply + ms. Preview only if `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
 
 ## SQLite schema (`MATCH_DB_PATH`)
@@ -83,7 +96,7 @@ Indexes: `(pair_key, last_activity_at)`, `(player1, last_activity_at)`, `(player
 
 **`match_descriptions`** — LLM recap (`match_id` → `matches.id`)
 
-**`round_timings`** — per bot move: `context_ms`, `pick_ms`, `submit_ms`, `total_ms`, `choice`, `ok` (PK: `match_id` + `round_number`). LLM latency is only in logs, not a separate table.
+**`round_timings`** — per bot move: `context_ms`, `pick_ms`, `submit_ms`, `total_ms`, `choice`, `ok`, `llm_model`, `pick_*` citations (PK: `match_id` + `round_number`). `llm_model` is rolled up per match (mode of ok picks) for LLM ranking vs `matches` ELO deltas.
 
 Prompts use **summaries** (bot/opponent moves per round, scores, description) — not full Firestore-shaped match docs. Queries: H2H via `pair_key` (15), recent bot games (10).
 
@@ -130,6 +143,8 @@ Firestore returns this when the bot tries to **update a queue doc that no longer
 | `src/db/matchDatabase.ts` | SQLite store + queries |
 | `src/llm/matchContext.ts` | Bounded DB queries for LLM prompts |
 | `src/llm/chat.ts` | OpenAI-compatible HTTP client (system + user messages) |
+| `src/llm/prepareTactics.ts` | Pre-match tactical plan (round 1, before first pick) |
+| `src/llm/tacticalIntelTracking.ts` | Score which intel source predicted opponent lean best; SQLite + `[tactics-score]` logs |
 | `src/llm/pickMove.ts` | LLM move selection |
 | `src/llm/describeMatch.ts` | LLM match recap |
 | `src/firebase/` | Client SDK, callables, Firestore helpers |

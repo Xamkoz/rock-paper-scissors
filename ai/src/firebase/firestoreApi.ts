@@ -2,6 +2,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -9,6 +10,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { matchFromSnapshot } from "./matchDoc.js";
+import { isTransientFirebaseError } from "./errors.js";
 import type { Match, MatchMode, Move, UserProfile } from "../types.js";
 
 export async function ensureUserProfile(
@@ -99,20 +101,43 @@ export async function writeQueueEntry(
   return clientJoinedAt;
 }
 
-/** Returns false when the queue doc is gone (matched, left queue, or stale cleanup). */
-export async function sendQueueHeartbeat(db: Firestore, uid: string): Promise<boolean> {
+export type QueueHeartbeatResult = "ok" | "missing" | "transient";
+
+/** Updates queue heartbeat; distinguishes gone doc vs network blip. */
+export async function sendQueueHeartbeat(
+  db: Firestore,
+  uid: string,
+): Promise<QueueHeartbeatResult> {
   const ref = doc(db, "queue", uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return false;
-  await updateDoc(ref, {
-    lastHeartbeatAt: Timestamp.now(),
-  });
-  return true;
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return "missing";
+    await updateDoc(ref, {
+      lastHeartbeatAt: Timestamp.now(),
+    });
+    return "ok";
+  } catch (err) {
+    if (isTransientFirebaseError(err)) return "transient";
+    throw err;
+  }
 }
 
 export async function queueEntryExists(db: Firestore, uid: string): Promise<boolean> {
   const snap = await getDoc(doc(db, "queue", uid));
   return snap.exists();
+}
+
+/** Server read for queue recovery (null = transient failure). */
+export async function queueEntryExistsOnServer(
+  db: Firestore,
+  uid: string,
+): Promise<boolean | null> {
+  try {
+    const snap = await getDocFromServer(doc(db, "queue", uid));
+    return snap.exists();
+  } catch {
+    return null;
+  }
 }
 
 export async function leaveQueue(db: Firestore, uid: string): Promise<void> {

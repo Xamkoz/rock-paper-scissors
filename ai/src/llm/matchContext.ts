@@ -1,5 +1,6 @@
 import type { MatchDatabase } from "../db/matchDatabase.js";
 import { matchToSummary, type HistoricalMatchSummary } from "../db/matchRows.js";
+import type { TacticalIntel } from "./tacticalIntel.js";
 import type { Match, UserProfile } from "../types.js";
 
 /** Query result passed to the LLM (bounded, structured summaries). */
@@ -12,6 +13,10 @@ export interface MatchDbContext {
   headToHead: HistoricalMatchSummary[];
   recentBotMatches: HistoricalMatchSummary[];
   queryLimits: { headToHead: number; recentBot: number };
+  /** Pre-match tactical plan from the first LLM call (round 1). */
+  tactics?: string;
+  /** Structured opponent read used for tactics and logging. */
+  tacticalIntel?: TacticalIntel;
 }
 
 const DEFAULT_H2H_LIMIT = 15;

@@ -7,6 +7,7 @@ import type { FirebaseContext } from "../firebase/client.js";
 import {
   confirmMatchReady,
   joinMatchmakingQueue,
+  touchPresence,
 } from "../firebase/callables.js";
 import {
   ensureUserProfile,
@@ -15,9 +16,17 @@ import {
   getUserProfile,
   leaveQueue,
   queueEntryExists,
+  queueEntryExistsOnServer,
   sendQueueHeartbeat,
   writeQueueEntry,
 } from "../firebase/firestoreApi.js";
+import {
+  QUEUE_HEARTBEAT_MAX_FAILURES,
+  QUEUE_HEARTBEAT_MAX_TRANSIENT,
+  QUEUE_HEARTBEAT_VERIFY_EVERY,
+  QUEUE_RECOVER_DELAY_MS,
+  SESSION_HEARTBEAT_INTERVAL_MS,
+} from "./queueSession.js";
 import { loadConcludedMatchForArchive } from "../firebase/matchArchive.js";
 import { submitRoundMove } from "../firebase/submitRoundMove.js";
 import {
@@ -29,26 +38,49 @@ import {
 } from "../firebase/matchDoc.js";
 import type { MatchDatabase } from "../db/matchDatabase.js";
 import { buildMatchDbContext } from "../llm/matchContext.js";
-import { pickMoveWithLlm } from "../llm/pickMove.js";
+import { getLlmConfig } from "../llm/client.js";
+import { formatMovePickLogLine, pickMoveWithLlm } from "../llm/pickMove.js";
 import { pickMoveContextLimits } from "../llm/movePrompt.js";
 import { pickTimeBudgetMs } from "../llm/compactMatch.js";
+import { pickMoveTimeoutCapMs } from "../llm/timing.js";
+import { prepareTacticsForMatch } from "../llm/prepareTactics.js";
+import {
+  formatTacticalIntelCompact,
+  type TacticalIntel,
+} from "../llm/tacticalIntel.js";
+import {
+  evaluateTacticalIntelOutcome,
+  formatLeanAccuracyLog,
+  formatMatchTacticalScoreLog,
+  formatPrimaryLeaderboardLog,
+} from "../llm/tacticalIntelTracking.js";
 import { describeMatchWithLlm } from "../llm/describeMatch.js";
 import { error, log, msSince, warn } from "../log.js";
 import type { Match } from "../types.js";
 
 type AgentPhase = "idle" | "queued" | "lobby" | "active";
 
+type SessionHeartbeatMode = "queue" | "match";
+
 export class PlayerAgent {
   private phase: AgentPhase = "idle";
   private activeMatchId: string | null = null;
   private matchUnsub: Unsubscribe | null = null;
   private userUnsub: Unsubscribe | null = null;
-  private queueHeartbeatTimer: ReturnType<typeof setTimeout> | null = null;
-  private queueHeartbeatStopped = true;
+  private sessionHeartbeatStopped = true;
+  private sessionHeartbeatRunId = 0;
+  private sessionHeartbeatMode: SessionHeartbeatMode | null = null;
   private requeueTimer: ReturnType<typeof setTimeout> | null = null;
   /** One pick pipeline at a time (LLM + submit); never overlap across rounds. */
   private pickInProgress = false;
   private matchEndHandled: string | null = null;
+  private matchTactics: string | null = null;
+  private matchTacticsForId: string | null = null;
+  private matchTacticalIntel: TacticalIntel | null = null;
+  private matchTacticsFromFallback = false;
+  private tacticsPrepMatchId: string | null = null;
+  /** Match id that needs a pick once the current pick pipeline finishes. */
+  private pickDeferredMatchId: string | null = null;
 
   constructor(
     private readonly ctx: FirebaseContext,
@@ -59,15 +91,12 @@ export class PlayerAgent {
     const uid = this.ctx.user.uid;
     await ensureUserProfile(this.ctx.db, uid, this.ctx.config.botDisplayName);
 
+    // Attach only — match listener owns end-of-game detach and re-queue (avoids
+    // re-queue when activeMatchId clears before the match doc finishes updating).
     this.userUnsub = onSnapshot(doc(this.ctx.db, "users", uid), (snap) => {
       const matchId = snap.get("activeMatchId") as string | undefined;
       if (matchId?.trim()) {
         this.attachMatch(matchId.trim());
-      } else if (this.phase !== "queued") {
-        this.detachMatch();
-        if (this.ctx.config.autoQueue && this.phase === "idle") {
-          this.scheduleRequeue();
-        }
       }
     });
 
@@ -81,7 +110,7 @@ export class PlayerAgent {
 
   async stop(): Promise<void> {
     this.cancelRequeue();
-    this.stopQueueHeartbeat();
+    this.stopSessionHeartbeat();
     this.matchUnsub?.();
     this.userUnsub?.();
     const uid = this.ctx.user.uid;
@@ -95,10 +124,9 @@ export class PlayerAgent {
     }
   }
 
-  /** Delay before auto-queue when idle after a game (not used on initial boot). */
-  private scheduleRequeue(): void {
-    this.cancelRequeue();
-    const delayMs = this.ctx.config.requeueDelayMs;
+  /** Delay before auto-queue after a concluded game or transient queue drop. */
+  private scheduleRequeue(delayMs = this.ctx.config.requeueDelayMs): void {
+    if (this.requeueTimer) return;
     if (delayMs <= 0) {
       void this.joinQueue();
       return;
@@ -154,54 +182,164 @@ export class PlayerAgent {
       this.phase = "idle";
       return;
     }
-    this.startQueueHeartbeat(uid);
+    this.startSessionHeartbeat(uid, "queue");
   }
 
-  private startQueueHeartbeat(uid: string): void {
-    this.stopQueueHeartbeat();
-    this.queueHeartbeatStopped = false;
-    const intervalMs = this.ctx.config.queueIntervalMs;
-    log(`[queue] heartbeat every ${intervalMs}ms`);
+  private startSessionHeartbeat(uid: string, mode: SessionHeartbeatMode): void {
+    this.stopSessionHeartbeat();
+    this.sessionHeartbeatMode = mode;
+    this.sessionHeartbeatStopped = false;
+    const runId = ++this.sessionHeartbeatRunId;
+    void this.runSessionHeartbeatLoop(uid, runId, mode).catch((e) =>
+      warn(`[${mode}-heartbeat]`, e),
+    );
+  }
 
-    const scheduleNext = () => {
-      if (this.queueHeartbeatStopped || this.phase !== "queued") return;
-      this.queueHeartbeatTimer = setTimeout(() => void beat(), intervalMs);
-    };
+  private stopSessionHeartbeat(): void {
+    this.sessionHeartbeatStopped = true;
+    this.sessionHeartbeatRunId++;
+    this.sessionHeartbeatMode = null;
+  }
 
-    const beat = async () => {
-      if (this.queueHeartbeatStopped || this.phase !== "queued") return;
-      try {
-        const ok = await sendQueueHeartbeat(this.ctx.db, uid);
-        if (!ok) {
-          log("[queue-heartbeat] queue doc gone, stopping heartbeat");
-          this.stopQueueHeartbeat();
-          return;
-        }
-      } catch (e) {
-        warn("[queue-heartbeat]", e);
-        this.stopQueueHeartbeat();
-        return;
+  private isSessionHeartbeatActive(mode: SessionHeartbeatMode): boolean {
+    if (mode === "queue") return this.phase === "queued";
+    return this.activeMatchId != null;
+  }
+
+  /** Queue: Firestore queue doc + presence. Match: presence only (30s, like Android). */
+  private async runSessionHeartbeatLoop(
+    uid: string,
+    runId: number,
+    mode: SessionHeartbeatMode,
+  ): Promise<void> {
+    let queueBeat = 0;
+    let presenceBeat = 0;
+    let consecutiveMissing = 0;
+    let consecutiveTransient = 0;
+
+    if (mode === "queue") {
+      await this.verifyQueueOnServer(uid).catch(() => {});
+    }
+
+    const beat = async (): Promise<boolean> => {
+      if (
+        this.sessionHeartbeatStopped ||
+        runId !== this.sessionHeartbeatRunId ||
+        this.sessionHeartbeatMode !== mode ||
+        !this.isSessionHeartbeatActive(mode)
+      ) {
+        return false;
       }
-      scheduleNext();
+
+      presenceBeat++;
+      const includeOnlineCount = presenceBeat === 1 || presenceBeat % 4 === 0;
+      await touchPresence(this.ctx.functions, includeOnlineCount).catch((e) => {
+        warn("[presence]", e);
+      });
+
+      if (mode === "queue") {
+        queueBeat++;
+        if (queueBeat % QUEUE_HEARTBEAT_VERIFY_EVERY === 0) {
+          await this.verifyQueueOnServer(uid).catch(() => {});
+        }
+
+        const heartbeat = await sendQueueHeartbeat(this.ctx.db, uid);
+        if (heartbeat === "ok") {
+          consecutiveMissing = 0;
+          consecutiveTransient = 0;
+        } else if (heartbeat === "missing") {
+          consecutiveMissing++;
+          if (consecutiveMissing >= QUEUE_HEARTBEAT_MAX_FAILURES) {
+            await this.dropQueueSession(
+              uid,
+              "[queue] queue doc missing after repeated heartbeats",
+            );
+            return false;
+          }
+        } else {
+          consecutiveTransient++;
+          warn(
+            `[queue-heartbeat] transient Firestore error (${consecutiveTransient}/${QUEUE_HEARTBEAT_MAX_TRANSIENT})`,
+          );
+          if (consecutiveTransient >= QUEUE_HEARTBEAT_MAX_TRANSIENT) {
+            await this.dropQueueSession(
+              uid,
+              "[queue] too many transient heartbeat failures — will re-join",
+              true,
+            );
+            return false;
+          }
+        }
+      }
+
+      return true;
     };
 
-    scheduleNext();
-  }
+    if (!(await beat())) return;
+    log(
+      mode === "queue"
+        ? `[queue] heartbeat + presence every ${SESSION_HEARTBEAT_INTERVAL_MS}ms`
+        : `[match] presence heartbeat every ${SESSION_HEARTBEAT_INTERVAL_MS}ms`,
+    );
 
-  private stopQueueHeartbeat(): void {
-    this.queueHeartbeatStopped = true;
-    if (this.queueHeartbeatTimer) {
-      clearTimeout(this.queueHeartbeatTimer);
-      this.queueHeartbeatTimer = null;
+    while (
+      !this.sessionHeartbeatStopped &&
+      runId === this.sessionHeartbeatRunId &&
+      this.sessionHeartbeatMode === mode &&
+      this.isSessionHeartbeatActive(mode)
+    ) {
+      await new Promise((r) => setTimeout(r, SESSION_HEARTBEAT_INTERVAL_MS));
+      if (!(await beat())) return;
     }
   }
 
+  private async verifyQueueOnServer(uid: string): Promise<boolean> {
+    const exists = await queueEntryExistsOnServer(this.ctx.db, uid);
+    if (exists === false) {
+      await this.dropQueueSession(uid, "[queue] server confirmed queue doc gone", true);
+      return false;
+    }
+    if (exists === null) {
+      warn("[queue] server verify skipped (transient read error)");
+    }
+    return exists === true;
+  }
+
+  private async dropQueueSession(
+    uid: string,
+    reason: string,
+    scheduleRecover = false,
+  ): Promise<void> {
+    const exists = await queueEntryExistsOnServer(this.ctx.db, uid);
+    if (exists === true) {
+      warn(`${reason} — server still has queue doc, keeping session`);
+      return;
+    }
+    this.stopSessionHeartbeat();
+    if (this.phase === "queued") this.phase = "idle";
+    log(reason);
+    if (scheduleRecover && this.ctx.config.autoQueue && !this.activeMatchId) {
+      log(`[queue] re-join in ${QUEUE_RECOVER_DELAY_MS}ms`);
+      this.scheduleRequeue(QUEUE_RECOVER_DELAY_MS);
+    }
+  }
+
+  private clearMatchTactics(): void {
+    this.matchTactics = null;
+    this.matchTacticsForId = null;
+    this.matchTacticalIntel = null;
+    this.matchTacticsFromFallback = false;
+  }
+
   private detachMatch(): void {
+    this.stopSessionHeartbeat();
     this.matchUnsub?.();
     this.matchUnsub = null;
     this.activeMatchId = null;
     this.pickInProgress = false;
+    this.pickDeferredMatchId = null;
     this.matchEndHandled = null;
+    this.clearMatchTactics();
     if (this.phase === "lobby" || this.phase === "active") {
       this.phase = "idle";
     }
@@ -212,8 +350,8 @@ export class PlayerAgent {
     this.cancelRequeue();
     this.matchUnsub?.();
     this.activeMatchId = matchId;
-    this.stopQueueHeartbeat();
     void leaveQueue(this.ctx.db, this.ctx.user.uid).catch(() => {});
+    this.startSessionHeartbeat(this.ctx.user.uid, "match");
 
     this.matchUnsub = onSnapshot(doc(this.ctx.db, "matches", matchId), (snap) => {
       if (!snap.exists()) return;
@@ -234,13 +372,17 @@ export class PlayerAgent {
       if (!ready) {
         await confirmMatchReady(this.ctx.functions, match.id);
       }
+      void this.prepareTacticsInLobby(match, uid);
       return;
     }
 
     if (match.status === "active") {
       this.phase = "active";
       if (!openRoundNeedsMove(match, uid)) return;
-      if (this.pickInProgress) return;
+      if (this.pickInProgress) {
+        this.pickDeferredMatchId = match.id;
+        return;
+      }
 
       const opp = opponentId(match, uid);
       if (!opp) return;
@@ -249,12 +391,13 @@ export class PlayerAgent {
       const matchId = match.id;
       this.pickInProgress = true;
       const moveStartedAt = Date.now();
+      let resumeAfterPick = false;
       try {
         const oppName =
           match.player1 === opp ? match.player1Name : match.player2Name;
         const profile = await getUserProfile(this.ctx.db, opp);
         const contextStartedAt = Date.now();
-        const dbCtx = await buildMatchDbContext(
+        let dbCtx = await buildMatchDbContext(
           this.db,
           uid,
           opp,
@@ -264,8 +407,42 @@ export class PlayerAgent {
           pickMoveContextLimits,
         );
         const contextMs = msSince(contextStartedAt);
+        let tacticsMs = 0;
+        if (this.matchTacticsForId === matchId && this.matchTactics) {
+          dbCtx = {
+            ...dbCtx,
+            tactics: this.matchTactics,
+            tacticalIntel: this.matchTacticalIntel ?? undefined,
+          };
+        } else if (roundNumber === 1) {
+          const { tactics, intel, durationMs, fromFallback } = await prepareTacticsForMatch(
+            match,
+            dbCtx,
+            this.db,
+          );
+          tacticsMs = durationMs;
+          this.matchTactics = tactics;
+          this.matchTacticsForId = matchId;
+          this.matchTacticalIntel = intel;
+          this.matchTacticsFromFallback = fromFallback;
+          this.db.saveTacticalIntelSnapshot(matchId, intel, fromFallback);
+          dbCtx = { ...dbCtx, tactics, tacticalIntel: intel };
+          log(
+            `[tactics] ${tacticsMs}ms${fromFallback ? (tacticsMs === 0 ? " deterministic" : " fallback") : ""} ${tactics}`,
+          );
+        }
+        const cap = pickMoveTimeoutCapMs();
         const budgetMs = pickTimeBudgetMs(match);
-        const { choice, pickMs } = await pickMoveWithLlm(match, dbCtx, budgetMs);
+        const pickBudgetMs =
+          budgetMs != null
+            ? Math.min(cap, Math.max(3000, budgetMs - tacticsMs))
+            : cap;
+        const { choice, reason, intelSource, intelSignal, pickMs, llmModel } =
+          await pickMoveWithLlm(
+          match,
+          dbCtx,
+          pickBudgetMs,
+        );
         const fresh = await getMatch(this.ctx.db, matchId);
         if (
           !fresh ||
@@ -275,6 +452,9 @@ export class PlayerAgent {
         ) {
           warn(
             `[move] round ${roundNumber} stale after pick (${pickMs}ms) — skip submit (now r${fresh?.currentRound ?? "?"})`,
+          );
+          resumeAfterPick = Boolean(
+            fresh?.status === "active" && (fresh.currentRound ?? 0) > roundNumber,
           );
           return;
         }
@@ -292,6 +472,10 @@ export class PlayerAgent {
           matchId,
           roundNumber,
           choice,
+          pickReason: reason,
+          pickIntelSource: intelSource,
+          pickIntelSignal: intelSignal,
+          llmModel,
           contextMs,
           pickMs,
           submitMs,
@@ -299,8 +483,11 @@ export class PlayerAgent {
           ok,
         });
         if (ok) {
+          const intelLine = dbCtx.tacticalIntel
+            ? ` | ${formatTacticalIntelCompact(dbCtx.tacticalIntel)}`
+            : "";
           log(
-            `[move] ${choice} round ${roundNumber} vs ${oppName} ${totalMs}ms (ctx=${contextMs} pick=${pickMs} submit=${submitMs})`,
+            `[move] ${choice} round ${roundNumber} vs ${oppName} ${totalMs}ms (ctx=${contextMs} tactics=${tacticsMs} pick=${pickMs} submit=${submitMs}) ${formatMovePickLogLine({ choice, reason, intelSource, intelSignal })}${intelLine}`,
           );
         }
       } catch (err) {
@@ -308,6 +495,7 @@ export class PlayerAgent {
         this.db.recordRoundTiming({
           matchId,
           roundNumber,
+          llmModel: getLlmConfig().model,
           contextMs: 0,
           pickMs: 0,
           submitMs: 0,
@@ -317,6 +505,9 @@ export class PlayerAgent {
         warn(`[move] round ${roundNumber} failed ${totalMs}ms:`, err);
       } finally {
         this.pickInProgress = false;
+        const deferred = this.pickDeferredMatchId === matchId;
+        if (deferred) this.pickDeferredMatchId = null;
+        if (resumeAfterPick || deferred) void this.resumePickIfNeeded(matchId, uid);
       }
       return;
     }
@@ -328,10 +519,73 @@ export class PlayerAgent {
       this.matchEndHandled = match.id;
       await this.onMatchEnded(match);
       this.detachMatch();
+      if (this.ctx.config.autoQueue) {
+        this.scheduleRequeue();
+      }
     }
   }
 
   /** Let an in-flight rN pick finish before match-end work (avoids stale direct writes). */
+  /** Pre-match tactics while in lobby so round 1 does not wait on prep after the clock starts. */
+  private prepareTacticsInLobby(match: Match, uid: string): void {
+    const matchId = match.id;
+    if (this.matchTacticsForId === matchId || this.tacticsPrepMatchId === matchId) {
+      return;
+    }
+    const opp = opponentId(match, uid);
+    if (!opp) return;
+
+    this.tacticsPrepMatchId = matchId;
+    void (async () => {
+      try {
+        const oppName =
+          match.player1 === opp ? match.player1Name : match.player2Name;
+        const profile = await getUserProfile(this.ctx.db, opp);
+        const dbCtx = await buildMatchDbContext(
+          this.db,
+          uid,
+          opp,
+          oppName,
+          match,
+          profile,
+          pickMoveContextLimits,
+        );
+        const { tactics, intel, durationMs, fromFallback } =
+          await prepareTacticsForMatch(match, dbCtx, this.db);
+        if (this.activeMatchId !== matchId) return;
+        this.matchTactics = tactics;
+        this.matchTacticsForId = matchId;
+        this.matchTacticalIntel = intel;
+        this.matchTacticsFromFallback = fromFallback;
+        this.db.saveTacticalIntelSnapshot(matchId, intel, fromFallback);
+        log(
+          `[tactics] lobby prep ${durationMs}ms${fromFallback ? (durationMs === 0 ? " deterministic" : " fallback") : ""}`,
+        );
+      } catch (err) {
+        warn("[tactics] lobby prep failed:", err);
+      } finally {
+        if (this.tacticsPrepMatchId === matchId) this.tacticsPrepMatchId = null;
+      }
+    })();
+  }
+
+  /**
+   * If a new round opened while a pick was in flight, pick again without waiting
+   * for the opponent's submission to trigger another snapshot.
+   */
+  private async resumePickIfNeeded(matchId: string, uid: string): Promise<void> {
+    if (this.activeMatchId !== matchId || this.pickInProgress) return;
+    try {
+      const fresh = await getMatch(this.ctx.db, matchId);
+      if (!fresh || !isParticipant(fresh, uid)) return;
+      if (openRoundNeedsMove(fresh, uid)) {
+        await this.onMatchUpdate(fresh);
+      }
+    } catch (err) {
+      warn("[move] resume after pick failed:", err);
+    }
+  }
+
   private async waitForPickPipeline(maxMs = 45_000): Promise<void> {
     const deadline = Date.now() + maxMs;
     while (this.pickInProgress && Date.now() < deadline) {
@@ -360,8 +614,27 @@ export class PlayerAgent {
     const resolvedRounds = archived.rounds.filter(
       (r) => r.player1Choice && r.player2Choice,
     ).length;
-    this.db.saveConcluded(archived);
+    this.db.saveConcluded(archived, uid);
     log(`[match-end] saved ${archived.id} (${resolvedRounds} rounds with throws)`);
+
+    let intelOutcome:
+      | ReturnType<typeof evaluateTacticalIntelOutcome>
+      | undefined;
+    if (this.matchTacticalIntel && this.matchTacticsForId === match.id) {
+      intelOutcome = evaluateTacticalIntelOutcome(archived, uid, this.matchTacticalIntel);
+      this.db.saveTacticalIntelOutcome(intelOutcome);
+      log(`[tactics-score] ${formatMatchTacticalScoreLog(intelOutcome)}`);
+      const primaryBoard = this.db.getTacticalIntelPrimaryLeaderboard();
+      const leanBoard = this.db.getTacticalIntelLeanAccuracy();
+      const bestPick = this.db.getPrimaryMatchedBestStats();
+      log(`[tactics-score:primary] ${formatPrimaryLeaderboardLog(primaryBoard)}`);
+      log(`[tactics-score:lean] ${formatLeanAccuracyLog(leanBoard)}`);
+      if (bestPick.matches > 0) {
+        log(
+          `[tactics-score:best-pick] primary=best-lean ${bestPick.wins}-${bestPick.matches - bestPick.wins} (${bestPick.winPct}% series wins)`,
+        );
+      }
+    }
 
     try {
       const profile = opp ? await getUserProfile(this.ctx.db, opp) : null;
@@ -373,8 +646,12 @@ export class PlayerAgent {
         null,
         profile,
       );
-      const description = await describeMatchWithLlm(archived, uid, dbCtx);
-      this.db.saveConcluded(archived, description);
+      const description = await describeMatchWithLlm(archived, uid, dbCtx, {
+        tacticalIntel:
+          this.matchTacticsForId === match.id ? this.matchTacticalIntel : null,
+        intelOutcome,
+      });
+      this.db.saveConcluded(archived, uid, description);
       log(`[match-end] ${msSince(endedStartedAt)}ms ${description}`);
     } catch (err) {
       warn(`[match-end] describe failed (${msSince(endedStartedAt)}ms), match archived`, err);

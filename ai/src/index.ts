@@ -1,8 +1,17 @@
 import { loadConfig } from "./config.js";
 import { initFirebase } from "./firebase/client.js";
-import { initLlm } from "./llm/client.js";
+import { getLlmConfig, initLlm } from "./llm/client.js";
 import { probeLlm, verifyLlmAfterStart } from "./llm/chat.js";
+import { pullMissingLlmModels } from "./llm/pullModels.js";
+import {
+  bootstrapLlmModels,
+  logLlmModelsRankedAtStart,
+} from "./llm/llmModelRanking.js";
 import { MatchDatabase } from "./db/matchDatabase.js";
+import {
+  getTacticsIntelEfficiencyLogPath,
+  logBotStartIntelEfficiency,
+} from "./llm/tacticalIntel.js";
 import { error, log, msSince } from "./log.js";
 import { PlayerAgent } from "./player/PlayerAgent.js";
 
@@ -10,7 +19,8 @@ async function main(): Promise<void> {
   const config = loadConfig();
   initLlm({
     baseUrl: config.llmBaseUrl,
-    model: config.llmModel,
+    models: config.llmModels,
+    model: config.llmModels[0] ?? config.llmModel,
     apiKey: config.llmApiKey,
     timeoutMs: config.llmTimeoutMs,
   });
@@ -20,14 +30,33 @@ async function main(): Promise<void> {
   log(`[ai] llm probe ${msSince(probeStartedAt)}ms ok=${llmOk}`);
   if (!llmOk) {
     error(
-      `[ai] LLM unreachable at ${config.llmBaseUrl} — start Ollama/vLLM and ensure model "${config.llmModel}" is pulled`,
+      `[ai] LLM unreachable at ${config.llmBaseUrl} — start Ollama/vLLM and ensure models are pulled (${config.llmModels.join(", ")})`,
     );
     process.exit(1);
   }
 
+  const pullStartedAt = Date.now();
+  await pullMissingLlmModels();
+  log(`[ai] llm pull check ${msSince(pullStartedAt)}ms`);
+
   const dbOpenStartedAt = Date.now();
   const db = await MatchDatabase.open(config.matchDbPath);
   log(`[ai] db open ${msSince(dbOpenStartedAt)}ms path=${config.matchDbPath}`);
+
+  const rankStartedAt = Date.now();
+  const ranked = await bootstrapLlmModels(db.getSqlite());
+  logLlmModelsRankedAtStart(ranked);
+  log(`[ai] llm model ranking ${msSince(rankStartedAt)}ms (sqlite)`);
+
+  const tacticsIntelLog = getTacticsIntelEfficiencyLogPath();
+  if (tacticsIntelLog) {
+    log(`[ai] tactics intel efficiency log → ${tacticsIntelLog}`);
+  }
+  logBotStartIntelEfficiency(
+    db.getTacticalIntelLeanAccuracy(),
+    db.getTacticalIntelPrimaryLeaderboard(),
+    db.getPickIntelCitationStats(),
+  );
 
   const firebaseStartedAt = Date.now();
   const ctx = await initFirebase(config);
@@ -49,7 +78,7 @@ async function main(): Promise<void> {
   const llmChatOk = await verifyLlmAfterStart();
   if (!llmChatOk) {
     error(
-      `[ai] LLM chat check failed for model "${config.llmModel}" at ${config.llmBaseUrl} — ensure the model is pulled and responds to chat/completions`,
+      `[ai] LLM chat check failed for model "${getLlmConfig().model}" at ${config.llmBaseUrl} — ensure the model is pulled and responds to chat/completions`,
     );
     await player.stop();
     db.close();
@@ -58,7 +87,7 @@ async function main(): Promise<void> {
   log(`[ai] llm post-start verify ${msSince(postStartStartedAt)}ms`);
 
   log(
-    `[ai] running ${msSince(bootStartedAt)}ms boot — ${config.botDisplayName} (${config.projectId}, llm=${config.llmModel}) auto-queue=${config.autoQueue} queueHeartbeat=${config.queueIntervalMs}ms requeueDelay=${config.requeueDelayMs}ms modes=${config.matchModes.join(",")}`,
+    `[ai] running ${msSince(bootStartedAt)}ms boot — ${config.botDisplayName} (${config.projectId}, llm=${getLlmConfig().model}, pool=${config.llmModels.join(",")}) auto-queue=${config.autoQueue} requeueDelay=${config.requeueDelayMs}ms modes=${config.matchModes.join(",")}`,
   );
 }
 

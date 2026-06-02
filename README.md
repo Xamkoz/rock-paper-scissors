@@ -56,6 +56,14 @@ Release builds need a signing keystore; CI uses repository secrets (see [.github
 
 Optional: [scripts/setup-android-env.sh](scripts/setup-android-env.sh) installs SDK packages for CI-like local builds.
 
+## AI bot (optional)
+
+Self-hosted matchmaking bot — see [ai/docs/README.md](ai/docs/README.md). From repo root after `cd ai && npm install` and configuring `ai/.env`:
+
+```bash
+npm start
+```
+
 ## Backend
 
 Deploy Firestore rules, indexes, and Cloud Functions:
