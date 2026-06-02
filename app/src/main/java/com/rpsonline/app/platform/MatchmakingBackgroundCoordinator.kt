@@ -130,11 +130,11 @@ internal fun computeSessionNeedsBackgroundService(
             MatchStatus.COMPLETED, MatchStatus.ABANDONED -> return false
         }
     }
-    // Stale queueJoinedAtMs or matchmaking flags alone must not keep the notification alive.
-    return hasQueueEntry || (matchmakingInProgress && queueJoinedAtMs != null)
+    if (!matchmakingInProgress) return false
+    return hasQueueEntry || queueJoinedAtMs != null
 }
 
-/** Matches in-app top bar: queued only after a join timestamp, not lobby/active. */
+/** Matches in-app top bar: queued only after a join timestamp, not lobby/active/terminal. */
 internal fun computeConfirmedInQueue(
     uid: String?,
     match: Match?,
@@ -144,7 +144,11 @@ internal fun computeConfirmedInQueue(
     if (uid == null || !matchmakingInProgress || queueJoinedAtMs == null) return false
     if (match != null && match.isParticipant(uid)) {
         when (match.status) {
-            MatchStatus.LOBBY, MatchStatus.ACTIVE -> return false
+            MatchStatus.LOBBY,
+            MatchStatus.ACTIVE,
+            MatchStatus.COMPLETED,
+            MatchStatus.ABANDONED,
+            -> return false
             else -> Unit
         }
     }

@@ -14,6 +14,7 @@ import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.RoundTimeoutRequestDeduper
 import com.rpsonline.app.data.repository.isQuotaExceededError
 import com.rpsonline.app.data.repository.quotaExceededUserMessage
+import com.rpsonline.app.data.repository.userFacingFirebaseError
 import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.domain.LiveEloPreview
 import com.rpsonline.app.domain.liveEloPreview
@@ -1055,16 +1056,5 @@ private fun isIgnorableFirestoreRace(error: Throwable): Boolean {
     return isIgnorableFirestoreRace(cause)
 }
 
-private fun userFacingGameError(error: Throwable, fallback: String): String {
-    if (isQuotaExceededError(error)) return quotaExceededUserMessage()
-    if (error is FirebaseFirestoreException) {
-        return when (error.code) {
-            FirebaseFirestoreException.Code.UNAVAILABLE,
-            FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
-            -> "Connection issue. Check your network and try again."
-            FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED -> quotaExceededUserMessage()
-            else -> fallback
-        }
-    }
-    return error.message?.takeIf { it.isNotBlank() && !isQuotaExceededError(error) } ?: fallback
-}
+private fun userFacingGameError(error: Throwable, fallback: String): String =
+    userFacingFirebaseError(error, fallback)

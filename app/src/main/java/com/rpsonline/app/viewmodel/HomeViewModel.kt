@@ -13,8 +13,10 @@ import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.HighlightedMatchFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
+import com.rpsonline.app.data.repository.connectivityFailureUserMessage
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.shouldAutoNavigateToLiveMatch
+import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.data.repository.MatchmakingFunctions
 import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.data.repository.UserProfileSync
@@ -1001,6 +1003,7 @@ class HomeViewModel(
                 activeMatchId = null,
             )
         }
+        appContext?.let { MatchmakingBackgroundCoordinator.sync(it) }
     }
 
     fun loadMatchModePreferences(context: Context) {
@@ -1113,7 +1116,7 @@ class HomeViewModel(
         if (authRepository.isFirebaseAvailable()) return true
         failMatchmaking(
             generation = generation,
-            message = "Cannot $action right now. Firebase is unavailable.",
+            message = connectivityFailureUserMessage(),
         )
         return false
     }

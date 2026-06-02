@@ -17,6 +17,7 @@ class MatchSessionBackgroundPolicyTest {
                 match = null,
                 hasQueueEntry = true,
                 queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
             ),
         )
     }
@@ -165,6 +166,36 @@ class MatchSessionBackgroundPolicyTest {
                 match = lobby,
                 queueJoinedAtMs = 1_000L,
                 matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedInQueue_falseDuringCompletedMatch() {
+        val completed = Match(
+            player1 = uid,
+            player2 = "player-2",
+            status = MatchStatus.COMPLETED,
+        )
+        assertFalse(
+            computeConfirmedInQueue(
+                uid = uid,
+                match = completed,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun backgroundService_falseWhenMatchmakingEndedButStaleQueueEntry() {
+        assertFalse(
+            computeSessionNeedsBackgroundService(
+                uid = uid,
+                match = null,
+                hasQueueEntry = true,
+                queueJoinedAtMs = 1_000L,
+                matchmakingInProgress = false,
             ),
         )
     }

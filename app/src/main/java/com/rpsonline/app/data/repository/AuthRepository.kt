@@ -279,6 +279,12 @@ class AuthRepository(
     /** Server-only reachability for connection indicators (ignores local cache). */
     suspend fun isFirebaseServerReachable(): Boolean {
         runCatching { appFirestore().enableNetwork().await() }
+        return probeFirestoreServerOutcome().isReachable
+    }
+
+    /** Server-only reachability probe with failure classification for connection UI. */
+    suspend fun probeFirestoreServerOutcome(): FirestoreProbeOutcome {
+        runCatching { appFirestore().enableNetwork().await() }
         return probeFirestoreServerReachability()
     }
 
@@ -301,18 +307,19 @@ class AuthRepository(
         }
     }
 
-    private suspend fun probeFirestoreServerReachability(): Boolean {
+    private suspend fun probeFirestoreServerReachability(): FirestoreProbeOutcome {
         return try {
-            withTimeoutOrNull(5_000) {
+            val completed = withTimeoutOrNull(5_000) {
                 firestore.collection("users").limit(1).get(Source.SERVER).await()
                 true
-            } ?: false
+            }
+            if (completed == true) FirestoreProbeOutcome.Reachable else FirestoreProbeOutcome.UnreachableTimeout
         } catch (e: FirebaseFirestoreException) {
-            interpretUsersProbeError(e)
-        } catch (_: TimeoutCancellationException) {
-            false
-        } catch (_: Exception) {
-            false
+            if (interpretUsersProbeError(e)) FirestoreProbeOutcome.Reachable else classifyFirestoreProbeFailure(e)
+        } catch (e: TimeoutCancellationException) {
+            FirestoreProbeOutcome.UnreachableTimeout
+        } catch (e: Exception) {
+            classifyFirestoreProbeFailure(e)
         }
     }
 

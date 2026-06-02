@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import com.rpsonline.app.data.repository.AuthRepository
+import com.rpsonline.app.data.repository.FirestoreConnectivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +38,7 @@ class NetworkConnectionMonitor(
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            requestProbe(immediate = true)
+            requestProbe(immediate = true, restoreFirestore = true)
         }
 
         override fun onLost(network: Network) {
@@ -76,12 +77,16 @@ class NetworkConnectionMonitor(
         monitorScope = null
     }
 
-    private fun requestProbe(immediate: Boolean) {
+    private fun requestProbe(immediate: Boolean, restoreFirestore: Boolean = false) {
         val scope = monitorScope ?: return
         scope.launch {
-            if (immediate) {
-                probeNow(showChecking = false)
+            if (!immediate) return@launch
+            if (restoreFirestore) {
+                withContext(Dispatchers.IO) {
+                    FirestoreConnectivity.restoreOnResume()
+                }
             }
+            probeNow(showChecking = false)
         }
     }
 
@@ -92,17 +97,18 @@ class NetworkConnectionMonitor(
         }
         NetworkDataActivityTracker.bump(NetworkDataActivityKind.Connection)
         val nowMs = System.currentTimeMillis()
-        val serverReachable = withContext(Dispatchers.IO) {
-            authRepository.isFirebaseServerReachable()
+        val probeOutcome = withContext(Dispatchers.IO) {
+            authRepository.probeFirestoreServerOutcome()
         }
-        if (serverReachable) {
+        if (probeOutcome.isReachable) {
             lastServerSuccessAtMs = nowMs
         }
         val resolved = ConnectionReachabilityPolicy.resolveStatus(
             hasNetwork = true,
-            serverReachable = serverReachable,
+            serverReachable = probeOutcome.isReachable,
             nowMs = nowMs,
             lastServerSuccessMs = lastServerSuccessAtMs,
+            definitiveUnavailable = probeOutcome.isDefinitiveUnavailable,
         )
         _status.value = resolved
     }

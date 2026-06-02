@@ -9,10 +9,13 @@ internal object ConnectionReachabilityPolicy {
         nowMs: Long,
         lastServerSuccessMs: Long,
         staleMs: Long = SERVER_STALE_MS,
+        definitiveUnavailable: Boolean = false,
     ): NetworkConnectionStatus {
         if (!hasNetwork) return NetworkConnectionStatus.Offline
         if (serverReachable) return NetworkConnectionStatus.Connected
-        if (lastServerSuccessMs <= 0L) return NetworkConnectionStatus.Checking
+        if (definitiveUnavailable || lastServerSuccessMs <= 0L) {
+            return NetworkConnectionStatus.Offline
+        }
         return if (nowMs - lastServerSuccessMs > staleMs) {
             NetworkConnectionStatus.Offline
         } else {

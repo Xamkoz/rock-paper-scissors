@@ -249,6 +249,7 @@ object MatchSessionMonitor {
         if (_activeMatch.value?.id == matchId) {
             _activeMatch.value = null
         }
+        notifySessionStateChanged()
         if (finished != null) {
             matchRepository.invalidateConcludedMatchCacheForParticipants(
                 finished.player1,
@@ -632,7 +633,10 @@ object MatchSessionMonitor {
         if (match.isParticipant(uid)) {
             when (match.status) {
                 MatchStatus.LOBBY, MatchStatus.ACTIVE -> {
-                    clearQueueState(endMatchmaking = false)
+                    clearQueueState(endMatchmaking = true)
+                    sessionScope.launch {
+                        matchRepository.leaveQueueBestEffort(uid)
+                    }
                     notifyActiveMatchPublished(match)
                 }
                 MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {

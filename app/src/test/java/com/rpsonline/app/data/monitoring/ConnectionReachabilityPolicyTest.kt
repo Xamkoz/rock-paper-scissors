@@ -32,14 +32,29 @@ class ConnectionReachabilityPolicyTest {
     }
 
     @Test
-    fun checkingBeforeFirstServerSuccess() {
+    fun offlineBeforeFirstServerSuccess() {
         assertEquals(
-            NetworkConnectionStatus.Checking,
+            NetworkConnectionStatus.Offline,
             ConnectionReachabilityPolicy.resolveStatus(
                 hasNetwork = true,
                 serverReachable = false,
                 nowMs = 100_000L,
                 lastServerSuccessMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun offlineImmediatelyOnDefinitiveUnavailable() {
+        val lastSuccess = 100_000L
+        assertEquals(
+            NetworkConnectionStatus.Offline,
+            ConnectionReachabilityPolicy.resolveStatus(
+                hasNetwork = true,
+                serverReachable = false,
+                nowMs = lastSuccess + 1_000L,
+                lastServerSuccessMs = lastSuccess,
+                definitiveUnavailable = true,
             ),
         )
     }

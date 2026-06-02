@@ -18,8 +18,13 @@ object FirestoreConnectivity {
         }
         awaitFirestoreAuth(auth)
 
+        val firestore = appFirestore()
         runCatching {
-            appFirestore().enableNetwork().await()
+            firestore.disableNetwork().await()
+            firestore.enableNetwork().await()
+        }
+        runCatching {
+            firestore.enableNetwork().await()
         }
     }
 }

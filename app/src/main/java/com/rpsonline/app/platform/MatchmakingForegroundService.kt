@@ -264,6 +264,15 @@ class MatchmakingForegroundService : Service() {
             queueJoinedAtMs = joinedAt,
             matchmakingInProgress = MatchSessionMonitor.isMatchmakingInProgress(),
         )
+        if (!inQueue) {
+            return TopBarStatusRowSpec(
+                status = SegmentedNotificationStatus.IN_QUEUE,
+                onlineCount = SegmentedNotificationState.onlineCount,
+                showLiveTime = false,
+                elapsedSeconds = 0L,
+                spinnerStyle = SegmentedSpinnerStyle.QUEUE,
+            )
+        }
         return TopBarStatusRowSpec(
             status = SegmentedNotificationStatus.IN_QUEUE,
             onlineCount = SegmentedNotificationState.onlineCount,
