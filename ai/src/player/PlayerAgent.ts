@@ -28,7 +28,8 @@ import {
 } from "../firebase/matchDoc.js";
 import type { MatchDatabase } from "../db/matchDatabase.js";
 import { buildMatchDbContext } from "../llm/matchContext.js";
-import { pickMoveContextLimits, pickMoveWithLlm } from "../llm/pickMove.js";
+import { pickMoveWithLlm } from "../llm/pickMove.js";
+import { pickMoveContextLimits } from "../llm/movePrompt.js";
 import { pickTimeBudgetMs } from "../llm/compactMatch.js";
 import { describeMatchWithLlm } from "../llm/describeMatch.js";
 import { error, log, msSince, warn } from "../log.js";

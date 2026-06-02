@@ -52,7 +52,7 @@ On startup the bot probes `GET {LLM_BASE_URL}/models` and **exits** if the LLM i
 |--------|----------|
 | **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); heartbeat every `BOT_QUEUE_INTERVAL_MS` (default 30s). |
 | **Lobby** | `confirmMatchReady` when paired. |
-| **Moves** | One pick at a time (no overlapping LLM calls). Compact open-match prompt + 5 H2H / 3 recent games; timeout capped to round deadline. Use a fast local model (`gemma3:4b`). |
+| **Moves** | One pick at a time. Minified one-line JSON prompt (2 H2H games, no recent-list); `max_tokens=16`, low temperature. Use `gemma3:4b`. |
 | **Database** | `MATCH_DB_PATH` (default `data/matches.db`) — SQLite `matches` + `match_descriptions` tables; indexed by player and activity time. |
 | **Description** | LLM one-liner using the same query bundle; stored in `match_descriptions`. |
 | **LLM logs** | `[llm:<tag>:req]` first 8 lines of system + user prompts; `[llm:<tag>:res]` reply + ms. Full body if `LLM_LOG_PROMPT_BODY=true`. |

@@ -1,19 +1,20 @@
 import type { Match } from "../types.js";
 import { chatComplete } from "./chat.js";
+import { compactMatchForPick } from "./compactMatch.js";
 import type { MatchDbContext } from "./matchContext.js";
-import { formatMatchDbContextForPrompt } from "./matchContext.js";
 
-const SYSTEM_PROMPT = `You write one short sentence (max 25 words) summarizing a rock-paper-scissors match for a log.
-Use the match database context for background. No quotes, no markdown.`;
+const DESCRIBE_SYSTEM = `One sentence (max 20 words) summarizing an RPS match. Plain text only.`;
 
 function buildDescribeUserPrompt(match: Match, selfUid: string, ctx: MatchDbContext): string {
-  return `Summarize this match for the bot (uid=${selfUid}).
-
-ENDED_MATCH:
-${JSON.stringify(match, null, 2)}
-
-MATCH_DATABASE:
-${formatMatchDbContextForPrompt(ctx)}`;
+  const snap = compactMatchForPick(match, selfUid);
+  const payload = {
+    end: [snap.yourWins, snap.opponentWins],
+    vs: ctx.opponentName,
+    mode: snap.mode,
+    prior: snap.priorRounds,
+    h2h: ctx.headToHead.length,
+  };
+  return JSON.stringify(payload);
 }
 
 export async function describeMatchWithLlm(
@@ -22,11 +23,11 @@ export async function describeMatchWithLlm(
   ctx: MatchDbContext,
 ): Promise<string> {
   const { text } = await chatComplete(
-    SYSTEM_PROMPT,
+    DESCRIBE_SYSTEM,
     buildDescribeUserPrompt(match, selfUid, ctx),
     {
-      maxTokens: 80,
-      temperature: 0.5,
+      maxTokens: 48,
+      temperature: 0.2,
       logLabel: `describe ${match.id}`,
       logSummary: `match=${match.id}`,
     },

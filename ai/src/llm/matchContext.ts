@@ -39,10 +39,9 @@ export async function buildMatchDbContext(
   const headToHeadLimit = limits.headToHead ?? DEFAULT_H2H_LIMIT;
   const recentLimit = limits.recentBot ?? DEFAULT_RECENT_LIMIT;
 
-  const [h2hMatches, recentMatches] = [
-    db.listHeadToHead(selfUid, opponentUid, headToHeadLimit),
-    db.listMatchesForUser(selfUid, recentLimit),
-  ];
+  const h2hMatches = db.listHeadToHead(selfUid, opponentUid, headToHeadLimit);
+  const recentMatches =
+    recentLimit > 0 ? db.listMatchesForUser(selfUid, recentLimit) : [];
 
   return {
     botUid: selfUid,
