@@ -23,6 +23,7 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.data.repository.shouldDeferHomeForGameLaunch
 import com.rpsonline.app.data.repository.shouldDropPendingGameNavigation
 import com.rpsonline.app.data.repository.shouldOpenPendingGameScreen
 import com.rpsonline.app.ui.auth.SignInScreen
@@ -180,8 +181,17 @@ fun RpsNavGraph() {
                 activeMatch?.status,
                 matchmakingInProgress,
             ) {
-                MatchSessionMonitor.pendingGameLaunchMatchId() != null &&
-                    !matchmakingInProgress
+                shouldDeferHomeForGameLaunch(
+                    pendingLaunchMatchId = MatchSessionMonitor.pendingGameLaunchMatchId(),
+                    matchmakingInProgress = matchmakingInProgress,
+                    sessionMatch = activeMatch,
+                )
+            }
+            LaunchedEffect(matchLaunchNudge, activeMatch?.id, activeMatch?.status) {
+                val launchId = MatchSessionMonitor.pendingGameLaunchMatchId() ?: return@LaunchedEffect
+                if (shouldDropPendingGameNavigation(launchId, activeMatch)) {
+                    MatchSessionMonitor.consumeGameNavigation()
+                }
             }
             if (isSignedIn) {
                 if (deferHomeForGameLaunch) {

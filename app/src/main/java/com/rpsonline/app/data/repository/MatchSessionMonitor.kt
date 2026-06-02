@@ -197,6 +197,10 @@ object MatchSessionMonitor {
     }
 
     fun noteMatchLaunchIntent(matchId: String) {
+        if (shouldDropPendingGameNavigation(matchId, _activeMatch.value)) {
+            consumeGameNavigation()
+            return
+        }
         autoGameNavigationSuppressedMatchId = null
         pendingLaunchMatchId = matchId
         _matchLaunchUiNudge.value += 1
@@ -211,16 +215,23 @@ object MatchSessionMonitor {
                 if (isAutoGameNavigationSuppressed(matchId)) return@launch
                 val match = _activeMatch.value
                 val uid = auth.currentUser?.uid
-                if (
-                    match?.id == matchId &&
-                    uid != null &&
-                    match.isParticipant(uid) &&
-                    (match.status == MatchStatus.ACTIVE || match.status == MatchStatus.LOBBY)
-                ) {
-                    requestGameNavigation(matchId)
-                    return@launch
+                if (match?.id == matchId && uid != null && match.isParticipant(uid)) {
+                    when (match.status) {
+                        MatchStatus.ACTIVE, MatchStatus.LOBBY -> {
+                            requestGameNavigation(matchId)
+                            return@launch
+                        }
+                        MatchStatus.COMPLETED, MatchStatus.ABANDONED -> {
+                            consumeGameNavigation()
+                            return@launch
+                        }
+                        else -> Unit
+                    }
                 }
                 delay(250)
+            }
+            if (pendingLaunchMatchId == matchId || _pendingGameNavigationMatchId.value == matchId) {
+                consumeGameNavigation()
             }
         }
     }

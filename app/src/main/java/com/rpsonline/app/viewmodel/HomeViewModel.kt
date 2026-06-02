@@ -19,6 +19,8 @@ import com.rpsonline.app.data.repository.quotaExceededUserMessage
 import com.rpsonline.app.data.repository.userFacingFirebaseError
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.shouldAutoNavigateToLiveMatch
+import com.rpsonline.app.data.repository.shouldClearStaleQueueUiOnResume
+import com.rpsonline.app.data.repository.shouldReconcileQueueSessionOnResume
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.data.repository.MatchmakingFunctions
 import com.rpsonline.app.data.repository.PresenceRepository
@@ -917,9 +919,27 @@ class HomeViewModel(
         loadMatchModePreferences(context)
         _uiState.value.preGameSync?.matchId?.let { ensurePreGameReadyLoop(it) }
         viewModelScope.launch {
-            val reconcilingQueue = _uiState.value.isInQueue ||
-                _uiState.value.isJoiningQueue ||
-                MatchSessionMonitor.isMatchmakingInProgress()
+            if (
+                shouldClearStaleQueueUiOnResume(
+                    monitorMatchmaking = MatchSessionMonitor.isMatchmakingInProgress(),
+                    hasQueueEntry = MatchSessionMonitor.hasQueueEntry.value,
+                    queueJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value,
+                    queueAnchorMs = MatchSessionMonitor.queueElapsedAnchorMs(),
+                    isInQueue = _uiState.value.isInQueue,
+                    isJoiningQueue = _uiState.value.isJoiningQueue,
+                )
+            ) {
+                clearQueueUiState()
+                return@launch
+            }
+            val reconcilingQueue = shouldReconcileQueueSessionOnResume(
+                isInQueue = _uiState.value.isInQueue,
+                isJoiningQueue = _uiState.value.isJoiningQueue,
+                monitorMatchmaking = MatchSessionMonitor.isMatchmakingInProgress(),
+                hasQueueEntry = MatchSessionMonitor.hasQueueEntry.value,
+                queueJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value,
+                queueAnchorMs = MatchSessionMonitor.queueElapsedAnchorMs(),
+            )
             if (reconcilingQueue) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
             }
@@ -937,7 +957,6 @@ class HomeViewModel(
 
             val serverJoinedAtMs = MatchSessionMonitor.queueJoinedAtMs.value
                 ?.takeIf { MatchSessionMonitor.hasQueueEntry.value }
-            val localJoinedAtMs = MatchSessionMonitor.queueElapsedAnchorMs()
 
             if (serverJoinedAtMs != null) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
@@ -945,12 +964,7 @@ class HomeViewModel(
                 return@launch
             }
 
-            val waitingForMatch = _uiState.value.isJoiningQueue ||
-                _uiState.value.isInQueue ||
-                MatchSessionMonitor.isMatchmakingInProgress() ||
-                localJoinedAtMs != null
-
-            if (waitingForMatch) {
+            if (reconcilingQueue) {
                 MatchSessionMonitor.setMatchmakingInProgress(true)
                 if (_uiState.value.isJoiningQueue && matchmakingJob?.isActive != true) {
                     failMatchmaking(
