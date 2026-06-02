@@ -41,6 +41,22 @@ class EloRatingTest {
     }
 
     @Test
+    fun calculateMatchElo_enforcesZeroSumAfterRounding() {
+        val result = calculateMatchElo(
+            ratingA = 1042,
+            ratingB = 978,
+            scoreA = 1.0,
+            matchMode = MatchMode.BO3,
+            winnerId = "p1",
+            player1 = "p1",
+            player2 = "p2",
+            player1Wins = 2,
+            player2Wins = 1,
+        )
+        assertEquals(-result.deltaA, result.deltaB)
+    }
+
+    @Test
     fun calculateMatchElo_doublesShutoutSwing() {
         val result = calculateMatchElo(
             ratingA = 1000,

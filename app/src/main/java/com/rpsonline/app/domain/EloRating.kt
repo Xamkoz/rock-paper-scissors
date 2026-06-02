@@ -79,10 +79,8 @@ fun calculateMatchElo(
         player1Wins = player1Wins,
         player2Wins = player2Wins,
     )
-    return EloDeltaPair(
-        deltaA = (base.deltaA * multiplier).roundToInt(),
-        deltaB = (base.deltaB * multiplier).roundToInt(),
-    )
+    val deltaA = (base.deltaA * multiplier).roundToInt()
+    return EloDeltaPair(deltaA = deltaA, deltaB = -deltaA)
 }
 
 /** Resolved round wins (excludes ties); used for live ELO preview during active play. */

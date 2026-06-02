@@ -150,7 +150,7 @@ export function calculateMatchElo(
   const base = calculateElo(ratingA, ratingB, scoreA, k);
   const multiplier = eloMultiplierForMatch(ctx);
   const deltaA = Math.round(base.deltaA * multiplier);
-  const deltaB = Math.round(base.deltaB * multiplier);
+  const deltaB = -deltaA;
   return {
     newA: ratingA + deltaA,
     newB: ratingB + deltaB,

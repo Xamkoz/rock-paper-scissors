@@ -44,6 +44,19 @@ describe("calculateMatchElo", () => {
     player2Wins: 0,
   };
 
+  it("enforces zero-sum deltas after rounding", () => {
+    const result = calculateMatchElo(1042, 978, 1, {
+      winnerId: "p1",
+      player1: "p1",
+      player2: "p2",
+      player1Wins: 2,
+      player2Wins: 1,
+      matchMode: "BO3",
+      endReason: "normal",
+    });
+    assert.equal(result.deltaB, -result.deltaA);
+  });
+
   it("scales BO3 wins to 25% of base ELO swing", () => {
     const result = calculateMatchElo(1000, 1000, 1, {
       ...players,
