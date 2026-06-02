@@ -20,10 +20,12 @@ internal object MatchmakingFunctions {
     private const val JOIN_CALLABLE = "joinMatchmakingQueue"
     private const val CONFIRM_READY_CALLABLE = "confirmMatchReady"
     private const val CALL_TIMEOUT_MS = 15_000L
+    private const val JOIN_QUOTA_RETRY_ATTEMPTS = 3
+    private const val JOIN_QUOTA_RETRY_DELAY_MS = 1_000L
 
     suspend fun joinQueue(matchModes: Set<MatchMode>, profile: UserProfile): JoinQueueCallableResult {
         var lastError: Exception? = null
-        repeat(2) { attempt ->
+        repeat(JOIN_QUOTA_RETRY_ATTEMPTS) { attempt ->
             try {
                 awaitCallableAuth()
                 val functions = FirebaseFunctions.getInstance(
@@ -53,15 +55,21 @@ internal object MatchmakingFunctions {
                 )
             } catch (e: FirebaseFunctionsException) {
                 lastError = e
-                if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0) {
-                    delay(400)
-                } else {
-                    throw e
+                when {
+                    e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED && attempt == 0 ->
+                        delay(400)
+                    isQuotaExceededError(e) && attempt < JOIN_QUOTA_RETRY_ATTEMPTS - 1 ->
+                        delay(JOIN_QUOTA_RETRY_DELAY_MS * (attempt + 1))
+                    else -> throw e
                 }
             } catch (e: Exception) {
                 lastError = e
-                if (attempt > 0) throw e
-                delay(400)
+                when {
+                    isQuotaExceededError(e) && attempt < JOIN_QUOTA_RETRY_ATTEMPTS - 1 ->
+                        delay(JOIN_QUOTA_RETRY_DELAY_MS * (attempt + 1))
+                    attempt > 0 -> throw e
+                    else -> delay(400)
+                }
             }
         }
         throw lastError ?: IllegalStateException("Could not join matchmaking via server")
@@ -102,6 +110,7 @@ internal object MatchmakingFunctions {
     }
 
     fun isRecoverableViaFirestore(error: Throwable): Boolean {
+        if (isQuotaExceededError(error)) return false
         val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
         return when (functionsError?.code) {
             FirebaseFunctionsException.Code.UNAUTHENTICATED,
@@ -109,12 +118,14 @@ internal object MatchmakingFunctions {
             FirebaseFunctionsException.Code.DEADLINE_EXCEEDED,
             FirebaseFunctionsException.Code.NOT_FOUND,
             -> true
+            FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED -> false
             else -> false
         }
     }
 
     fun toJoinErrorMessage(error: Throwable): String? {
         if (isRecoverableViaFirestore(error)) return null
+        if (isQuotaExceededError(error)) return quotaExceededUserMessage()
         val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
         return when (functionsError?.code) {
             FirebaseFunctionsException.Code.UNAUTHENTICATED ->
@@ -123,6 +134,8 @@ internal object MatchmakingFunctions {
                 "Could not join matchmaking (permission denied)."
             FirebaseFunctionsException.Code.INVALID_ARGUMENT ->
                 functionsError.message ?: "Invalid matchmaking request."
+            FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED ->
+                quotaExceededUserMessage()
             else -> null
         }
     }

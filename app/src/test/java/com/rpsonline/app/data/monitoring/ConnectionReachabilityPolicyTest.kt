@@ -45,6 +45,21 @@ class ConnectionReachabilityPolicyTest {
     }
 
     @Test
+    fun offlineImmediatelyOnQuotaExceeded() {
+        val lastSuccess = 100_000L
+        assertEquals(
+            NetworkConnectionStatus.Offline,
+            ConnectionReachabilityPolicy.resolveStatus(
+                hasNetwork = true,
+                serverReachable = false,
+                nowMs = lastSuccess + 1_000L,
+                lastServerSuccessMs = lastSuccess,
+                definitiveUnavailable = true,
+            ),
+        )
+    }
+
+    @Test
     fun offlineImmediatelyOnDefinitiveUnavailable() {
         val lastSuccess = 100_000L
         assertEquals(

@@ -341,10 +341,12 @@ class AuthRepository(
             FirebaseFirestoreException.Code.PERMISSION_DENIED,
             FirebaseFirestoreException.Code.UNAUTHENTICATED,
             -> true
+            FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED,
+            -> false
             FirebaseFirestoreException.Code.UNAVAILABLE,
             FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
             -> false
-            else -> true
+            else -> !isQuotaExceededError(error)
         }
 
     private suspend fun loadUserSnapshot(

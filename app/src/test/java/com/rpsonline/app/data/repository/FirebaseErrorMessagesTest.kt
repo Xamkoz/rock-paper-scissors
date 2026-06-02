@@ -19,6 +19,12 @@ class FirebaseErrorMessagesTest {
     }
 
     @Test
+    fun classifyFirestoreProbeFailure_quotaMessage() {
+        val error = IllegalStateException("The project quota for this operation has been exceeded.")
+        assertEquals(FirestoreProbeOutcome.QuotaExceeded, classifyFirestoreProbeFailure(error))
+    }
+
+    @Test
     fun quotaExceededUserMessage_isActionable() {
         assertEquals(
             "Game server is busy right now. Wait a moment and try again.",

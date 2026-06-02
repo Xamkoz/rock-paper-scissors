@@ -83,7 +83,7 @@ class NetworkConnectionMonitor(
             if (!immediate) return@launch
             if (restoreFirestore) {
                 withContext(Dispatchers.IO) {
-                    FirestoreConnectivity.restoreOnResume()
+                    FirestoreConnectivity.restoreAfterConnectivityLoss()
                 }
             }
             probeNow(showChecking = false)

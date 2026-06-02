@@ -14,6 +14,9 @@ import com.rpsonline.app.data.repository.HighlightedMatchFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.monitoring.NetworkDataActivityTracker
 import com.rpsonline.app.data.repository.connectivityFailureUserMessage
+import com.rpsonline.app.data.repository.isQuotaExceededError
+import com.rpsonline.app.data.repository.quotaExceededUserMessage
+import com.rpsonline.app.data.repository.userFacingFirebaseError
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.shouldAutoNavigateToLiveMatch
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
@@ -102,6 +105,8 @@ class HomeViewModel(
         private const val MATCHMAKING_WATCHDOG_MS = 45_000L
         private const val JOIN_QUEUE_WATCHDOG_MS = 15_000L
         private const val JOIN_QUEUE_TIMEOUT_MS = 25_000L
+        private const val JOIN_QUEUE_QUOTA_RETRY_ATTEMPTS = 3
+        private const val JOIN_QUEUE_QUOTA_RETRY_DELAY_MS = 1_500L
         private const val PROFILE_READY_TIMEOUT_MS = 6_000L
         private const val PRE_GAME_READY_TIMEOUT_MESSAGE =
             "Opponent did not ready in time. Tap Find Match to try again."
@@ -243,7 +248,7 @@ class HomeViewModel(
                         if (!isFirebaseAvailableForQueueAction("join the queue", generation)) return@withContext
                         val profile = awaitUserProfileReady()
                         if (generation != matchmakingGeneration) return@withContext
-                        val joinResult = matchRepository.joinQueue(matchModes, profile)
+                        val joinResult = joinQueueWithQuotaRetry(matchModes, profile)
                         if (generation != matchmakingGeneration) {
                             if (joinResult.immediateMatchId == null) {
                                 authRepository.currentUserId?.let { matchRepository.leaveQueueBestEffort(it) }
@@ -324,6 +329,9 @@ class HomeViewModel(
                 val message = when {
                     MatchmakingFunctions.toJoinErrorMessage(e) != null ->
                         MatchmakingFunctions.toJoinErrorMessage(e)!!
+                    isQuotaExceededError(e) -> quotaExceededUserMessage()
+                    userFacingFirebaseError(e, fallback = "").isNotBlank() ->
+                        userFacingFirebaseError(e, fallback = "")
                     e.message?.contains("profile", ignoreCase = true) == true -> e.message!!
                     e.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true ->
                         "Could not write to Firestore (permission denied). In Firebase Console set App Check to Monitoring for Firestore and Auth, then try again."
@@ -1002,6 +1010,8 @@ class HomeViewModel(
         stopQueueTimer()
         gameNavigationVerifyJob?.cancel()
         gameNavigationVerifyJob = null
+        MatchSessionMonitor.setMatchmakingInProgress(false)
+        MatchSessionMonitor.clearQueueState()
         _uiState.update {
             it.copy(
                 isJoiningQueue = false,
@@ -1127,5 +1137,24 @@ class HomeViewModel(
             message = connectivityFailureUserMessage(),
         )
         return false
+    }
+
+    private suspend fun joinQueueWithQuotaRetry(
+        matchModes: Set<MatchMode>,
+        profile: UserProfile,
+    ): MatchRepository.JoinQueueResult {
+        var lastError: Exception? = null
+        repeat(JOIN_QUEUE_QUOTA_RETRY_ATTEMPTS) { attempt ->
+            try {
+                return matchRepository.joinQueue(matchModes, profile)
+            } catch (e: Exception) {
+                lastError = e
+                if (!isQuotaExceededError(e) || attempt >= JOIN_QUEUE_QUOTA_RETRY_ATTEMPTS - 1) {
+                    throw e
+                }
+                delay(JOIN_QUEUE_QUOTA_RETRY_DELAY_MS * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("Could not join matchmaking queue")
     }
 }

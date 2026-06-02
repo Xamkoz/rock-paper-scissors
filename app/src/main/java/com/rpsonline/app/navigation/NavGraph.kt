@@ -252,7 +252,6 @@ fun RpsNavGraph() {
             ResultScreen(
                 matchId = matchId,
                 onPlayAgain = {
-                    MatchSessionMonitor.onMatchFinished(matchId)
                     MatchSessionMonitor.clearQueueState(endMatchmaking = true)
                     navController.navigate(Routes.home(autoStartMatchmaking = true)) {
                         popUpTo(Routes.HOME) { inclusive = true }

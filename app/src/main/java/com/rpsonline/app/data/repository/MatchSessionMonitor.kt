@@ -98,6 +98,7 @@ object MatchSessionMonitor {
     var onMatchSessionEnded: (() -> Unit)? = null
 
     private const val QUEUE_RECOVERY_REQUEST_MIN_INTERVAL_MS = 15_000L
+    private const val CONCLUDED_CACHE_INVALIDATION_DELAY_MS = 4_000L
     private const val QUEUE_RECOVERY_FAILURE_MESSAGE =
         "Lost connection to the matchmaking queue. Tap Find Match to try again."
 
@@ -133,7 +134,7 @@ object MatchSessionMonitor {
         ensureStarted()
         val uid = auth.currentUser?.uid ?: return false
         FirestoreConnectivity.restoreOnResume()
-        reattachListeners(uid)
+        ensureListenersAttached(uid)
         val nowMs = System.currentTimeMillis()
         if (!computeShouldSyncFromServerOnResume(nowMs, lastServerSyncAtMs, forceServerSync)) {
             return false
@@ -237,6 +238,11 @@ object MatchSessionMonitor {
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = null
         consumeGameNavigation()
+        matchListener?.remove()
+        matchListener = null
+        if (listeningMatchId == matchId) {
+            listeningMatchId = null
+        }
         clearQueueState(endMatchmaking = true)
         auth.currentUser?.uid?.let { uid ->
             sessionScope.launch {
@@ -249,23 +255,21 @@ object MatchSessionMonitor {
             _activeMatch.value = null
         }
         notifySessionStateChanged()
-        if (finished != null) {
-            matchRepository.invalidateConcludedMatchCacheForParticipants(
-                finished.player1,
-                finished.player2,
-            )
-        } else {
-            sessionScope.launch {
-                val snap = runCatching {
-                    firestore.collection("matches").document(matchId).get().await()
-                }.getOrNull()
-                if (snap != null && snap.exists()) {
-                    val match = snap.toMatch(matchId)
-                    matchRepository.invalidateConcludedMatchCacheForParticipants(
-                        match.player1,
-                        match.player2,
-                    )
-                }
+        scheduleConcludedMatchCacheInvalidation(finished, matchId)
+    }
+
+    /** Defer cache invalidation so an immediate re-queue is not blocked by a burst of reads. */
+    private fun scheduleConcludedMatchCacheInvalidation(finished: Match?, matchId: String) {
+        sessionScope.launch {
+            delay(CONCLUDED_CACHE_INVALIDATION_DELAY_MS)
+            val match = finished ?: runCatching {
+                firestore.collection("matches").document(matchId).get().await()
+            }.getOrNull()?.takeIf { it.exists() }?.toMatch(matchId)
+            if (match != null) {
+                matchRepository.invalidateConcludedMatchCacheForParticipants(
+                    match.player1,
+                    match.player2,
+                )
             }
         }
     }
@@ -348,7 +352,8 @@ object MatchSessionMonitor {
         enqueueNavigationJob = null
     }
 
-    private fun reattachListeners(uid: String) {
+    private fun ensureListenersAttached(uid: String) {
+        if (attachedUid == uid && userListener != null && queueListener != null) return
         attachedUid = uid
         clearFirestoreListeners()
         attachListeners(uid)
@@ -421,11 +426,22 @@ object MatchSessionMonitor {
                 val matchId = snapshot?.getString("activeMatchId")
                 if (matchId.isNullOrBlank()) {
                     val finalizedMatchId = listeningMatchId ?: _activeMatch.value?.id
+                    matchListener?.remove()
+                    matchListener = null
                     listeningMatchId = null
-                    if (finalizedMatchId.isNullOrBlank()) {
+                    if (
+                        shouldClearActiveMatchOnUserDocClear(
+                            finalizedMatchId = finalizedMatchId,
+                            currentMatch = _activeMatch.value,
+                            matchmakingInProgress = _matchmakingInProgress.value,
+                            hasPendingGameNavigation = hasPendingGameNavigation(),
+                        )
+                    ) {
                         _activeMatch.value = null
-                    } else {
+                    } else if (!finalizedMatchId.isNullOrBlank()) {
                         publishFinalMatchSnapshot(finalizedMatchId)
+                    } else {
+                        _activeMatch.value = null
                     }
                     return@addSnapshotListener
                 }

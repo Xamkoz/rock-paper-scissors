@@ -17,6 +17,7 @@ const val FIREBASE_CONNECTIVITY_USER_MESSAGE =
 /** Result of a lightweight Firestore reachability probe. */
 enum class FirestoreProbeOutcome {
     Reachable,
+    QuotaExceeded,
     UnreachableDefinitive,
     UnreachableTimeout,
     UnreachableOther,
@@ -26,7 +27,10 @@ enum class FirestoreProbeOutcome {
         get() = this == Reachable
 
     val isDefinitiveUnavailable: Boolean
-        get() = this == UnreachableDefinitive
+        get() = this == UnreachableDefinitive || this == QuotaExceeded
+
+    val isQuotaExceeded: Boolean
+        get() = this == QuotaExceeded
 }
 
 fun isQuotaExceededError(error: Throwable): Boolean {
@@ -63,6 +67,7 @@ fun isConnectivityFailure(error: Throwable): Boolean =
         hasConnectivityCause(error)
 
 fun classifyFirestoreProbeFailure(error: Throwable): FirestoreProbeOutcome {
+    if (isQuotaExceededError(error)) return FirestoreProbeOutcome.QuotaExceeded
     if (error is TimeoutCancellationException) return FirestoreProbeOutcome.UnreachableTimeout
     if (error is FirebaseFirestoreException) {
         return when (error.code) {
