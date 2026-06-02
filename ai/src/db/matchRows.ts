@@ -64,7 +64,7 @@ export function roundsToRows(matchId: string, rounds: RoundResult[]): RoundRow[]
 
 function normalizeChoice(raw: string | undefined): string | null {
   if (!raw) return null;
-  const u = raw.toUpperCase();
+  const u = raw.trim().toUpperCase();
   if (u === "ROCK" || u === "PAPER" || u === "SCISSORS") return u;
   return null;
 }

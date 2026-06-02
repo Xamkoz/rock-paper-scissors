@@ -18,6 +18,7 @@ import {
   sendQueueHeartbeat,
   writeQueueEntry,
 } from "../firebase/firestoreApi.js";
+import { loadConcludedMatchForArchive } from "../firebase/matchArchive.js";
 import { submitRoundMove } from "../firebase/submitRoundMove.js";
 import {
   isParticipant,
@@ -42,7 +43,9 @@ export class PlayerAgent {
   private activeMatchId: string | null = null;
   private matchUnsub: Unsubscribe | null = null;
   private userUnsub: Unsubscribe | null = null;
-  private queueTimer: ReturnType<typeof setInterval> | null = null;
+  private queueHeartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private queueHeartbeatStopped = true;
+  private requeueTimer: ReturnType<typeof setTimeout> | null = null;
   /** One pick pipeline at a time (LLM + submit); never overlap across rounds. */
   private pickInProgress = false;
   private matchEndHandled: string | null = null;
@@ -63,7 +66,7 @@ export class PlayerAgent {
       } else if (this.phase !== "queued") {
         this.detachMatch();
         if (this.ctx.config.autoQueue && this.phase === "idle") {
-          void this.joinQueue();
+          this.scheduleRequeue();
         }
       }
     });
@@ -77,6 +80,7 @@ export class PlayerAgent {
   }
 
   async stop(): Promise<void> {
+    this.cancelRequeue();
     this.stopQueueHeartbeat();
     this.matchUnsub?.();
     this.userUnsub?.();
@@ -84,8 +88,37 @@ export class PlayerAgent {
     await leaveQueue(this.ctx.db, uid).catch(() => {});
   }
 
+  private cancelRequeue(): void {
+    if (this.requeueTimer) {
+      clearTimeout(this.requeueTimer);
+      this.requeueTimer = null;
+    }
+  }
+
+  /** Delay before auto-queue when idle after a game (not used on initial boot). */
+  private scheduleRequeue(): void {
+    this.cancelRequeue();
+    const delayMs = this.ctx.config.requeueDelayMs;
+    if (delayMs <= 0) {
+      void this.joinQueue();
+      return;
+    }
+    log(`[queue] re-queue in ${delayMs}ms`);
+    this.requeueTimer = setTimeout(() => {
+      this.requeueTimer = null;
+      if (
+        this.ctx.config.autoQueue &&
+        this.phase === "idle" &&
+        !this.activeMatchId
+      ) {
+        void this.joinQueue();
+      }
+    }, delayMs);
+  }
+
   private async joinQueue(): Promise<void> {
     if (this.phase !== "idle") return;
+    this.cancelRequeue();
     const uid = this.ctx.user.uid;
     const profile = await ensureUserProfile(
       this.ctx.db,
@@ -126,25 +159,40 @@ export class PlayerAgent {
 
   private startQueueHeartbeat(uid: string): void {
     this.stopQueueHeartbeat();
-    this.queueTimer = setInterval(() => {
-      void sendQueueHeartbeat(this.ctx.db, uid)
-        .then((ok) => {
-          if (!ok) {
-            log("[queue-heartbeat] queue doc gone, stopping heartbeat");
-            this.stopQueueHeartbeat();
-          }
-        })
-        .catch((e) => {
-          warn("[queue-heartbeat]", e);
+    this.queueHeartbeatStopped = false;
+    const intervalMs = this.ctx.config.queueIntervalMs;
+    log(`[queue] heartbeat every ${intervalMs}ms`);
+
+    const scheduleNext = () => {
+      if (this.queueHeartbeatStopped || this.phase !== "queued") return;
+      this.queueHeartbeatTimer = setTimeout(() => void beat(), intervalMs);
+    };
+
+    const beat = async () => {
+      if (this.queueHeartbeatStopped || this.phase !== "queued") return;
+      try {
+        const ok = await sendQueueHeartbeat(this.ctx.db, uid);
+        if (!ok) {
+          log("[queue-heartbeat] queue doc gone, stopping heartbeat");
           this.stopQueueHeartbeat();
-        });
-    }, this.ctx.config.queueIntervalMs);
+          return;
+        }
+      } catch (e) {
+        warn("[queue-heartbeat]", e);
+        this.stopQueueHeartbeat();
+        return;
+      }
+      scheduleNext();
+    };
+
+    scheduleNext();
   }
 
   private stopQueueHeartbeat(): void {
-    if (this.queueTimer) {
-      clearInterval(this.queueTimer);
-      this.queueTimer = null;
+    this.queueHeartbeatStopped = true;
+    if (this.queueHeartbeatTimer) {
+      clearTimeout(this.queueHeartbeatTimer);
+      this.queueHeartbeatTimer = null;
     }
   }
 
@@ -161,6 +209,7 @@ export class PlayerAgent {
 
   private attachMatch(matchId: string): void {
     if (this.activeMatchId === matchId && this.matchUnsub) return;
+    this.cancelRequeue();
     this.matchUnsub?.();
     this.activeMatchId = matchId;
     this.stopQueueHeartbeat();
@@ -302,17 +351,33 @@ export class PlayerAgent {
         ? match.player1Name
         : match.player2Name
       : "opponent";
-    const profile = opp ? await getUserProfile(this.ctx.db, opp) : null;
-    const dbCtx = await buildMatchDbContext(
-      this.db,
-      uid,
-      opp ?? "",
-      oppName,
+
+    const archived = await loadConcludedMatchForArchive(
+      this.ctx.db,
+      match.id,
       match,
-      profile,
     );
-    const description = await describeMatchWithLlm(match, uid, dbCtx);
-    this.db.saveConcluded(match, description);
-    log(`[match-end] ${msSince(endedStartedAt)}ms ${description}`);
+    const resolvedRounds = archived.rounds.filter(
+      (r) => r.player1Choice && r.player2Choice,
+    ).length;
+    this.db.saveConcluded(archived);
+    log(`[match-end] saved ${archived.id} (${resolvedRounds} rounds with throws)`);
+
+    try {
+      const profile = opp ? await getUserProfile(this.ctx.db, opp) : null;
+      const dbCtx = await buildMatchDbContext(
+        this.db,
+        uid,
+        opp ?? "",
+        oppName,
+        null,
+        profile,
+      );
+      const description = await describeMatchWithLlm(archived, uid, dbCtx);
+      this.db.saveConcluded(archived, description);
+      log(`[match-end] ${msSince(endedStartedAt)}ms ${description}`);
+    } catch (err) {
+      warn(`[match-end] describe failed (${msSince(endedStartedAt)}ms), match archived`, err);
+    }
   }
 }

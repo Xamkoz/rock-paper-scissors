@@ -21,6 +21,10 @@ function slimProfile(p: UserProfile | null): [number, number, number, number] | 
   return [p.elo, p.throwsRock, p.throwsPaper, p.throwsScissors];
 }
 
+export function countHistoryThrowPairs(ctx: MatchDbContext): number {
+  return collectThrowPairs(ctx).length;
+}
+
 function collectThrowPairs(ctx: MatchDbContext): string[] {
   const pairs: string[] = [];
 
@@ -50,8 +54,8 @@ function truncateToMax(text: string, maxChars: number): string {
   return cut;
 }
 
-/** Opponent lifetime throw counts as a short tendency line when no local round history yet. */
-function opponentTrendLine(p: UserProfile, maxChars: number): string {
+/** Opponent lifetime throw counts when no local round history yet (short; not padded). */
+function opponentTrendLine(p: UserProfile): string {
   const total = p.throwsRock + p.throwsPaper + p.throwsScissors;
   if (total <= 0) return "";
 
@@ -61,10 +65,7 @@ function opponentTrendLine(p: UserProfile, maxChars: number): string {
     { c: "S", n: p.throwsScissors },
   ].sort((a, b) => b.n - a.n);
 
-  let line = `oTrend:${ranked.map((x) => `${x.c}${x.n}`).join("/")}`;
-  const dom = ranked[0]?.c ?? "R";
-  while (line.length < maxChars) line += dom;
-  return line.slice(0, maxChars);
+  return `oTrend:${ranked.map((x) => `${x.c}${x.n}`).join("/")}`;
 }
 
 /**
@@ -79,8 +80,8 @@ export function buildRecentPicksForRound1(
   let text = pairs.length > 0 ? pairs.join(",") : "";
 
   if (text.length < maxChars && ctx.opponentProfile) {
-    const trend = opponentTrendLine(ctx.opponentProfile, maxChars);
-    text = text.length > 0 ? `${text},${trend}` : trend;
+    const trend = opponentTrendLine(ctx.opponentProfile);
+    if (trend) text = text.length > 0 ? `${text},${trend}` : trend;
   }
 
   if (text.length === 0) return "none";

@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { loadConfig } from "./config.js";
 import { initFirebase } from "./firebase/client.js";
 import { initLlm } from "./llm/client.js";
@@ -59,7 +58,7 @@ async function main(): Promise<void> {
   log(`[ai] llm post-start verify ${msSince(postStartStartedAt)}ms`);
 
   log(
-    `[ai] running ${msSince(bootStartedAt)}ms boot — ${config.botDisplayName} (${config.projectId}, llm=${config.llmModel}) auto-queue=${config.autoQueue} modes=${config.matchModes.join(",")}`,
+    `[ai] running ${msSince(bootStartedAt)}ms boot — ${config.botDisplayName} (${config.projectId}, llm=${config.llmModel}) auto-queue=${config.autoQueue} queueHeartbeat=${config.queueIntervalMs}ms requeueDelay=${config.requeueDelayMs}ms modes=${config.matchModes.join(",")}`,
   );
 }
 

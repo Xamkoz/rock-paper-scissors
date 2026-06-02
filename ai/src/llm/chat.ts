@@ -40,23 +40,25 @@ function logLlmRequest(
   if (process.env.LLM_LOG_REQUESTS === "false") return;
 
   const header = `[llm:${tag}:req] model=${model}${summary ? ` ${summary}` : ""}`;
+  log(header);
 
-  if (process.env.LLM_LOG_PROMPT_BODY === "true") {
-    const maxChars = Number(process.env.LLM_LOG_MAX_CHARS ?? 4000);
-    log(header);
-    log(`[llm:${tag}:req] system:\n${truncateForLog(systemPrompt, maxChars)}`);
-    log(`[llm:${tag}:req] user:\n${truncateForLog(userPrompt, maxChars)}`);
+  if (process.env.LLM_LOG_PROMPT_PREVIEW === "true") {
+    const previewLinesN = Number(process.env.LLM_LOG_PREVIEW_LINES ?? 8);
+    const previewLineChars = Number(process.env.LLM_LOG_PREVIEW_LINE_CHARS ?? 160);
+    const systemPreview = previewLines(systemPrompt, previewLinesN, previewLineChars);
+    if (systemPreview) log(`[llm:${tag}:req] system:\n${systemPreview}`);
+    const userPreview = previewLines(userPrompt, previewLinesN, previewLineChars);
+    if (userPreview) log(`[llm:${tag}:req] user:\n${userPreview}`);
     return;
   }
 
-  const previewLinesN = Number(process.env.LLM_LOG_PREVIEW_LINES ?? 8);
-  const previewLineChars = Number(process.env.LLM_LOG_PREVIEW_LINE_CHARS ?? 160);
-
-  log(header);
-  const systemPreview = previewLines(systemPrompt, previewLinesN, previewLineChars);
-  if (systemPreview) log(`[llm:${tag}:req] system:\n${systemPreview}`);
-  const userPreview = previewLines(userPrompt, previewLinesN, previewLineChars);
-  if (userPreview) log(`[llm:${tag}:req] user:\n${userPreview}`);
+  const maxChars = process.env.LLM_LOG_MAX_CHARS
+    ? Number(process.env.LLM_LOG_MAX_CHARS)
+    : undefined;
+  const systemBody = maxChars ? truncateForLog(systemPrompt, maxChars) : systemPrompt;
+  const userBody = maxChars ? truncateForLog(userPrompt, maxChars) : userPrompt;
+  log(`[llm:${tag}:req] system:\n${systemBody}`);
+  log(`[llm:${tag}:req] user:\n${userBody}`);
 }
 
 interface ChatCompletionResponse {
@@ -77,7 +79,7 @@ export async function chatComplete(
     temperature?: number;
     json?: boolean;
     logLabel?: string;
-    /** Short line in request logs (full prompts omitted unless LLM_LOG_PROMPT_BODY=true). */
+    /** Extra metadata appended to the request log header. */
     logSummary?: string;
     /** Per-call timeout (e.g. round deadline budget); defaults to config llmTimeoutMs. */
     timeoutMs?: number;

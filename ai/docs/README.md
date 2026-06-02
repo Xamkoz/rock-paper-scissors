@@ -50,12 +50,12 @@ On startup the bot probes `GET {LLM_BASE_URL}/models`, then after Firebase/queue
 
 | Concern | Behavior |
 |--------|----------|
-| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); heartbeat every `BOT_QUEUE_INTERVAL_MS` (default 30s). |
+| **Queue** | `joinMatchmakingQueue` (or direct `queue/{uid}` write); heartbeat every `BOT_QUEUE_INTERVAL_MS` (default 30s). After a game, waits `BOT_REQUEUE_DELAY_MS` (default 30s) before re-queuing; initial boot joins immediately. |
 | **Lobby** | `confirmMatchReady` when paired. |
-| **Moves** | One pick at a time. Minified JSON; **round 1** always includes `recent` (~200 chars): local H2H/recent games, else opponent throw stats from profile. Use `gemma3:4b`. |
+| **Moves** | One pick at a time. Minified JSON; **round 1** `recent` uses throw pairs from **SQLite** (prior concluded games vs this opponent + recent bot games). Saved as soon as a match ends (before the describe LLM). If the DB is empty, `recent` falls back to a short `oTrend:R/P/S` from the opponent profile. Use `gemma3:4b`. |
 | **Database** | `MATCH_DB_PATH` (default `data/matches.db`) — SQLite `matches` + `match_descriptions` tables; indexed by player and activity time. |
 | **Description** | LLM one-liner using the same query bundle; stored in `match_descriptions`. |
-| **LLM logs** | `[llm:<tag>:req]` first 8 lines of system + user prompts; `[llm:<tag>:res]` reply + ms. Full body if `LLM_LOG_PROMPT_BODY=true`. |
+| **LLM logs** | `[llm:<tag>:req]` full system + user prompts; `[llm:<tag>:res]` reply + ms. Preview only if `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
 
 ## SQLite schema (`MATCH_DB_PATH`)
 
