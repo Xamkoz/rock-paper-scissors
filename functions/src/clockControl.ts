@@ -26,6 +26,21 @@ export function player2HasSubmitted(round: OpenRoundClockState): boolean {
   return round.player2Submitted === true || !!round.player2Choice;
 }
 
+/** True when [uid] submitted in [roundNumber], even if that round has since resolved. */
+export function playerSubmittedInRound(
+  match: {
+    player1: string;
+    player2: string;
+    rounds: Array<OpenRoundClockState & { roundNumber: number }>;
+  },
+  roundNumber: number,
+  uid: string,
+): boolean {
+  const round = match.rounds.find((entry) => entry.roundNumber === roundNumber);
+  if (!round) return false;
+  return uid === match.player1 ? player1HasSubmitted(round) : player2HasSubmitted(round);
+}
+
 export function clockMs(value: number | undefined): number {
   return value ?? INITIAL_CLOCK_MS;
 }

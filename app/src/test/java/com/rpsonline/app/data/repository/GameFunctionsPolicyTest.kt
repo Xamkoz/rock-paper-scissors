@@ -33,4 +33,10 @@ class GameFunctionsPolicyTest {
         val error = IllegalStateException("Match is not active.")
         assertTrue(GameFunctions.isMatchNotActiveSubmitError(error))
     }
+
+    @Test
+    fun moveNotRecordedVerificationError_isDetected() {
+        val error = IllegalStateException("Move was not recorded. Try again.")
+        assertTrue(GameFunctions.isMoveNotRecordedVerificationError(error))
+    }
 }

@@ -768,6 +768,7 @@ class GameViewModel(
             var staleRoundSubmit = false
             var matchAlreadyFinished = false
             var skipSubmitConfirmation = false
+            var moveNotRecordedVerificationFailed = false
             try {
                 if (!isSubmitForOpenRound(roundNumber)) return@launch
                 matchRepository.submitMove(matchId, move, roundNumber)
@@ -789,6 +790,10 @@ class GameViewModel(
                         runCatching { syncMatchFromServer() }
                     }
                     isIgnorableFirestoreRace(e) -> Unit
+                    GameFunctions.isMoveNotRecordedVerificationError(e) -> {
+                        moveNotRecordedVerificationFailed = true
+                        runCatching { syncMatchFromServer() }
+                    }
                     isQuotaExceededError(e) -> {
                         skipSubmitConfirmation = true
                         submitError = quotaExceededUserMessage()
@@ -840,7 +845,8 @@ class GameViewModel(
                         generation,
                         roundNumber,
                         confirmedMove = move,
-                        skipServerConfirmation = skipSubmitConfirmation || submitError != null,
+                        skipServerConfirmation = skipSubmitConfirmation ||
+                            (submitError != null && !moveNotRecordedVerificationFailed),
                     ) {
                         submitError ?: "Move did not reach the server. Tap a move to try again."
                     }

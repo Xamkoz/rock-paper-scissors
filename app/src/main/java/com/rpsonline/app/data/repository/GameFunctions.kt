@@ -94,6 +94,15 @@ internal object GameFunctions {
             functionsError.message.orEmpty().contains("not active", ignoreCase = true)
     }
 
+    /** Callable verification failed after apply — move may still be on the match doc. */
+    fun isMoveNotRecordedVerificationError(error: Throwable): Boolean {
+        val message = error.message.orEmpty()
+        if (message.contains("not recorded", ignoreCase = true)) return true
+        val functionsError = error as? FirebaseFunctionsException ?: error.cause as? FirebaseFunctionsException
+        return functionsError?.code == FirebaseFunctionsException.Code.INTERNAL &&
+            functionsError.message.orEmpty().contains("not recorded", ignoreCase = true)
+    }
+
     fun toSubmitErrorMessage(error: Throwable): String? {
         if (isRecoverableViaFirestore(error)) return null
         if (isQuotaExceededError(error)) return quotaExceededUserMessage()

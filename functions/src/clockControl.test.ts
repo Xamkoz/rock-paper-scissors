@@ -7,6 +7,7 @@ import {
   CLOCK_INCREMENT_MS,
   INITIAL_CLOCK_MS,
   MAX_CLOCK_MS,
+  playerSubmittedInRound,
   tickClocks,
 } from "./clockControl";
 
@@ -55,5 +56,19 @@ describe("clockControl", () => {
     assert.equal(clockExpiry(5_000, 0, { player1Choice: "ROCK" }), "player2");
     assert.equal(clockExpiry(0, 0, {}), "both");
     assert.equal(clockExpiry(INITIAL_CLOCK_MS, INITIAL_CLOCK_MS, {}), null);
+  });
+
+  it("playerSubmittedInRound finds submission on a resolved round", () => {
+    const match = {
+      player1: "p1",
+      player2: "p2",
+      rounds: [
+        { roundNumber: 1, player1Submitted: true, resolvedAt: Timestamp.now() },
+        { roundNumber: 2, player2Submitted: false },
+      ],
+    };
+    assert.equal(playerSubmittedInRound(match, 1, "p1"), true);
+    assert.equal(playerSubmittedInRound(match, 2, "p1"), false);
+    assert.equal(playerSubmittedInRound(match, 1, "p2"), false);
   });
 });

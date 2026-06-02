@@ -27,6 +27,7 @@ import {
   clockExpiry,
   initialClockFields,
   player1HasSubmitted,
+  playerSubmittedInRound,
   player2HasSubmitted,
   tickClocks,
 } from "./clockControl";
@@ -1295,18 +1296,14 @@ export const submitMatchMove = onCall(async (request) => {
   if (!updated.exists) {
     throw new HttpsError("internal", "Move was not recorded. Try again.");
   }
-  let open = getOpenRound(updated.data() as MatchDoc);
-  let recorded = open?.roundNumber === roundNumber && (
-    uid === match.player1 ? player1HasSubmitted(open) : player2HasSubmitted(open)
-  );
+  let matchAfter = updated.data() as MatchDoc;
+  let recorded = playerSubmittedInRound(matchAfter, roundNumber, uid);
   if (!recorded) {
     await syncPendingChoicesFromSubcollection(matchId, roundNumber);
     const retried = await db.collection("matches").doc(matchId).get();
     if (retried.exists) {
-      open = getOpenRound(retried.data() as MatchDoc);
-      recorded = open?.roundNumber === roundNumber && (
-        uid === match.player1 ? player1HasSubmitted(open) : player2HasSubmitted(open)
-      );
+      matchAfter = retried.data() as MatchDoc;
+      recorded = playerSubmittedInRound(matchAfter, roundNumber, uid);
     }
   }
   if (!recorded) {
