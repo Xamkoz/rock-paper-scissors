@@ -174,13 +174,17 @@ fun RpsNavGraph() {
             val matchLaunchNudge by MatchSessionMonitor.matchLaunchUiNudge
                 .collectAsStateWithLifecycle()
             val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
+            val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress
+                .collectAsStateWithLifecycle()
             val deferHomeForGameLaunch = remember(
                 pendingGameNavigation,
                 matchLaunchNudge,
                 activeMatch?.id,
                 activeMatch?.status,
+                matchmakingInProgress,
             ) {
-                MatchSessionMonitor.pendingGameLaunchMatchId() != null
+                MatchSessionMonitor.pendingGameLaunchMatchId() != null &&
+                    !matchmakingInProgress
             }
             if (isSignedIn) {
                 if (deferHomeForGameLaunch) {

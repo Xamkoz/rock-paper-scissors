@@ -198,6 +198,14 @@ fun HomeScreen(
         val selectedModes = uiState.selectedMatchModes
         val matchModesLocked = uiState.isJoiningQueue || uiState.isInQueue
         val scrollState = rememberScrollState()
+        val showMatchFoundPhase = activeMatch?.status == MatchStatus.ACTIVE &&
+            (
+                matchmakingInProgress ||
+                    (
+                        openingMatchId != null &&
+                            activeMatch?.id == openingMatchId
+                        )
+                )
 
         val showHighlightedMatch = !uiState.isHighlightedMatchDismissed && uiState.highlightedMatch != null
 
@@ -304,9 +312,6 @@ fun HomeScreen(
             (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null || matchmakingInProgress) &&
             uiState.activeMatchId == null
         ) {
-            val showMatchFoundPhase = openingMatchId != null &&
-                activeMatch?.id == openingMatchId &&
-                activeMatch?.status == MatchStatus.ACTIVE
             val liveQueueElapsed = rememberQueueElapsedSeconds(
                 anchorMs = queueAnchorMs?.takeIf {
                     uiState.isInQueue || uiState.isJoiningQueue || matchmakingInProgress
@@ -346,7 +351,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        if (openingMatchId != null) {
+        if (showMatchFoundPhase || openingMatchId != null) {
             RpsHeroPrimaryButton(
                 onClick = {},
                 text = stringResource(R.string.opening_match),
