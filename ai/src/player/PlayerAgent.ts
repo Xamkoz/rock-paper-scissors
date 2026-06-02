@@ -11,6 +11,7 @@ import {
 import {
   ensureUserProfile,
   getActiveMatchId,
+  getMatch,
   getUserProfile,
   leaveQueue,
   queueEntryExists,
@@ -23,14 +24,14 @@ import {
   matchFromSnapshot,
   openRoundNeedsMove,
   opponentId,
+  selfSubmitted,
 } from "../firebase/matchDoc.js";
-import { MatchCache } from "../cache/matchCache.js";
-import {
-  analyzeMovePattern,
-  matchesForOpponentAnalysis,
-} from "../analysis/movePattern.js";
-import { pickMove } from "../strategy/movePicker.js";
-import { describeMatch } from "../narrative/matchDescription.js";
+import type { MatchDatabase } from "../db/matchDatabase.js";
+import { buildMatchDbContext } from "../llm/matchContext.js";
+import { pickMoveContextLimits, pickMoveWithLlm } from "../llm/pickMove.js";
+import { pickTimeBudgetMs } from "../llm/compactMatch.js";
+import { describeMatchWithLlm } from "../llm/describeMatch.js";
+import { error, log, msSince, warn } from "../log.js";
 import type { Match } from "../types.js";
 
 type AgentPhase = "idle" | "queued" | "lobby" | "active";
@@ -41,18 +42,16 @@ export class PlayerAgent {
   private matchUnsub: Unsubscribe | null = null;
   private userUnsub: Unsubscribe | null = null;
   private queueTimer: ReturnType<typeof setInterval> | null = null;
-  /** Prevents duplicate submits while the listener fires or callable is slow. */
-  private moveInFlight: number | null = null;
-  private trackedRound = 0;
+  /** One pick pipeline at a time (LLM + submit); never overlap across rounds. */
+  private pickInProgress = false;
 
   constructor(
     private readonly ctx: FirebaseContext,
-    private readonly cache: MatchCache,
+    private readonly db: MatchDatabase,
   ) {}
 
   async start(): Promise<void> {
     const uid = this.ctx.user.uid;
-    await this.cache.load();
     await ensureUserProfile(this.ctx.db, uid, this.ctx.config.botDisplayName);
 
     this.userUnsub = onSnapshot(doc(this.ctx.db, "users", uid), (snap) => {
@@ -105,7 +104,7 @@ export class PlayerAgent {
         return;
       }
     } catch (err) {
-      console.warn("[queue] callable failed, direct write:", err);
+      warn("[queue] callable failed, direct write:", err);
       await writeQueueEntry(
         this.ctx.db,
         uid,
@@ -116,7 +115,7 @@ export class PlayerAgent {
 
     const inQueue = await queueEntryExists(this.ctx.db, uid);
     if (!inQueue) {
-      console.warn("[queue] not in queue after join — check Auth, App Check, and Firestore rules");
+      warn("[queue] not in queue after join — check Auth, App Check, and Firestore rules");
       this.phase = "idle";
       return;
     }
@@ -129,12 +128,12 @@ export class PlayerAgent {
       void sendQueueHeartbeat(this.ctx.db, uid)
         .then((ok) => {
           if (!ok) {
-            console.log("[queue-heartbeat] queue doc gone, stopping heartbeat");
+            log("[queue-heartbeat] queue doc gone, stopping heartbeat");
             this.stopQueueHeartbeat();
           }
         })
         .catch((e) => {
-          console.warn("[queue-heartbeat]", e);
+          warn("[queue-heartbeat]", e);
           this.stopQueueHeartbeat();
         });
     }, this.ctx.config.queueIntervalMs);
@@ -151,8 +150,7 @@ export class PlayerAgent {
     this.matchUnsub?.();
     this.matchUnsub = null;
     this.activeMatchId = null;
-    this.moveInFlight = null;
-    this.trackedRound = 0;
+    this.pickInProgress = false;
     if (this.phase === "lobby" || this.phase === "active") {
       this.phase = "idle";
     }
@@ -169,7 +167,7 @@ export class PlayerAgent {
       if (!snap.exists()) return;
       const match = matchFromSnapshot(snap.id, snap.data());
       void this.onMatchUpdate(match).catch((err) => {
-        console.error("[match]", err);
+        error("[match]", err);
       });
     });
   }
@@ -189,39 +187,84 @@ export class PlayerAgent {
 
     if (match.status === "active") {
       this.phase = "active";
-      if (match.currentRound !== this.trackedRound) {
-        this.trackedRound = match.currentRound;
-        this.moveInFlight = null;
-      }
       if (!openRoundNeedsMove(match, uid)) return;
-      if (this.moveInFlight === match.currentRound) return;
+      if (this.pickInProgress) return;
 
       const opp = opponentId(match, uid);
       if (!opp) return;
 
       const roundNumber = match.currentRound;
-      this.moveInFlight = roundNumber;
+      const matchId = match.id;
+      this.pickInProgress = true;
+      const moveStartedAt = Date.now();
       try {
-        const pattern = await this.buildPattern(uid, opp, match);
-        const choice = pickMove(pattern);
+        const oppName =
+          match.player1 === opp ? match.player1Name : match.player2Name;
+        const profile = await getUserProfile(this.ctx.db, opp);
+        const contextStartedAt = Date.now();
+        const dbCtx = await buildMatchDbContext(
+          this.db,
+          uid,
+          opp,
+          oppName,
+          match,
+          profile,
+          pickMoveContextLimits,
+        );
+        const contextMs = msSince(contextStartedAt);
+        const budgetMs = pickTimeBudgetMs(match);
+        const { choice, pickMs } = await pickMoveWithLlm(match, dbCtx, budgetMs);
+        const fresh = await getMatch(this.ctx.db, matchId);
+        if (
+          !fresh ||
+          fresh.status !== "active" ||
+          fresh.currentRound !== roundNumber ||
+          selfSubmitted(fresh, uid)
+        ) {
+          warn(
+            `[move] round ${roundNumber} stale after pick (${pickMs}ms) — skip submit (now r${fresh?.currentRound ?? "?"})`,
+          );
+          return;
+        }
+        const submitStartedAt = Date.now();
         const ok = await submitRoundMove(
           this.ctx.db,
           this.ctx.functions,
-          match,
+          fresh,
           uid,
           choice,
         );
+        const submitMs = msSince(submitStartedAt);
+        const totalMs = msSince(moveStartedAt);
+        this.db.recordRoundTiming({
+          matchId,
+          roundNumber,
+          choice,
+          contextMs,
+          pickMs,
+          submitMs,
+          totalMs,
+          ok,
+        });
         if (ok) {
-          console.log(
-            `[move] ${choice} round ${roundNumber} vs ${opp} (${pattern.counterMove} counters ${pattern.dominantMove})`,
+          log(
+            `[move] ${choice} round ${roundNumber} vs ${oppName} ${totalMs}ms (ctx=${contextMs} pick=${pickMs} submit=${submitMs})`,
           );
         }
       } catch (err) {
-        console.warn(`[move] round ${roundNumber} failed:`, err);
+        const totalMs = msSince(moveStartedAt);
+        this.db.recordRoundTiming({
+          matchId,
+          roundNumber,
+          contextMs: 0,
+          pickMs: 0,
+          submitMs: 0,
+          totalMs,
+          ok: false,
+        });
+        warn(`[move] round ${roundNumber} failed ${totalMs}ms:`, err);
       } finally {
-        if (this.moveInFlight === roundNumber) {
-          this.moveInFlight = null;
-        }
+        this.pickInProgress = false;
       }
       return;
     }
@@ -232,33 +275,26 @@ export class PlayerAgent {
     }
   }
 
-  private async buildPattern(
-    selfUid: string,
-    opponentUid: string,
-    currentMatch?: Match,
-  ) {
-    const [cached, h2h] = await Promise.all([
-      this.cache.getMatchesForUser(selfUid),
-      this.cache.getHeadToHead(selfUid, opponentUid),
-    ]);
-    const matches = matchesForOpponentAnalysis(selfUid, opponentUid, cached, h2h);
-    if (
-      currentMatch &&
-      currentMatch.status === "active" &&
-      opponentId(currentMatch, selfUid) === opponentUid
-    ) {
-      matches.unshift(currentMatch);
-    }
-    const profile = await getUserProfile(this.ctx.db, opponentUid);
-    return analyzeMovePattern(selfUid, opponentUid, matches, profile);
-  }
-
   private async onMatchEnded(match: Match): Promise<void> {
+    const endedStartedAt = Date.now();
     const uid = this.ctx.user.uid;
     const opp = opponentId(match, uid);
-    const pattern = opp ? await this.buildPattern(uid, opp) : undefined;
-    const description = describeMatch(match, uid, pattern);
-    await this.cache.saveConcluded(match, description);
-    console.log(`[match-end] ${description}`);
+    const oppName = opp
+      ? match.player1 === opp
+        ? match.player1Name
+        : match.player2Name
+      : "opponent";
+    const profile = opp ? await getUserProfile(this.ctx.db, opp) : null;
+    const dbCtx = await buildMatchDbContext(
+      this.db,
+      uid,
+      opp ?? "",
+      oppName,
+      match,
+      profile,
+    );
+    const description = await describeMatchWithLlm(match, uid, dbCtx);
+    this.db.saveConcluded(match, description);
+    log(`[match-end] ${msSince(endedStartedAt)}ms ${description}`);
   }
 }

@@ -10,7 +10,7 @@
     "test": "npm run build && node --test lib/**/*.test.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

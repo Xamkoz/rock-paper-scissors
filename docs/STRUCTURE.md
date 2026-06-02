@@ -46,10 +46,9 @@ Headless bot that mirrors client matchmaking flows (see [ai/docs/README.md](../a
 
 | Module | Role |
 |--------|------|
-| `src/player/PlayerAgent.ts` | Presence, queue, match listener, ready + moves |
-| `src/cache/matchCache.ts` | Local JSON files (`index.json`, `matches/`, `descriptions/`) |
-| `src/analysis/movePattern.ts` | Opponent R/P/S tendencies |
-| `src/narrative/matchDescription.ts` | One-line post-match recap |
+| `src/player/PlayerAgent.ts` | Queue, match listener, ready + LLM moves |
+| `src/db/matchDatabase.ts` | SQLite match history + descriptions |
+| `src/llm/matchContext.ts` | Head-to-head / recent queries for prompts |
 
 Uses the same callables as the app: `joinMatchmakingQueue`, `confirmMatchReady`, `submitMatchMove`.
 
