@@ -14,7 +14,7 @@ import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
 
 object MatchNotificationHelper {
     private const val MATCH_FOUND_CHANNEL_ID = "match_found"
-    private const val MATCH_FOUND_NOTIFICATION_ID = 2001
+    const val MATCH_FOUND_NOTIFICATION_ID = 2001
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -29,6 +29,7 @@ object MatchNotificationHelper {
         manager.createNotificationChannel(channel)
     }
 
+    /** Ongoing until [dismissMatchFound] — cleared when the game screen opens or the lobby ends. */
     fun showMatchFound(context: Context, matchId: String, opponentName: String?) {
         ensureChannels(context)
         val openAppIntent = MatchLaunchHelper.buildLaunchIntent(context, matchId)
@@ -52,8 +53,11 @@ object MatchNotificationHelper {
             .setSmallIcon(R.drawable.ic_stat_match_found)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
-            .setAutoCancel(true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(false)
             .setContentIntent(pendingIntent)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .also { builder ->
                 SevenSegmentNotificationRenderer.applySegmentedStatusViews(
                     builder = builder,
@@ -64,5 +68,9 @@ object MatchNotificationHelper {
             }
             .build()
         NotificationManagerCompat.from(context).notify(MATCH_FOUND_NOTIFICATION_ID, notification)
+    }
+
+    fun dismissMatchFound(context: Context) {
+        NotificationManagerCompat.from(context).cancel(MATCH_FOUND_NOTIFICATION_ID)
     }
 }

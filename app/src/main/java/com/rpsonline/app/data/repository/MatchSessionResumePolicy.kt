@@ -11,7 +11,8 @@ fun shouldDeferHomeForGameLaunch(
     val matchId = pendingLaunchMatchId ?: return false
     if (matchmakingInProgress) return false
     if (shouldDropPendingGameNavigation(matchId, sessionMatch)) return false
-    return true
+    if (sessionMatch?.id != matchId) return false
+    return shouldOpenPendingGameScreen(matchId, sessionMatch)
 }
 
 /** Home/Monitor queue UI is out of sync after a match or session reset. */

@@ -33,6 +33,17 @@ class MatchSessionResumePolicyTest {
     }
 
     @Test
+    fun deferHome_falseWhileSessionMatchNotLoaded() {
+        assertFalse(
+            shouldDeferHomeForGameLaunch(
+                pendingLaunchMatchId = "m1",
+                matchmakingInProgress = false,
+                sessionMatch = null,
+            ),
+        )
+    }
+
+    @Test
     fun clearStaleQueueUi_whenHomeStillShowsInQueue() {
         assertTrue(
             shouldClearStaleQueueUiOnResume(

@@ -72,6 +72,10 @@ object MatchSessionMonitor {
     private val _matchLaunchUiNudge = MutableStateFlow(0)
     val matchLaunchUiNudge: StateFlow<Int> = _matchLaunchUiNudge.asStateFlow()
 
+    /** Game route is showing this match (used to clear the match-found notification). */
+    private val _visibleMatchScreenId = MutableStateFlow<String?>(null)
+    val visibleMatchScreenId: StateFlow<String?> = _visibleMatchScreenId.asStateFlow()
+
     private var pendingLaunchMatchId: String? = null
     private var enqueueNavigationJob: Job? = null
     private var autoGameNavigationSuppressedMatchId: String? = null
@@ -760,6 +764,12 @@ object MatchSessionMonitor {
     /** Re-emits UI state for collectors after a background launch intent. */
     fun nudgeMatchLaunchUi() {
         _matchLaunchUiNudge.value += 1
+    }
+
+    fun setVisibleMatchScreenId(matchId: String?) {
+        if (_visibleMatchScreenId.value == matchId) return
+        _visibleMatchScreenId.value = matchId
+        notifySessionStateChanged()
     }
 
     private fun notifySessionStateChanged() {

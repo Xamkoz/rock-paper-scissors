@@ -102,7 +102,7 @@ class EloRatingTest {
         assertEquals(1000, preview.myElo)
         assertEquals(1000, preview.opponentElo)
         assertEquals(14, preview.myWinDelta)
-        assertEquals(14, preview.opponentWinDelta)
+        assertEquals(-14, preview.myLossDelta)
     }
 
     @Test
@@ -142,7 +142,29 @@ class EloRatingTest {
         assertEquals(1000, preview.myElo)
         assertEquals(1000, preview.opponentElo)
         assertEquals(13, preview.myWinDelta)
-        assertEquals(-13, preview.opponentWinDelta)
+        assertEquals(-13, preview.myLossDelta)
+    }
+
+    @Test
+    fun liveEloPreview_shutoutAtFourZeroUsesRoundWins() {
+        val match = Match(
+            player1 = "me",
+            player2 = "opp",
+            status = MatchStatus.ACTIVE,
+            matchMode = MatchMode.BO10,
+            player1Elo = 1033,
+            player2Elo = 912,
+            player1Wins = 0,
+            player2Wins = 0,
+            rounds = (1..4).map { n ->
+                RoundResult(roundNumber = n, winner = "me", resolvedAt = n.toLong())
+            },
+        )
+        val preview = match.liveEloPreview("me")!!
+        assertEquals(1033, preview.myElo)
+        assertEquals(912, preview.opponentElo)
+        assertEquals(20, preview.myWinDelta)
+        assertEquals(-20, preview.myLossDelta)
     }
 
     @Test

@@ -15,23 +15,70 @@ import com.rpsonline.app.data.repository.MatchSessionMonitor
  */
 object MatchForegroundLaunchCoordinator {
     private var lastLaunchKey: String? = null
+    private var lastNotifiedMatchId: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun onMatchSessionChanged(context: Context, match: Match?) {
+        val appContext = context.applicationContext
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
+                match,
+                uid,
+                MatchSessionMonitor.visibleMatchScreenId.value,
+            )
+        ) {
+            MatchNotificationHelper.dismissMatchFound(appContext)
+            if (match?.status != MatchStatus.LOBBY) {
+                lastNotifiedMatchId = null
+            }
+        }
         if (AppForegroundTracker.isInForeground) {
             return
         }
-        if (!MatchmakingPreferences(context.applicationContext).isBackgroundUsageEnabled()) {
+        val sessionMatch = match ?: return
+        if (uid == null || !sessionMatch.isParticipant(uid)) return
+
+        when (sessionMatch.status) {
+            MatchStatus.LOBBY -> {
+                maintainJoinMatchNotification(appContext, uid, sessionMatch)
+                handleBackgroundAutoLaunch(appContext, sessionMatch)
+            }
+            MatchStatus.ACTIVE -> handleBackgroundAutoLaunch(appContext, sessionMatch)
+            else -> Unit
+        }
+    }
+
+    private fun maintainJoinMatchNotification(
+        appContext: Context,
+        uid: String,
+        match: Match,
+    ) {
+        val prefs = MatchmakingPreferences(appContext)
+        if (
+            !MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+                appInForeground = false,
+                matchStatus = match.status,
+                matchFoundNotificationsEnabled = prefs.isMatchFoundNotificationsEnabled(),
+                backgroundUsageEnabled = prefs.isBackgroundUsageEnabled(),
+                hasPostNotificationsPermission =
+                    NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
+                matchId = match.id,
+            )
+        ) {
             return
         }
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val sessionMatch = match ?: return
-        if (!sessionMatch.isParticipant(uid)) return
-        when (sessionMatch.status) {
-            MatchStatus.LOBBY, MatchStatus.ACTIVE -> Unit
-            else -> return
-        }
+        lastNotifiedMatchId = match.id
+        MatchNotificationHelper.showMatchFound(
+            appContext,
+            match.id,
+            match.opponentName(uid),
+        )
+    }
 
+    private fun handleBackgroundAutoLaunch(appContext: Context, sessionMatch: Match) {
+        if (!MatchmakingPreferences(appContext).isBackgroundUsageEnabled()) {
+            return
+        }
         val launchKey = "${sessionMatch.id}:${sessionMatch.status}"
         if (launchKey == lastLaunchKey) return
         lastLaunchKey = launchKey
@@ -40,7 +87,6 @@ object MatchForegroundLaunchCoordinator {
         if (sessionMatch.status == MatchStatus.ACTIVE) {
             MatchSessionMonitor.requestGameNavigation(sessionMatch.id)
         }
-        val appContext = context.applicationContext
         mainHandler.post {
             MatchmakingForegroundService.requestLaunchAlert()
             MatchLaunchHelper.launchMatch(appContext, sessionMatch.id)
@@ -49,6 +95,7 @@ object MatchForegroundLaunchCoordinator {
 
     fun clearLaunchDedup() {
         lastLaunchKey = null
+        lastNotifiedMatchId = null
     }
 
     fun noteLaunchAttempted(matchId: String, status: MatchStatus?) {

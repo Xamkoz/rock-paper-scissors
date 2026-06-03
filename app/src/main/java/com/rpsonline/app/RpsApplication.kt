@@ -3,8 +3,11 @@ package com.rpsonline.app
 import android.app.Application
 import android.content.Context
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.platform.AppForegroundTracker
+import com.rpsonline.app.platform.MatchFoundNotificationPolicy
 import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
@@ -30,7 +33,22 @@ class RpsApplication : Application() {
     }
 
     private fun handleSessionStateChanged() {
+        syncJoinMatchNotification()
         MatchmakingBackgroundCoordinator.sync(this)
+    }
+
+    private fun syncJoinMatchNotification() {
+        val match = MatchSessionMonitor.activeMatch.value
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (
+            MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
+                match,
+                uid,
+                MatchSessionMonitor.visibleMatchScreenId.value,
+            )
+        ) {
+            MatchNotificationHelper.dismissMatchFound(this)
+        }
     }
 
     private fun handleQueueRecoveryFailed(@Suppress("UNUSED_PARAMETER") message: String) {

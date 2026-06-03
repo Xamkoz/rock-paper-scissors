@@ -91,8 +91,10 @@ fun GameScreen(
     }
 
     DisposableEffect(matchId) {
+        MatchSessionMonitor.setVisibleMatchScreenId(matchId)
         pulseNotifier?.enterLiveMatch(matchId)
         onDispose {
+            MatchSessionMonitor.setVisibleMatchScreenId(null)
             pulseNotifier?.leaveLiveMatch(matchId)
         }
     }

@@ -47,6 +47,7 @@ import com.rpsonline.app.data.preferences.ThemePreferences
 import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.SegmentedNotificationState
 import com.rpsonline.app.platform.BatteryOptimizationHelper
+import com.rpsonline.app.platform.MatchFoundNotificationPolicy
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.PresenceEngagementTracker
@@ -433,18 +434,22 @@ fun RpsApp() {
         appInForeground,
     ) {
         val match = activeMatch
+        val uid = user?.uid ?: return@LaunchedEffect
         if (
-            !matchFoundNotificationsEnabled ||
-            backgroundUsageEnabled ||
-            match == null ||
-            match.status != MatchStatus.LOBBY ||
-            match.id == lastNotifiedMatchId ||
-            appInForeground
+            !MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
+                appInForeground = appInForeground,
+                matchStatus = match?.status,
+                matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
+                backgroundUsageEnabled = backgroundUsageEnabled,
+                hasPostNotificationsPermission =
+                    NotificationPermissionHelper.hasPostNotificationsPermission(context),
+                lastNotifiedMatchId = lastNotifiedMatchId,
+                matchId = match?.id.orEmpty(),
+            )
         ) {
             return@LaunchedEffect
         }
-        val uid = user?.uid ?: return@LaunchedEffect
-        val opponentName = match.opponentName(uid)
+        val opponentName = match!!.opponentName(uid)
         MatchNotificationHelper.showMatchFound(context, match.id, opponentName)
         lastNotifiedMatchId = match.id
     }

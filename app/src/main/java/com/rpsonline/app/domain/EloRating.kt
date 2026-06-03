@@ -23,9 +23,12 @@ private val ELO_MODE_MULTIPLIERS = mapOf(
 data class EloDeltaPair(val deltaA: Int, val deltaB: Int)
 
 data class LiveEloPreview(
+    /** Pre-match rating stored on the match doc. */
     val myElo: Int,
+    /** ELO change if the viewer wins the series. */
     val myWinDelta: Int,
-    val opponentWinDelta: Int,
+    /** ELO change if the viewer loses the series (zero or negative). */
+    val myLossDelta: Int,
     val opponentElo: Int,
 )
 
@@ -107,7 +110,7 @@ fun Match.resultEloPreview(userId: String): LiveEloPreview? {
     return LiveEloPreview(
         myElo = myRating,
         myWinDelta = myDelta,
-        opponentWinDelta = opponentDelta,
+        myLossDelta = opponentDelta,
         opponentElo = opponentRating,
     )
 }
@@ -142,11 +145,11 @@ fun Match.liveEloPreview(userId: String): LiveEloPreview? {
         player2Wins = player2Wins,
     )
     val myWinDelta = if (userId == player1) ifViewerWins.deltaA else ifViewerWins.deltaB
-    val opponentWinDelta = if (userId == player1) ifViewerLoses.deltaB else ifViewerLoses.deltaA
+    val myLossDelta = if (userId == player1) ifViewerLoses.deltaA else ifViewerLoses.deltaB
     return LiveEloPreview(
         myElo = myRating,
         myWinDelta = myWinDelta,
-        opponentWinDelta = opponentWinDelta,
+        myLossDelta = myLossDelta,
         opponentElo = opponentRating,
     )
 }

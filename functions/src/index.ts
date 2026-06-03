@@ -607,16 +607,14 @@ async function finalizeMatch(
     db.collection("users").doc(match.player2).get(),
   ]);
 
-  const p1Elo = (p1Snap.get("elo") as number) ?? 1000;
-  const p2Elo = (p2Snap.get("elo") as number) ?? 1000;
+  const profileP1Elo = (p1Snap.get("elo") as number) ?? 1000;
+  const profileP2Elo = (p2Snap.get("elo") as number) ?? 1000;
+  const p1Elo = match.player1Elo ?? profileP1Elo;
+  const p2Elo = match.player2Elo ?? profileP2Elo;
   const p1Score = winnerId === match.player1 ? 1 : 0;
 
-  let player1Wins = match.player1Wins;
-  let player2Wins = match.player2Wins;
-  if (options?.forfeit) {
-    player1Wins = countRoundWins(match.rounds, match.player1);
-    player2Wins = countRoundWins(match.rounds, match.player2);
-  }
+  const player1Wins = countRoundWins(match.rounds, match.player1);
+  const player2Wins = countRoundWins(match.rounds, match.player2);
 
   const endReason: MatchEndReason = options?.endReason ?? "normal";
   const elo = calculateMatchElo(p1Elo, p2Elo, p1Score, {
@@ -646,7 +644,7 @@ async function finalizeMatch(
   });
 
   batch.update(db.collection("users").doc(match.player1), {
-    elo: elo.newA,
+    elo: p1Elo + elo.deltaA,
     wins: FieldValue.increment(winnerId === match.player1 ? 1 : 0),
     losses: FieldValue.increment(winnerId === match.player1 ? 0 : 1),
     activeMatchId: FieldValue.delete(),
@@ -659,7 +657,7 @@ async function finalizeMatch(
     ),
   });
   batch.update(db.collection("users").doc(match.player2), {
-    elo: elo.newB,
+    elo: p2Elo + elo.deltaB,
     wins: FieldValue.increment(winnerId === match.player2 ? 1 : 0),
     losses: FieldValue.increment(winnerId === match.player2 ? 0 : 1),
     activeMatchId: FieldValue.delete(),
@@ -685,8 +683,8 @@ async function finalizeMatchDraw(
     db.collection("users").doc(match.player1).get(),
     db.collection("users").doc(match.player2).get(),
   ]);
-  const p1Elo = (p1Snap.get("elo") as number) ?? 1000;
-  const p2Elo = (p2Snap.get("elo") as number) ?? 1000;
+  const p1Elo = match.player1Elo ?? (p1Snap.get("elo") as number) ?? 1000;
+  const p2Elo = match.player2Elo ?? (p2Snap.get("elo") as number) ?? 1000;
 
   const batch = db.batch();
   batch.update(matchRef, {

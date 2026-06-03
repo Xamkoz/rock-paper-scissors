@@ -37,6 +37,8 @@ import com.rpsonline.app.ui.profile.ProfileScreen
 import com.rpsonline.app.ui.result.ResultScreen
 import kotlinx.coroutines.delay
 
+private const val HOME_LAUNCH_DEFER_TIMEOUT_MS = 8_000L
+
 object Routes {
     const val SIGN_IN = "sign_in"
     const val HOME = "home?autoMatchmake={autoMatchmake}"
@@ -69,14 +71,25 @@ private fun NavHostController.navigateToHomeAfterMatch(matchId: String) {
 
 @Composable
 private fun MatchFoundNavigationEffect(navController: NavHostController) {
-    val pendingMatchId by MatchSessionMonitor.pendingGameNavigationMatchId
+    val pendingNavigationId by MatchSessionMonitor.pendingGameNavigationMatchId
         .collectAsStateWithLifecycle()
+    val matchLaunchNudge by MatchSessionMonitor.matchLaunchUiNudge.collectAsStateWithLifecycle()
     val activeMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
     val backStackEntries by navController.currentBackStack.collectAsStateWithLifecycle()
     val currentRoute = backStackEntries.lastOrNull()?.destination?.route
 
-    LaunchedEffect(pendingMatchId, currentRoute, activeMatch?.id, activeMatch?.status) {
-        val matchId = pendingMatchId ?: return@LaunchedEffect
+    LaunchedEffect(
+        pendingNavigationId,
+        matchLaunchNudge,
+        currentRoute,
+        activeMatch?.id,
+        activeMatch?.status,
+    ) {
+        val matchId = MatchSessionMonitor.pendingGameLaunchMatchId() ?: return@LaunchedEffect
+        if (pendingNavigationId == null && shouldOpenPendingGameScreen(matchId, activeMatch)) {
+            MatchSessionMonitor.requestGameNavigation(matchId)
+            return@LaunchedEffect
+        }
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) {
             MatchSessionMonitor.consumeGameNavigation()
             return@LaunchedEffect
@@ -192,6 +205,13 @@ fun RpsNavGraph() {
                 if (shouldDropPendingGameNavigation(launchId, activeMatch)) {
                     MatchSessionMonitor.consumeGameNavigation()
                 }
+            }
+            LaunchedEffect(deferHomeForGameLaunch, matchLaunchNudge) {
+                if (!deferHomeForGameLaunch) return@LaunchedEffect
+                delay(HOME_LAUNCH_DEFER_TIMEOUT_MS)
+                val launchId = MatchSessionMonitor.pendingGameLaunchMatchId() ?: return@LaunchedEffect
+                if (navController.currentDestination?.route?.startsWith("game/") == true) return@LaunchedEffect
+                MatchSessionMonitor.consumeGameNavigation()
             }
             if (isSignedIn) {
                 if (deferHomeForGameLaunch) {

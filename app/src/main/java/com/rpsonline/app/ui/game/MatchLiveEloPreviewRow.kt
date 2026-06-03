@@ -42,7 +42,7 @@ fun MatchLiveEloPreviewRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         EloPreviewDeltaText(
-            delta = preview.opponentWinDelta,
+            delta = preview.myLossDelta,
             style = style,
             colorDeltasBySign = colorDeltasBySign,
         )
