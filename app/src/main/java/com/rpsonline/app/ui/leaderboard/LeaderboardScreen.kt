@@ -230,7 +230,7 @@ private fun LeaderboardListItem(
         nameColor = leaderboardPodiumRankLabelColor(rank, darkTheme),
         emphasized = isCurrentUser,
         accentStripeTop = medalStripe,
-        accentStripeBottom = medalStripe,
+        accentStripeBottom = if (isCurrentUser) null else medalStripe,
         onClick = onClick,
     )
 }

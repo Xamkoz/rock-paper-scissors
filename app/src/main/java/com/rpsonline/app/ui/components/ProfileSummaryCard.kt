@@ -77,13 +77,19 @@ fun ProfileSummaryCard(
         onClick != null -> 2.dp
         else -> 1.dp
     }
-    val stripeTop = accentStripeTop ?: when {
+    val splitMedalAndYouStripe = accentStripeTop != null && emphasized
+    val stripeTop = when {
+        splitMedalAndYouStripe -> accentStripeTop
+        accentStripeTop != null -> accentStripeTop
         rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
         emphasized -> youColor
         onClick != null -> otherStripeColor
         else -> null
     }
-    val stripeBottom = accentStripeBottom ?: accentStripeTop ?: when {
+    val stripeBottom = when {
+        splitMedalAndYouStripe -> youColor
+        accentStripeBottom != null -> accentStripeBottom
+        accentStripeTop != null -> accentStripeTop
         rowStyle.isOnline -> rowStyle.accentStripeColor ?: youColor
         emphasized -> youColor
         onClick != null -> otherStripeColor
@@ -154,21 +160,23 @@ private fun ProfileSummaryAccentStripe(
         )
         return
     }
-    Column(
+    Box(
         modifier = Modifier
             .width(ProfileCardAccentWidth)
             .fillMaxHeight(),
     ) {
         Box(
             modifier = Modifier
-                .weight(1f)
                 .fillMaxWidth()
+                .fillMaxHeight(0.5f)
+                .align(Alignment.TopCenter)
                 .background(topColor),
         )
         Box(
             modifier = Modifier
-                .weight(1f)
                 .fillMaxWidth()
+                .fillMaxHeight(0.5f)
+                .align(Alignment.BottomCenter)
                 .background(bottomColor),
         )
     }
