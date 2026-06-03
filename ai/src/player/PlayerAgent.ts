@@ -38,11 +38,15 @@ import {
 } from "../firebase/matchDoc.js";
 import type { MatchDatabase } from "../db/matchDatabase.js";
 import { buildMatchDbContext } from "../llm/matchContext.js";
-import { getLlmConfig } from "../llm/client.js";
+import { getLlmConfig, setActiveLlmModel } from "../llm/client.js";
+import {
+  getLlmModelRankings,
+  selectLlmModelForMatch,
+} from "../llm/llmModelRanking.js";
 import { formatMovePickLogLine, pickMoveWithLlm } from "../llm/pickMove.js";
 import { pickMoveContextLimits } from "../llm/movePrompt.js";
 import { pickTimeBudgetMs } from "../llm/compactMatch.js";
-import { pickMoveTimeoutCapMs } from "../llm/timing.js";
+import { padPickThinkTime, pickMoveTimeoutCapMs, pickThinkMultiplier } from "../llm/timing.js";
 import { prepareTacticsForMatch } from "../llm/prepareTactics.js";
 import {
   formatTacticalIntelCompact,
@@ -54,7 +58,16 @@ import {
   formatMatchTacticalScoreLog,
   formatPrimaryLeaderboardLog,
 } from "../llm/tacticalIntelTracking.js";
-import { describeMatchWithLlm } from "../llm/describeMatch.js";
+import {
+  formatRoundSignalScoreLog,
+  scoreAllRoundsInMatch,
+} from "../llm/intelSignalRoundScoring.js";
+import {
+  buildDescribeFacts,
+  buildDescribeIntelReasoning,
+  describeMatchWithLlm,
+  formatIntelReasoningSentence,
+} from "../llm/describeMatch.js";
 import { error, log, msSince, warn } from "../log.js";
 import type { Match } from "../types.js";
 
@@ -79,6 +92,8 @@ export class PlayerAgent {
   private matchTacticalIntel: TacticalIntel | null = null;
   private matchTacticsFromFallback = false;
   private tacticsPrepMatchId: string | null = null;
+  /** LLM model locked for the current match (all rounds + describe). */
+  private matchLlmModelForId: string | null = null;
   /** Match id that needs a pick once the current pick pipeline finishes. */
   private pickDeferredMatchId: string | null = null;
 
@@ -329,6 +344,28 @@ export class PlayerAgent {
     this.matchTacticsForId = null;
     this.matchTacticalIntel = null;
     this.matchTacticsFromFallback = false;
+    this.matchLlmModelForId = null;
+  }
+
+  /** One model per match; under-sampled models get priority until fair share. */
+  private ensureLlmModelForMatch(matchId: string): string {
+    if (this.matchLlmModelForId === matchId) {
+      return getLlmConfig().model;
+    }
+    const ranked = getLlmModelRankings();
+    const historical = this.db.getLlmModelMatchStats();
+    const model =
+      ranked.length > 0
+        ? selectLlmModelForMatch(ranked, historical)
+        : getLlmConfig().model;
+    setActiveLlmModel(model);
+    this.matchLlmModelForId = matchId;
+    const hist = historical.find((h) => h.model === model);
+    log(
+      `[llm] match=${matchId} model=${model}` +
+        (hist ? ` (${hist.matches} archived matches)` : ""),
+    );
+    return model;
   }
 
   private detachMatch(): void {
@@ -395,6 +432,9 @@ export class PlayerAgent {
       try {
         const oppName =
           match.player1 === opp ? match.player1Name : match.player2Name;
+        if (roundNumber === 1) {
+          this.ensureLlmModelForMatch(matchId);
+        }
         const profile = await getUserProfile(this.ctx.db, opp);
         const contextStartedAt = Date.now();
         let dbCtx = await buildMatchDbContext(
@@ -406,6 +446,11 @@ export class PlayerAgent {
           profile,
           pickMoveContextLimits,
         );
+        dbCtx = {
+          ...dbCtx,
+          signalPickStats: this.db.getPickIntelCitationStats(),
+          signalLeanStats: this.db.getSignalLeanStats(),
+        };
         const contextMs = msSince(contextStartedAt);
         let tacticsMs = 0;
         if (this.matchTacticsForId === matchId && this.matchTactics) {
@@ -427,22 +472,28 @@ export class PlayerAgent {
           this.matchTacticsFromFallback = fromFallback;
           this.db.saveTacticalIntelSnapshot(matchId, intel, fromFallback);
           dbCtx = { ...dbCtx, tactics, tacticalIntel: intel };
+          log(`[tactics:intel] ${formatTacticalIntelCompact(intel)}`);
           log(
             `[tactics] ${tacticsMs}ms${fromFallback ? (tacticsMs === 0 ? " deterministic" : " fallback") : ""} ${tactics}`,
           );
         }
         const cap = pickMoveTimeoutCapMs();
         const budgetMs = pickTimeBudgetMs(match);
-        const pickBudgetMs =
+        const mult = pickThinkMultiplier();
+        const pickPhaseMs =
           budgetMs != null
             ? Math.min(cap, Math.max(3000, budgetMs - tacticsMs))
             : cap;
-        const { choice, reason, intelSource, intelSignal, pickMs, llmModel } =
+        const pickBudgetMs = Math.max(3000, Math.floor(pickPhaseMs / mult));
+        const { choice, reason, intelSource, intelSignal, pickMs, llmModel, llmResponse } =
           await pickMoveWithLlm(
           match,
           dbCtx,
           pickBudgetMs,
         );
+        const pickLog = formatMovePickLogLine({ choice, reason, intelSource, intelSignal });
+        log(`[move:reason] r${roundNumber} ${choice} vs ${oppName} ${pickLog}`);
+        const thinkPadMs = await padPickThinkTime(pickMs, pickPhaseMs);
         const fresh = await getMatch(this.ctx.db, matchId);
         if (
           !fresh ||
@@ -486,8 +537,18 @@ export class PlayerAgent {
           const intelLine = dbCtx.tacticalIntel
             ? ` | ${formatTacticalIntelCompact(dbCtx.tacticalIntel)}`
             : "";
+          const rawLlm =
+            process.env.LLM_LOG_RESPONSES === "false" ||
+            process.env.MOVE_LOG_RAW_LLM === "true";
+          const llmSuffix = rawLlm
+            ? ` llm=${llmResponse.replace(/\s+/g, " ").trim()}`
+            : "";
           log(
-            `[move] ${choice} round ${roundNumber} vs ${oppName} ${totalMs}ms (ctx=${contextMs} tactics=${tacticsMs} pick=${pickMs} submit=${submitMs}) ${formatMovePickLogLine({ choice, reason, intelSource, intelSignal })}${intelLine}`,
+            `[move] r${roundNumber} ${choice} vs ${oppName} ${totalMs}ms (ctx=${contextMs} tactics=${tacticsMs} pick=${pickMs} thinkPad=${thinkPadMs} submit=${submitMs})${llmSuffix}${intelLine}`,
+          );
+        } else {
+          warn(
+            `[move] r${roundNumber} ${choice} vs ${oppName} submit failed ${submitMs}ms (pick=${pickMs}ms)`,
           );
         }
       } catch (err) {
@@ -538,6 +599,7 @@ export class PlayerAgent {
     this.tacticsPrepMatchId = matchId;
     void (async () => {
       try {
+        this.ensureLlmModelForMatch(matchId);
         const oppName =
           match.player1 === opp ? match.player1Name : match.player2Name;
         const profile = await getUserProfile(this.ctx.db, opp);
@@ -646,6 +708,26 @@ export class PlayerAgent {
         null,
         profile,
       );
+      if (
+        this.matchTacticalIntel &&
+        intelOutcome &&
+        this.matchTacticsForId === match.id
+      ) {
+        const scoreCtx = { ...dbCtx, tacticalIntel: this.matchTacticalIntel };
+        const signalRows = scoreAllRoundsInMatch(archived, uid, scoreCtx);
+        this.db.saveRoundSignalScores(archived.id, signalRows);
+        log(`[signal-score] ${formatRoundSignalScoreLog(signalRows, archived.id)}`);
+        const facts = buildDescribeFacts(archived, uid, dbCtx);
+        log(
+          `[match-end:intel] ${formatIntelReasoningSentence(
+            buildDescribeIntelReasoning(
+              this.matchTacticalIntel,
+              intelOutcome,
+              facts.analysis.opponentDominant,
+            ),
+          )}`,
+        );
+      }
       const description = await describeMatchWithLlm(archived, uid, dbCtx, {
         tacticalIntel:
           this.matchTacticsForId === match.id ? this.matchTacticalIntel : null,

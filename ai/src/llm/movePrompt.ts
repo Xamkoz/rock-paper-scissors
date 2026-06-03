@@ -3,9 +3,30 @@ import type { Match, UserProfile } from "../types.js";
 import type { MatchDbContext } from "./matchContext.js";
 import { formatTacticalIntelCompact } from "./tacticalIntel.js";
 import { compactMatchForPick } from "./compactMatch.js";
-import { MOVE_PICK_JSON_EXAMPLE, MOVE_PICK_JSON_SHAPE } from "./parse.js";
-import { buildMoveIntelCatalog, glossaryForCatalog } from "./moveIntelCatalog.js";
+import { movePickJsonExample, MOVE_PICK_JSON_SHAPE } from "./parse.js";
+import {
+  buildMoveIntelCatalog,
+  glossaryForCatalog,
+  type IntelCatalogEntry,
+} from "./moveIntelCatalog.js";
+import { buildIntelCitationHints, type PickIntelHintContext } from "./moveIntelHints.js";
+import { buildMatchScoreMeta } from "./matchMeta.js";
+import {
+  analyzeThrowPatternFromPairs,
+  detectOpponentRepeat,
+  type RpsMove,
+} from "./throwPatternIntel.js";
 import type { TacticalIntel } from "./tacticalIntel.js";
+
+const INTEL_PICK_RULES = [
+  "Ground every pick in intel: use citeHints + patternRead + intelCatalog.",
+  "Pick the citeHints entry that matches your read — vary intelSignal across rounds (not always dominant).",
+  "intelSource must be a catalog source (lifetime, h2h, recentVsOpponent, global, thisMatch) — never patternRead or preparedTactics as the source name.",
+  "intelSource and intelSignal are separate JSON catalog keys (e.g. thisMatch + repeat) — not source/signal slash, not hint text.",
+  "intelSource+intelSignal must match intelCatalog; reason must name that specific signal.",
+  "reason: one short sentence for THIS choice only — do not copy preparedTactics; choice must match any move named in reason.",
+  "seriesScore in the JSON is context only — never cite matchScore or clinchPressure; cite throw/pattern intel from intelCatalog.",
+];
 
 /** Round 1 (no throws yet) needs full history; later rounds rely on this-match state + cached plan. */
 export function useCompactMovePrompt(round: number, resolvedRoundsInMatch: number): boolean {
@@ -13,23 +34,27 @@ export function useCompactMovePrompt(round: number, resolvedRoundsInMatch: numbe
 }
 
 export function buildMoveSystemPrompt(round: number, resolvedRoundsInMatch = 0): string {
+  const intelRules = INTEL_PICK_RULES.join(" ");
+  const example = movePickJsonExample(round);
   if (useCompactMovePrompt(round, resolvedRoundsInMatch)) {
     return [
       "Pick the bot's next rock-paper-scissors move.",
       "Rules: ROCK beats SCISSORS, PAPER beats ROCK, SCISSORS beats PAPER.",
-      "JSON: score = series wins; thisMatchRounds = throws so far; preparedTactics = pre-match plan; read = opponent lean.",
-      "Adapt to actual throws in thisMatchRounds; avoid blindly repeating lastBotMove.",
-      `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence; citations before reason).`,
-      `Example: ${MOVE_PICK_JSON_EXAMPLE}`,
+      intelRules,
+      "JSON: citeHints = suggested citations; patternRead = primary pattern read; intelCatalog = allowed pairs.",
+      "Adapt to thisMatchRounds; avoid blindly repeating lastBotMove.",
+      `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence citing the intel read).`,
+      `Example: ${example}`,
       "intelSource + intelSignal must match intelCatalog.",
     ].join(" ");
   }
   return [
     "Pick the bot's next rock-paper-scissors move to beat the opponent.",
     "Rules: ROCK beats SCISSORS, PAPER beats ROCK, SCISSORS beats PAPER.",
-    "Use tacticalIntel.read/openWith, preparedTactics, and thisMatchRounds; avoid repeating lastBotMove unless adapting.",
-    `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence; put citations before reason).`,
-    `Example: ${MOVE_PICK_JSON_EXAMPLE}`,
+    intelRules,
+    "Use citeHints, patternRead, preparedTactics, and thisMatchRounds.",
+    `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence citing the intel read).`,
+    `Example: ${example}`,
     "intelSource + intelSignal must match intelCatalog.",
   ].join(" ");
 }
@@ -38,6 +63,56 @@ const CROSS_MATCH_MAX_PAIRS = 40;
 /** Raw cross-game pairs only when tacticalIntel is missing (move pick). */
 const MOVE_PICK_CROSS_MAX_PAIRS = 8;
 const PREPARED_TACTICS_MAX_CHARS = 220;
+
+/** Actionable one-liner so the model treats intel as mandatory, not optional context. */
+export function buildIntelPickDirective(
+  ctx: MatchDbContext,
+  catalog: IntelCatalogEntry[],
+  citeHints: ReturnType<typeof buildIntelCitationHints>,
+): string {
+  const parts: string[] = [
+    "Required: pick one citeHints row (source+signal) that matches your counter.",
+  ];
+  if (citeHints.length > 0) {
+    const list = citeHints
+      .map((h) => `source=${h.source} signal=${h.signal}: ${h.hint}`)
+      .join(" | ");
+    parts.push(`citeHints: ${list}`);
+  } else if (ctx.tacticalIntel?.primary) {
+    const p = ctx.tacticalIntel.primary;
+    parts.push(
+      `Fallback read ${ctx.tacticalIntel.primarySource}: ${p.dominant} → ${p.openWith}.`,
+    );
+  }
+  if (catalog.length === 0) {
+    parts.push("Use thisMatchRounds and preparedTactics.");
+  }
+  return parts.join(" ");
+}
+
+function attachIntelPickPayload(
+  payload: Record<string, unknown>,
+  match: Match,
+  ctx: MatchDbContext,
+  thisMatchRounds: Array<{ bot?: string; opponent?: string }>,
+): void {
+  const pickIntel = buildMoveIntelCatalogForPick(match, ctx);
+  const hintCtx: PickIntelHintContext = {
+    thisMatchPatterns: pickIntel.thisMatchPatterns,
+    thisMatchRepeat: pickIntel.thisMatchRepeat,
+  };
+  const citeHints = buildIntelCitationHints(
+    ctx,
+    match.currentRound,
+    thisMatchRounds,
+    pickIntel.catalog,
+    hintCtx,
+  );
+  payload.intelCatalog = pickIntel.catalog;
+  payload.intelSignalGlossary = pickIntel.glossary;
+  payload.citeHints = citeHints;
+  payload.intelDirective = buildIntelPickDirective(ctx, pickIntel.catalog, citeHints);
+}
 
 /** ROCK | PAPER | SCISSORS for prompts and output. */
 export function moveCode(move?: string): string | undefined {
@@ -115,7 +190,9 @@ function slimTacticalIntelForMove(intel: TacticalIntel): Record<string, unknown>
       ? intel.h2h
       : intel.primarySource === "recentVsOpponent"
         ? intel.recentVsOpponent
-        : intel.lifetime;
+        : intel.primarySource === "global"
+          ? intel.global
+          : intel.lifetime;
   const patterns = primarySlice?.patterns;
 
   const out: Record<string, unknown> = {
@@ -150,6 +227,22 @@ function slimTacticalIntelForMove(intel: TacticalIntel): Record<string, unknown>
       skew: patterns.skew,
       secondary: patterns.secondary,
       repeatPct: patterns.repeatRatePct,
+      ...(patterns.transitions.length > 0
+        ? {
+            topTransition: {
+              after: patterns.transitions[0]!.after,
+              nextMix: patterns.transitions[0]!.next,
+            },
+          }
+        : {}),
+      ...(patterns.responseToBot.length > 0
+        ? {
+            topResponseToBot: {
+              whenBot: patterns.responseToBot[0]!.whenBotThrew,
+              oppNext: patterns.responseToBot[0]!.opponentNext,
+            },
+          }
+        : {}),
       ...(patterns.lastWindow.size > 0
         ? { lastWindow: { size: patterns.lastWindow.size, mix: patterns.lastWindow.distribution } }
         : {}),
@@ -303,6 +396,22 @@ function compactTacticalRead(ctx: MatchDbContext): Record<string, unknown> | und
   return out;
 }
 
+function seriesScoreForPick(
+  match: Match,
+  botWins: number,
+  opponentWins: number,
+): Record<string, unknown> {
+  const meta = buildMatchScoreMeta(match.matchMode, botWins, opponentWins);
+  return {
+    bot: meta.botWins,
+    opponent: meta.opponentWins,
+    botWinsNeeded: meta.botWinsNeeded,
+    opponentWinsNeeded: meta.opponentWinsNeeded,
+    clinch: meta.clinchPressure,
+    leader: meta.leader,
+  };
+}
+
 /** Later rounds: live match + plan only (static history sent on round 1). */
 export function buildCompactMoveUserPrompt(match: Match, ctx: MatchDbContext): string {
   const snap = compactMatchForPick(match, ctx.botUid);
@@ -318,7 +427,7 @@ export function buildCompactMoveUserPrompt(match: Match, ctx: MatchDbContext): s
     bot: snap.botName,
     opponent: ctx.opponentName,
     round: snap.round,
-    score: { bot: snap.botWins, opponent: snap.opponentWins },
+    seriesScore: seriesScoreForPick(match, snap.botWins as number, snap.opponentWins as number),
     thisMatchRounds,
   };
 
@@ -326,12 +435,14 @@ export function buildCompactMoveUserPrompt(match: Match, ctx: MatchDbContext): s
   const matchLean = dominantOpponentMoveThisMatch(thisMatchRounds);
   if (matchLean) payload.opponentLeanThisMatch = matchLean;
   if (ctx.tactics?.trim()) payload.preparedTactics = ctx.tactics.trim();
-  const read = compactTacticalRead(ctx);
-  if (read) payload.read = read;
+  if (ctx.tacticalIntel) {
+    payload.patternRead = slimTacticalIntelForMove(ctx.tacticalIntel);
+  } else {
+    const read = compactTacticalRead(ctx);
+    if (read) payload.read = read;
+  }
 
-  const { catalog } = buildMoveIntelCatalogForPick(match, ctx);
-  payload.intelCatalog = catalog;
-  payload.intelSignalGlossary = glossaryForCatalog(catalog);
+  attachIntelPickPayload(payload, match, ctx, thisMatchRounds);
 
   return JSON.stringify(payload);
 }
@@ -352,7 +463,7 @@ export function buildFullMoveUserPrompt(match: Match, ctx: MatchDbContext): stri
     bot: snap.botName,
     opponent: ctx.opponentName,
     round: snap.round,
-    score: { bot: snap.botWins, opponent: snap.opponentWins },
+    seriesScore: seriesScoreForPick(match, snap.botWins as number, snap.opponentWins as number),
     thisMatchRounds,
     opponentLifetime: slimOpponentLifetime(ctx.opponentProfile),
     priorMatches: formatPriorMatches(ctx.headToHead, 1, 2),
@@ -363,34 +474,52 @@ export function buildFullMoveUserPrompt(match: Match, ctx: MatchDbContext): stri
     payload.preparedTactics = truncatePreparedTactics(ctx.tactics);
   }
   if (ctx.tacticalIntel) {
-    payload.tacticalIntel = slimTacticalIntelForMove(ctx.tacticalIntel);
+    payload.patternRead = slimTacticalIntelForMove(ctx.tacticalIntel);
   } else if (snap.round === 1 && thisMatchRounds.length === 0) {
     const { throwPairs } = buildCrossMatchHistory(ctx, MOVE_PICK_CROSS_MAX_PAIRS);
     const letters = compactThrowPairLetters(throwPairs);
     if (letters.length > 0) payload.crossPairs = letters;
   }
 
-  const { catalog } = buildMoveIntelCatalogForPick(match, ctx);
-  payload.intelCatalog = catalog;
-  payload.intelSignalGlossary = glossaryForCatalog(catalog);
+  attachIntelPickPayload(payload, match, ctx, thisMatchRounds);
 
   return JSON.stringify(payload);
 }
 
-/** Catalog for pick validation (must match the user prompt for this round). */
 export function buildMoveIntelCatalogForPick(
   match: Match,
   ctx: MatchDbContext,
-): ReturnType<typeof buildMoveIntelCatalog> {
+): ReturnType<typeof buildMoveIntelCatalog> & {
+  thisMatchPatterns: ReturnType<typeof analyzeThrowPatternFromPairs>;
+  thisMatchRepeat?: { move: string; streak: number };
+} {
   const snap = compactMatchForPick(match, ctx.botUid);
-  const rounds = (
+  const thisMatchPairs = (
     snap.priorRounds as Array<{ bot?: string; opponent?: string }>
   ).map((r) => ({
+    bot: moveCode(r.bot),
     opponent: moveCode(r.opponent),
   }));
-  return buildMoveIntelCatalog(ctx, {
-    opponentLeanThisMatch: dominantOpponentMoveThisMatch(rounds),
+  const opponentThrows = thisMatchPairs
+    .map((p) => p.opponent)
+    .filter((o): o is RpsMove => o === "ROCK" || o === "PAPER" || o === "SCISSORS");
+  const thisMatchPatterns =
+    thisMatchPairs.length >= 2 ? analyzeThrowPatternFromPairs(thisMatchPairs) : null;
+  const thisMatchRepeat = detectOpponentRepeat(opponentThrows);
+
+  const catalogResult = buildMoveIntelCatalog(ctx, {
+    opponentLeanThisMatch: dominantOpponentMoveThisMatch(
+      opponentThrows.map((o) => ({ opponent: o })),
+    ),
+    thisMatchPatterns,
+    thisMatchRepeat,
   });
+
+  return {
+    ...catalogResult,
+    thisMatchPatterns,
+    thisMatchRepeat,
+  };
 }
 
 /** Structured JSON for the move-pick LLM (explicit bot vs opponent). */
@@ -414,4 +543,4 @@ export function formatMoveIntelLog(ctx: MatchDbContext): string {
 /** @deprecated Use buildMoveSystemPrompt(round) — kept for post-start warmup import site. */
 export const MOVE_SYSTEM_PROMPT = buildMoveSystemPrompt(1);
 
-export const pickMoveContextLimits = { headToHead: 5, recentBot: 8 };
+export const pickMoveContextLimits = { headToHead: 5, recentBot: 8, globalBot: 100 };

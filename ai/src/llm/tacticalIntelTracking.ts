@@ -2,7 +2,7 @@ import type { Match } from "../types.js";
 import { moveCode } from "./movePrompt.js";
 import type { TacticalIntel, TendencySlice } from "./tacticalIntel.js";
 
-export type IntelSource = "lifetime" | "h2h" | "recentVsOpponent";
+export type IntelSource = "lifetime" | "h2h" | "recentVsOpponent" | "global";
 
 export interface SourceLeanScore {
   source: IntelSource;
@@ -23,9 +23,12 @@ export interface TacticalIntelOutcome {
   h2hLeanRounds: number;
   recentLeanHits: number;
   recentLeanRounds: number;
+  globalLeanHits: number;
+  globalLeanRounds: number;
   lifetimeOpenHit: boolean | null;
   h2hOpenHit: boolean | null;
   recentOpenHit: boolean | null;
+  globalOpenHit: boolean | null;
   bestLeanSource: IntelSource | null;
   primaryMatchedBest: boolean;
 }
@@ -93,6 +96,7 @@ export function evaluateTacticalIntelOutcome(
   const life = scoreSlice(intel.lifetime, opponentThrows, round1Bot);
   const h2h = scoreSlice(intel.h2h, opponentThrows, round1Bot);
   const recent = scoreSlice(intel.recentVsOpponent, opponentThrows, round1Bot);
+  const global = scoreSlice(intel.global, opponentThrows, round1Bot);
 
   const leanScores: SourceLeanScore[] = [
     {
@@ -117,6 +121,14 @@ export function evaluateTacticalIntelOutcome(
         recent.leanRounds > 0 ? Math.round((recent.leanHits / recent.leanRounds) * 100) : 0,
       openHit: recent.openHit,
     },
+    {
+      source: "global",
+      leanHits: global.leanHits,
+      leanRounds: global.leanRounds,
+      leanPct:
+        global.leanRounds > 0 ? Math.round((global.leanHits / global.leanRounds) * 100) : 0,
+      openHit: global.openHit,
+    },
   ];
 
   const best = bestLeanSource(leanScores);
@@ -139,9 +151,12 @@ export function evaluateTacticalIntelOutcome(
     h2hLeanRounds: h2h.leanRounds,
     recentLeanHits: recent.leanHits,
     recentLeanRounds: recent.leanRounds,
+    globalLeanHits: global.leanHits,
+    globalLeanRounds: global.leanRounds,
     lifetimeOpenHit: life.openHit,
     h2hOpenHit: h2h.openHit,
     recentOpenHit: recent.openHit,
+    globalOpenHit: global.openHit,
     bestLeanSource: best,
     primaryMatchedBest,
   };
@@ -159,6 +174,7 @@ export function formatMatchTacticalScoreLog(
     `life-lean=${lean(outcome.lifetimeLeanHits, outcome.lifetimeLeanRounds)}`,
     `h2h-lean=${lean(outcome.h2hLeanHits, outcome.h2hLeanRounds)}`,
     `recent-lean=${lean(outcome.recentLeanHits, outcome.recentLeanRounds)}`,
+    `global-lean=${lean(outcome.globalLeanHits, outcome.globalLeanRounds)}`,
     outcome.bestLeanSource ? `best=${outcome.bestLeanSource}` : null,
     outcome.primaryMatchedBest ? "primary=best" : null,
   ]

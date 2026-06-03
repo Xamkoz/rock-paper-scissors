@@ -13,6 +13,8 @@ import type { TacticalIntel } from "../llm/tacticalIntel.js";
 import type { TacticalIntelOutcome } from "../llm/tacticalIntelTracking.js";
 import { initSchema, pairKey } from "./schema.js";
 import { getPickIntelCitationStats } from "./tacticalIntelCitationDb.js";
+import { getSignalLeanStats, saveRoundSignalScores } from "./roundSignalScoresDb.js";
+import { getLlmModelMatchStats } from "./llmModelDb.js";
 import {
   getPrimaryMatchedBestStats,
   getTacticalIntelLeanAccuracy,
@@ -20,6 +22,7 @@ import {
   saveTacticalIntelOutcome as persistTacticalIntelOutcome,
   saveTacticalIntelSnapshot as persistTacticalIntelSnapshot,
 } from "./tacticalIntelDb.js";
+import type { RoundSignalScoreRow } from "../llm/intelSignalRoundScoring.js";
 import type { RoundTimingRecord } from "./timing.js";
 
 function isConcluded(status: MatchStatus): boolean {
@@ -76,6 +79,18 @@ export class MatchDatabase {
 
   getPickIntelCitationStats() {
     return getPickIntelCitationStats(this.db);
+  }
+
+  getSignalLeanStats() {
+    return getSignalLeanStats(this.db);
+  }
+
+  saveRoundSignalScores(matchId: string, rows: RoundSignalScoreRow[]) {
+    saveRoundSignalScores(this.db, matchId, rows);
+  }
+
+  getLlmModelMatchStats() {
+    return getLlmModelMatchStats(this.db);
   }
 
   recordRoundTiming(record: RoundTimingRecord): void {

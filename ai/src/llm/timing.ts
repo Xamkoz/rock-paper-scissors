@@ -5,6 +5,13 @@ export function pickSubmitReserveMs(): number {
   return Number.isFinite(ms) && ms >= 1000 ? ms : 2500;
 }
 
+/** Wall-clock multiplier for move pick (LLM time + post-pick pause). Default 1.2 = LLM time + 20% pause. */
+export function pickThinkMultiplier(): number {
+  const raw = process.env.LLM_PICK_THINK_MULTIPLIER?.trim();
+  const n = raw ? Number(raw) : 1.2;
+  return Number.isFinite(n) && n >= 1 ? n : 1.2;
+}
+
 /** Cap on move-pick LLM timeout (ms). Honors legacy LLM_PICK_MIN_BUDGET_MS env name. */
 export function pickMoveTimeoutCapMs(): number {
   const raw =
@@ -77,4 +84,23 @@ export function tacticsBudgetMs(): number {
   const raw = process.env.LLM_TACTICS_BUDGET_MS?.trim();
   const n = raw ? Number(raw) : 30_000;
   return Number.isFinite(n) && n >= 3000 ? n : 30_000;
+}
+
+export function delayMs(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Pause after LLM returns so total pick inference time ≈ pickMs × multiplier. */
+export async function padPickThinkTime(
+  pickMs: number,
+  pickPhaseBudgetMs: number,
+): Promise<number> {
+  const mult = pickThinkMultiplier();
+  if (mult <= 1 || pickMs <= 0) return 0;
+  const targetPad = Math.round(pickMs * (mult - 1));
+  const maxPad = Math.max(0, pickPhaseBudgetMs - pickMs);
+  const padMs = Math.min(targetPad, maxPad);
+  if (padMs > 0) await delayMs(padMs);
+  return padMs;
 }

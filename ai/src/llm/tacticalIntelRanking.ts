@@ -3,7 +3,7 @@ import type { TacticalIntel, TendencySlice } from "./tacticalIntel.js";
 import type { RpsMove } from "./throwPatternIntel.js";
 import { formatTableLines } from "../log/startupRankLog.js";
 
-export type IntelSourceKey = "lifetime" | "h2h" | "recentVsOpponent";
+export type IntelSourceKey = "lifetime" | "h2h" | "recentVsOpponent" | "global";
 
 export interface IntelSourceEfficiency {
   source: IntelSourceKey;
@@ -40,6 +40,7 @@ function historicalPrimaryFor(
 function sliceFor(intel: TacticalIntel, source: IntelSourceKey): TendencySlice | undefined {
   if (source === "lifetime") return intel.lifetime;
   if (source === "h2h") return intel.h2h;
+  if (source === "global") return intel.global;
   return intel.recentVsOpponent;
 }
 
@@ -98,7 +99,7 @@ export function rankHistoricalIntelSourcesByEfficiency(
   historicalLean: LeanAccuracyRow[],
   historicalPrimary: PrimarySourceLeaderboardRow[],
 ): IntelSourceEfficiency[] {
-  const keys: IntelSourceKey[] = ["lifetime", "h2h", "recentVsOpponent"];
+  const keys: IntelSourceKey[] = ["lifetime", "h2h", "recentVsOpponent", "global"];
 
   const ranked = keys
     .map((source) => {
@@ -106,11 +107,10 @@ export function rankHistoricalIntelSourcesByEfficiency(
       const prim = historicalPrimaryFor(source, historicalPrimary);
       const hasLean = (lean?.leanRounds ?? 0) > 0;
       const hasPrimary = (prim?.matches ?? 0) > 0;
-      const available = hasLean || hasPrimary;
       return {
         source,
         rank: 0,
-        available,
+        available: hasLean || hasPrimary,
         sampleThrows: 0,
         dominant: null,
         openWith: null,
@@ -123,8 +123,16 @@ export function rankHistoricalIntelSourcesByEfficiency(
         efficiencyScore: scoreHistoricalSource(lean, prim),
       };
     })
-    .filter((r) => r.available)
-    .sort((a, b) => b.efficiencyScore - a.efficiencyScore);
+    .sort((a, b) => {
+      const aData = a.leanRoundsHistorical > 0 || a.primaryMatches > 0;
+      const bData = b.leanRoundsHistorical > 0 || b.primaryMatches > 0;
+      if (aData !== bData) return aData ? -1 : 1;
+      return b.efficiencyScore - a.efficiencyScore;
+    });
+
+  if (!ranked.some((r) => r.leanRoundsHistorical > 0 || r.primaryMatches > 0)) {
+    return [];
+  }
 
   return ranked.map((r, i) => ({ ...r, rank: i + 1 }));
 }
@@ -133,6 +141,7 @@ const SOURCE_LABEL: Record<IntelSourceKey, string> = {
   lifetime: "Lifetime",
   h2h: "Head-to-head",
   recentVsOpponent: "Recent vs opp",
+  global: "Global",
 };
 
 export function formatHistoricalIntelSourcesRankedLines(
@@ -173,7 +182,7 @@ export function rankIntelSourcesByEfficiency(
   historicalLean: LeanAccuracyRow[],
   historicalPrimary: PrimarySourceLeaderboardRow[],
 ): IntelSourceEfficiency[] {
-  const keys: IntelSourceKey[] = ["lifetime", "h2h", "recentVsOpponent"];
+  const keys: IntelSourceKey[] = ["lifetime", "h2h", "recentVsOpponent", "global"];
 
   const ranked = keys
     .map((source) => {

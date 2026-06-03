@@ -1,44 +1,90 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildStaticIntelCatalog } from "./moveIntelCatalog.js";
+import { allIntelSignals } from "./moveIntelCatalog.js";
+import type { MoveIntelSignal } from "./parse.js";
 import {
-  formatIntelCitationCatalogLog,
-  rankAllIntelCitationsByEfficiency,
+  formatIntelSignalsRankedLog,
+  intelSignalMinPicksExploration,
+  pickExplorationSignals,
+  rankIntelSignalsByPickEfficiency,
+  aggregatePicksBySignal,
+  aggregateSignalSamples,
 } from "./intelCitationRanking.js";
 
-describe("rankAllIntelCitationsByEfficiency", () => {
-  it("lists every static source/signal pair sorted by pick win rate", () => {
-    const catalog = buildStaticIntelCatalog();
-    const totalPairs = catalog.reduce((n, e) => n + e.signals.length, 0);
+describe("rankIntelSignalsByPickEfficiency", () => {
+  it("ranks signals globally, aggregating picks across sources", () => {
+    const ranked = rankIntelSignalsByPickEfficiency([
+      {
+        source: "h2h",
+        signal: "transitions",
+        picks: 10,
+        roundWins: 7,
+        roundWinPct: 70,
+      },
+      {
+        source: "h2h",
+        signal: "dominant",
+        picks: 5,
+        roundWins: 2,
+        roundWinPct: 40,
+      },
+      {
+        source: "recentVsOpponent",
+        signal: "dominant",
+        picks: 49,
+        roundWins: 13,
+        roundWinPct: 26.5,
+      },
+    ]);
 
-    const ranked = rankAllIntelCitationsByEfficiency(
-      catalog,
-      [
-        {
-          source: "h2h",
-          signal: "transitions",
-          picks: 10,
-          roundWins: 7,
-          roundWinPct: 70,
-        },
-        {
-          source: "h2h",
-          signal: "dominant",
-          picks: 5,
-          roundWins: 2,
-          roundWinPct: 40,
-        },
-      ],
-      [{ source: "h2h", leanHits: 8, leanRounds: 10, leanPct: 80 }],
-      [{ source: "h2h", matches: 4, wins: 3, winPct: 75 }],
-    );
-
-    assert.equal(ranked.length, totalPairs);
-    assert.equal(ranked[0]!.source, "h2h");
+    assert.equal(ranked.length, allIntelSignals().length);
     assert.equal(ranked[0]!.signal, "transitions");
-    assert.ok(ranked[0]!.efficiencyScore > ranked[1]!.efficiencyScore);
-    const block = formatIntelCitationCatalogLog(ranked);
-    assert.match(block, /h2h · transitions/);
-    assert.match(block, /Citations with pick history/);
+    const dominant = ranked.find((r) => r.signal === "dominant");
+    assert.equal(dominant!.picks, 54);
+    assert.equal(dominant!.roundWins, 15);
+    assert.ok(ranked.some((r) => r.signal === "afterBotWin" && r.picks === 0));
+
+    const signals = formatIntelSignalsRankedLog(ranked);
+    assert.match(signals, /#1/);
+    assert.match(signals, /transitions/);
+    assert.match(signals, /Rank.*Signal.*Score/);
+    assert.match(signals, /afterBotWin/);
+    assert.doesNotMatch(signals, /Source/);
+  });
+});
+
+describe("pickExplorationSignals", () => {
+  it("prefers under-sampled signals from the pick catalog", () => {
+    const catalog = [
+      { source: "h2h" as const, signals: ["dominant", "transitions", "afterBotWin"] as MoveIntelSignal[] },
+    ];
+    const stats = [
+      { source: "h2h" as const, signal: "dominant" as const, picks: 200, roundWins: 80, roundWinPct: 40 },
+      { source: "h2h" as const, signal: "transitions" as const, picks: 5, roundWins: 2, roundWinPct: 40 },
+    ];
+    const bySignal = aggregatePicksBySignal(stats);
+    assert.ok(intelSignalMinPicksExploration(3, bySignal) >= 5);
+    const picked = pickExplorationSignals(1, 2, catalog, stats, ["dominant"]);
+    assert.ok(picked.includes("afterBotWin") || picked.includes("transitions"));
+    assert.ok(!picked.includes("dominant") || picked[0] !== "dominant");
+  });
+
+  it("uses counterfactual lean opportunities when pick citations are sparse", () => {
+    const catalog = [
+      { source: "h2h" as const, signals: ["dominant", "transitions"] as MoveIntelSignal[] },
+    ];
+    const leanStats = [
+      {
+        source: "h2h" as const,
+        signal: "transitions" as const,
+        opportunities: 40,
+        leanHits: 20,
+        leanPct: 50,
+      },
+    ];
+    const bySignal = aggregateSignalSamples([], leanStats);
+    assert.equal(bySignal.get("transitions")?.leanOpps, 40);
+    const picked = pickExplorationSignals(1, 1, catalog, [], ["dominant"], leanStats);
+    assert.equal(picked[0], "dominant");
   });
 });

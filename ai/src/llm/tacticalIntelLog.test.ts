@@ -59,7 +59,8 @@ describe("logIntelEfficiencyToFile", () => {
           currentMatch: null,
           headToHead: [],
           recentBotMatches: [],
-          queryLimits: { headToHead: 0, recentBot: 0 },
+          globalBotMatches: [],
+          queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
         } satisfies MatchDbContext,
       ),
       [],
@@ -94,8 +95,8 @@ describe("logBotStartIntelEfficiency", () => {
 
     const body = readFileSync(logPath, "utf8");
     assert.match(body, /\[bot-start:intel-sources\]/);
-    assert.match(body, /\[bot-start:intel-catalog\]/);
+    assert.match(body, /\[bot-start:intel-signals\]/);
     assert.match(body, /Head-to-head/);
-    assert.match(body, /h2h: distribution/);
+    assert.match(body, /Rank.*Signal.*Score|No cited intel signals yet/);
   });
 });

@@ -34,6 +34,76 @@ const MIN_MATCHES_FOR_HISTORY = 2;
 /** Each avg ELO point per match counts this much in the composite score. */
 const ELO_SCORE_WEIGHT = 2;
 
+let cachedModelRankings: LlmModelRanked[] = [];
+
+export function setLlmModelRankings(ranked: LlmModelRanked[]): void {
+  cachedModelRankings = ranked;
+}
+
+export function getLlmModelRankings(): LlmModelRanked[] {
+  return cachedModelRankings;
+}
+
+/** Min concluded matches per model before defaulting to the top-ranked model. */
+export function llmModelMinMatchesExploration(
+  modelCount: number,
+  historical: LlmModelMatchRow[],
+): number {
+  const raw = process.env.LLM_MODEL_MIN_MATCHES?.trim();
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  if (modelCount <= 1) return 0;
+  const total = historical.reduce((sum, h) => sum + h.matches, 0);
+  return Math.max(10, Math.ceil(total / modelCount));
+}
+
+function refreshRankedHistorical(
+  ranked: LlmModelRanked[],
+  historical: LlmModelMatchRow[],
+): LlmModelRanked[] {
+  const histByModel = new Map(historical.map((h) => [h.model, h]));
+  return ranked.map((row) => {
+    const h = histByModel.get(row.model) ?? row.historical;
+    return {
+      ...row,
+      historical: h,
+      score: scoreLlmModel(h, row.warmup),
+    };
+  });
+}
+
+/**
+ * Pick model for the next match: under-sampled warmup-ok models first (fewest matches),
+ * then the highest-scoring model once each has enough history.
+ */
+export function selectLlmModelForMatch(
+  ranked: LlmModelRanked[],
+  historical: LlmModelMatchRow[],
+): string {
+  if (ranked.length === 0) return getLlmConfig().model;
+
+  const refreshed = refreshRankedHistorical(ranked, historical);
+  const warmupOk = refreshed.filter((r) => r.warmup.warmupOk);
+  if (warmupOk.length === 0) return refreshed[0]!.model;
+
+  const minMatches = llmModelMinMatchesExploration(warmupOk.length, historical);
+  const underSampled = warmupOk.filter((r) => (r.historical?.matches ?? 0) < minMatches);
+  if (underSampled.length > 0) {
+    underSampled.sort((a, b) => {
+      const ma = a.historical?.matches ?? 0;
+      const mb = b.historical?.matches ?? 0;
+      if (ma !== mb) return ma - mb;
+      return b.score - a.score;
+    });
+    return underSampled[0]!.model;
+  }
+
+  warmupOk.sort((a, b) => b.score - a.score);
+  return warmupOk[0]!.model;
+}
+
 export function scoreLlmModel(
   historical: LlmModelMatchRow | null,
   warmup: LlmModelWarmupResult,
@@ -127,14 +197,18 @@ export function formatLlmModelsRankedLines(rows: LlmModelRanked[]): string[] {
       formatWarmupCell(r.warmup),
     ];
   });
-  const active = rows.find((r) => r.rank === 1);
+  const activeModel = rows.find((r) => r.rank === 1);
+  const minNote =
+    rows.length > 1
+      ? " (rotates to under-sampled models until fair share, then top rank)"
+      : "";
   return [
     "LLM models ranked by match win rate + ELO change (primary model per match)",
     ...formatTableLines(
       ["Rank", "Model", "Score", "Win rate", "ELO Δ", "Warmup"],
       tableRows,
     ),
-    active ? `Active model for matches: ${active.model}` : "",
+    activeModel ? `Default when exploration done: ${activeModel.model}${minNote}` : "",
   ].filter(Boolean);
 }
 
@@ -163,7 +237,10 @@ async function modelListedOnServer(model: string): Promise<boolean> {
   }
 }
 
-export async function warmupLlmModel(model: string): Promise<LlmModelWarmupResult> {
+export async function warmupLlmModel(
+  model: string,
+  opts?: { quiet?: boolean },
+): Promise<LlmModelWarmupResult> {
   const listed = await modelListedOnServer(model);
   const startedAt = Date.now();
   try {
@@ -178,6 +255,7 @@ export async function warmupLlmModel(model: string): Promise<LlmModelWarmupResul
         logLabel: `warmup ${model}`,
         logSummary: `model=${model}`,
         timeoutMs: Math.min(getLlmConfig().timeoutMs, 45_000),
+        quiet: opts?.quiet,
       },
     );
     const ok = Boolean(parseMovePick(text) ?? parseMoveChoice(text));
@@ -188,19 +266,26 @@ export async function warmupLlmModel(model: string): Promise<LlmModelWarmupResul
 }
 
 /** Warm up each model; rank by match win% + avg ELO delta from concluded bot matches. */
-export async function bootstrapLlmModels(db: DatabaseSync): Promise<LlmModelRanked[]> {
+export async function bootstrapLlmModels(
+  db: DatabaseSync,
+  opts?: { quiet?: boolean },
+): Promise<LlmModelRanked[]> {
   const configured = getLlmConfig().models;
   const historical = getLlmModelMatchStats(db);
   const warmups: LlmModelWarmupResult[] = [];
 
   for (const model of configured) {
-    log(`[bot-start:llm-models]   warming up ${model}…`);
-    warmups.push(await warmupLlmModel(model));
+    if (!opts?.quiet) {
+      log(`[bot-start:llm-models]   warming up ${model}…`);
+    }
+    warmups.push(await warmupLlmModel(model, { quiet: opts?.quiet }));
   }
 
   const ranked = rankLlmModels(configured, historical, warmups);
-  if (ranked[0]?.warmup.warmupOk) {
-    setActiveLlmModel(ranked[0].model);
+  setLlmModelRankings(ranked);
+  const active = selectLlmModelForMatch(ranked, historical);
+  if (ranked.find((r) => r.model === active)?.warmup.warmupOk) {
+    setActiveLlmModel(active);
   }
   return ranked;
 }

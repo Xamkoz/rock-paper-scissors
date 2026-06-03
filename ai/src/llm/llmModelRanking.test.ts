@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import { parseLlmModels } from "../config.js";
 import {
   formatLlmModelsRankedLog,
+  llmModelMinMatchesExploration,
   rankLlmModels,
   scoreLlmModel,
+  selectLlmModelForMatch,
 } from "./llmModelRanking.js";
 
 describe("parseLlmModels", () => {
@@ -96,6 +98,90 @@ describe("rankLlmModels", () => {
     assert.match(block, /m1/);
     assert.match(block, /\+3\/match/);
     assert.match(block, /1\.2s ok/);
-    assert.match(block, /Active model for matches: m1/);
+    assert.match(block, /Default when exploration done: m1/);
+  });
+});
+
+describe("selectLlmModelForMatch", () => {
+  const warmupOk = { listed: true, warmupOk: true, warmupMs: 1000 };
+
+  it("picks the model with fewest matches when under fair-share target", () => {
+    const historical = [
+      {
+        model: "qwen2.5:3b",
+        matches: 140,
+        wins: 76,
+        losses: 64,
+        draws: 0,
+        winPct: 54.3,
+        totalEloDelta: -15,
+        avgEloDelta: -0.1,
+      },
+      {
+        model: "gemma3:4b",
+        matches: 10,
+        wins: 4,
+        losses: 6,
+        draws: 0,
+        winPct: 40,
+        totalEloDelta: -1,
+        avgEloDelta: -0.1,
+      },
+      {
+        model: "llama3.2:3b",
+        matches: 3,
+        wins: 1,
+        losses: 2,
+        draws: 0,
+        winPct: 33.3,
+        totalEloDelta: -4,
+        avgEloDelta: -1.3,
+      },
+    ];
+    const ranked = rankLlmModels(
+      ["qwen2.5:3b", "gemma3:4b", "llama3.2:3b"],
+      historical,
+      [
+        { model: "qwen2.5:3b", ...warmupOk },
+        { model: "gemma3:4b", ...warmupOk },
+        { model: "llama3.2:3b", ...warmupOk },
+      ],
+    );
+    assert.equal(llmModelMinMatchesExploration(3, historical), 51);
+    assert.equal(selectLlmModelForMatch(ranked, historical), "llama3.2:3b");
+  });
+
+  it("uses top-ranked model once all models meet the exploration target", () => {
+    const historical = [
+      {
+        model: "qwen2.5:3b",
+        matches: 50,
+        wins: 30,
+        losses: 20,
+        draws: 0,
+        winPct: 60,
+        totalEloDelta: 10,
+        avgEloDelta: 0.2,
+      },
+      {
+        model: "gemma3:4b",
+        matches: 50,
+        wins: 20,
+        losses: 30,
+        draws: 0,
+        winPct: 40,
+        totalEloDelta: -5,
+        avgEloDelta: -0.1,
+      },
+    ];
+    const ranked = rankLlmModels(
+      ["qwen2.5:3b", "gemma3:4b"],
+      historical,
+      [
+        { model: "qwen2.5:3b", ...warmupOk },
+        { model: "gemma3:4b", ...warmupOk },
+      ],
+    );
+    assert.equal(selectLlmModelForMatch(ranked, historical), "qwen2.5:3b");
   });
 });

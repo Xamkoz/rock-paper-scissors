@@ -21,10 +21,8 @@ import {
 } from "./throwPatternIntel.js";
 import type { IntelCitationPickStats } from "../db/tacticalIntelCitationDb.js";
 import {
-  buildDefaultIntelCitationCatalog,
-  formatIntelCitationCatalogLines,
-  formatIntelCitationCatalogLog,
-  rankAllIntelCitationsByEfficiency,
+  formatIntelSignalsRankedLines,
+  rankIntelSignalsByPickEfficiency,
 } from "./intelCitationRanking.js";
 import {
   formatHistoricalIntelSourcesRankedLines,
@@ -43,7 +41,7 @@ import { packageRoot } from "../config.js";
 import { appendLogFile } from "../log.js";
 
 export interface TendencySlice extends OpponentTendency {
-  label: "lifetime" | "h2h" | "recentVsOpponent";
+  label: "lifetime" | "h2h" | "recentVsOpponent" | "global";
   sampleThrows: number;
   patterns: ThrowPatternProfile;
 }
@@ -83,13 +81,15 @@ export interface TacticalIntel {
   lifetime?: TendencySlice;
   h2h?: TendencySlice;
   recentVsOpponent?: TendencySlice;
+  /** Population prior: all archived opponents combined. */
+  global?: TendencySlice;
   crossPatterns: CrossThrowPatterns;
   h2hRecord: H2hSeriesRecord;
   priorH2hGames: PriorH2hGame[];
   recentOpponentThrows: RpsMove[];
   opponentRepeat?: OpponentRepeatStreak;
   primary: OpponentTendency | null;
-  primarySource: "lifetime" | "h2h" | "recentVsOpponent" | "none";
+  primarySource: "lifetime" | "h2h" | "recentVsOpponent" | "global" | "none";
   /** Intel sources sorted by efficiency (best first). */
   sourcesByEfficiency: IntelSourceEfficiency[];
   counters: typeof COUNTER_TO_OPPONENT;
@@ -178,10 +178,13 @@ function detectRepeat(throws: RpsMove[]): OpponentRepeatStreak | undefined {
   return { move: last, streak };
 }
 
+const GLOBAL_PRIMARY_MIN_THROWS = 30;
+
 function pickPrimary(
   lifetime?: TendencySlice,
   h2h?: TendencySlice,
   recent?: TendencySlice,
+  global?: TendencySlice,
 ): { primary: OpponentTendency | null; primarySource: TacticalIntel["primarySource"] } {
   if (h2h && h2h.sampleThrows >= 6) {
     return { primary: h2h, primarySource: "h2h" };
@@ -189,12 +192,31 @@ function pickPrimary(
   if (recent && recent.sampleThrows >= 4) {
     return { primary: recent, primarySource: "recentVsOpponent" };
   }
+  if (global && global.sampleThrows >= GLOBAL_PRIMARY_MIN_THROWS) {
+    return { primary: global, primarySource: "global" };
+  }
   if (lifetime) {
     return { primary: lifetime, primarySource: "lifetime" };
   }
   if (h2h) return { primary: h2h, primarySource: "h2h" };
   if (recent) return { primary: recent, primarySource: "recentVsOpponent" };
+  if (global) return { primary: global, primarySource: "global" };
   return { primary: null, primarySource: "none" };
+}
+
+export function primaryTendencySlice(intel: TacticalIntel): TendencySlice | undefined {
+  switch (intel.primarySource) {
+    case "h2h":
+      return intel.h2h;
+    case "recentVsOpponent":
+      return intel.recentVsOpponent;
+    case "global":
+      return intel.global;
+    case "lifetime":
+      return intel.lifetime;
+    default:
+      return undefined;
+  }
 }
 
 function buildCrossPatterns(pairs: MoveThrowPair[]): CrossThrowPatterns {
@@ -256,6 +278,15 @@ export function buildTacticalIntel(
         undefined
       : undefined;
 
+  const globalGames = ctx.globalBotMatches.filter((g) => g.id !== match.id);
+  const globalCounts = countOpponentThrows(globalGames);
+  const globalThrows = collectOpponentThrowSequence(globalGames);
+  const globalPairs = collectH2hPairs(globalGames);
+  const global =
+    globalCounts.total > 0
+      ? sliceFromCounts(globalCounts, "global", globalThrows, globalPairs) || undefined
+      : undefined;
+
   let botSeriesWins = 0;
   let opponentSeriesWins = 0;
   for (const g of ctx.headToHead) {
@@ -287,7 +318,7 @@ export function buildTacticalIntel(
     };
   });
 
-  const { primary, primarySource } = pickPrimary(lifetime, h2h, recentVsOpponent);
+  const { primary, primarySource } = pickPrimary(lifetime, h2h, recentVsOpponent, global);
 
   return {
     bot: String(snap.botName ?? "bot"),
@@ -297,6 +328,7 @@ export function buildTacticalIntel(
     lifetime,
     h2h,
     recentVsOpponent,
+    global,
     crossPatterns,
     h2hRecord: {
       games: ctx.headToHead.length,
@@ -329,6 +361,7 @@ export function formatTacticalIntelCompact(intel: TacticalIntel): string {
     formatTendencyLine("life", intel.lifetime),
     formatTendencyLine("h2h", intel.h2h),
     formatTendencyLine("recent", intel.recentVsOpponent),
+    formatTendencyLine("global", intel.global),
     cross.opponent ? formatPatternCompact("cross", cross.opponent) : null,
     cross.bot ? `botMix=R${cross.bot.distribution.rockPct}/P${cross.bot.distribution.paperPct}/S${cross.bot.distribution.scissorsPct}` : null,
     intel.primary
@@ -375,12 +408,7 @@ function sliceToPayload(t?: TendencySlice) {
 
 /** Compact JSON for tactics LLM (lean + opening + primary patterns only). */
 export function tacticalIntelToTacticsPrompt(intel: TacticalIntel): Record<string, unknown> {
-  const primarySlice =
-    intel.primarySource === "h2h"
-      ? intel.h2h
-      : intel.primarySource === "recentVsOpponent"
-        ? intel.recentVsOpponent
-        : intel.lifetime;
+  const primarySlice = primaryTendencySlice(intel);
   const patterns = primarySlice?.patterns;
 
   const payload: Record<string, unknown> = {
@@ -452,21 +480,18 @@ export function tacticalIntelToPayload(intel: TacticalIntel): Record<string, unk
   const life = sliceToPayload(intel.lifetime);
   const h2h = sliceToPayload(intel.h2h);
   const recent = sliceToPayload(intel.recentVsOpponent);
+  const global = sliceToPayload(intel.global);
   if (life) payload.lifetimeTendency = life;
   if (h2h) payload.h2hTendency = h2h;
   if (recent) payload.recentVsOpponentTendency = recent;
+  if (global) payload.globalTendency = global;
 
   if (intel.primary) {
     payload.opponentLikelyLean = intel.primary.dominant;
     payload.leanPct = intel.primary.dominantPct;
     payload.throwMixPct = intel.primary.distribution;
     payload.suggestedOpening = intel.primary.openWith;
-    const primarySlice =
-      intel.primarySource === "h2h"
-        ? intel.h2h
-        : intel.primarySource === "recentVsOpponent"
-          ? intel.recentVsOpponent
-          : intel.lifetime;
+    const primarySlice = primaryTendencySlice(intel);
     if (primarySlice?.patterns) {
       payload.primaryPatterns = patternToPayload(primarySlice.patterns);
     }
@@ -522,15 +547,9 @@ export function logBotStartIntelEfficiency(
   const sourceLines = formatHistoricalIntelSourcesRankedLines(sourceRankings);
   logRankedSection(`${BOT_START_INTEL_TAG}:intel-sources`, sourceLines);
 
-  const catalog = buildDefaultIntelCitationCatalog();
-  const citationRows = rankAllIntelCitationsByEfficiency(
-    catalog,
-    pickCitationStats,
-    historicalLean,
-    historicalPrimary,
-  );
-  const catalogLines = formatIntelCitationCatalogLines(citationRows);
-  logRankedSection(`${BOT_START_INTEL_TAG}:intel-catalog`, catalogLines);
+  const signalRows = rankIntelSignalsByPickEfficiency(pickCitationStats);
+  const signalLines = formatIntelSignalsRankedLines(signalRows);
+  logRankedSection(`${BOT_START_INTEL_TAG}:intel-signals`, signalLines);
 
   const filePath = getTacticsIntelEfficiencyLogPath();
   if (!filePath) return;
@@ -540,7 +559,7 @@ export function logBotStartIntelEfficiency(
   );
   appendLogFile(
     filePath,
-    `[${BOT_START_INTEL_TAG}:intel-catalog]\n${catalogLines.join("\n")}`,
+    `[${BOT_START_INTEL_TAG}:intel-signals]\n${signalLines.join("\n")}`,
   );
 }
 

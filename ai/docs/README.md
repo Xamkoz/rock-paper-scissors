@@ -33,7 +33,7 @@ LLM_MODEL=gemma3:12b
 # LLM_MODELS=gemma3:4b,qwen2.5:3b,llama3.2:3b
 ```
 
-Use `ollama list` to see exact model names on your machine (`gemma3:4b` for a lighter GPU, etc.). With `LLM_MODELS`, startup logs `[bot-start:llm-models]` with rank, historical ok%, and warmup latency per model.
+Use `ollama list` to see exact model names on your machine (`gemma3:4b` for a lighter GPU, etc.). With `LLM_MODELS`, the bot still **warms and picks** the best model at startup (one-line log); full tables are in **`npm run rank`** (see below).
 
 ## Setup
 
@@ -52,9 +52,16 @@ From the **repo root** (after `npm install` in `ai/` once):
 npm start
 ```
 
-This runs `build` + `start` in `ai/`. Pull missing Ollama models: `npm run pull-models` (root) or `npm run pull-models` in `ai/`.
+This runs `build` + `start` in `ai/`. Pull missing Ollama models: `npm run pull-models`. **Rankings** (LLM models, intel sources, intel catalog):
 
-On startup the bot probes `GET {LLM_BASE_URL}/models`, opens SQLite, warms each configured model (see `LLM_MODELS`), ranks them by **match win rate and average ELO change** using archived rows (`matches.bot_uid`, `round_timings.llm_model`), sets the winner as the active model, logs intel leaderboards from SQLite, then signs into Firebase. Post-start **exits** if the active model fails warmup chat. No offline fallback for moves.
+```bash
+npm run rank          # repo root
+# or: cd ai && npm run rank
+```
+
+Startup only logs the active LLM; `rank` prints `[bot-start:llm-models]`, `[bot-start:intel-sources]`, and **`[bot-start:intel-signals]`** (signals ranked by round-win rate, pooled across sources). Also appends to `data/tactics-intel.log` when enabled.
+
+On startup the bot probes `GET {LLM_BASE_URL}/models`, opens SQLite, **silently** warms each configured model and sets the best as active, then signs into Firebase and joins the queue. Run **`npm run rank`** for full LLM / intel leaderboards. Post-start **exits** if the active model fails warmup chat. No offline fallback for moves.
 
 ## What it does
 
@@ -65,10 +72,10 @@ On startup the bot probes `GET {LLM_BASE_URL}/models`, opens SQLite, warms each 
 | **Re-queue** | After a game ends, waits `BOT_REQUEUE_DELAY_MS` (default 60000 = 60s, **milliseconds**) then re-queues. Boot log shows `requeueDelay=…ms`. |
 | **Lobby** | `confirmMatchReady` when paired. |
 | **Moves** | JSON: `choice`, `reason`, `intelSource`, `intelSignal` (e.g. `h2h` + `transitions`). Prompt includes `intelCatalog` per source. Stored in `round_timings.pick_*`. |
-| **LLM speed** | Default `gemma3:4b`, `LLM_PICK_MAX_TOKENS=96`, deterministic tactics (`LLM_TACTICS_USE_LLM=false` skips round-1 tactics LLM). Set `LLM_TACTICS_USE_LLM=true` for prose plans. |
+| **LLM speed** | Default `gemma3:4b`, `LLM_PICK_THINK_MULTIPLIER=1.2` (LLM time + 20% post-pick pause). Deterministic tactics (`LLM_TACTICS_USE_LLM=false` skips round-1 tactics LLM). Set `LLM_TACTICS_USE_LLM=true` for prose plans. |
 | **Database** | `MATCH_DB_PATH` (default `data/matches.db`) — SQLite `matches` + `match_descriptions` tables; indexed by player and activity time. |
 | **Description** | Short recap (~36 words, up to 2 sentences); stored in `match_descriptions`. Tune with `LLM_DESCRIBE_MAX_*`. |
-| **LLM logs** | `[llm:<tag>:req]` full system + user prompts; `[llm:<tag>:res]` reply + ms. Preview only if `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
+| **LLM logs** | `[llm:<tag>:req]` prompts (off if `LLM_LOG_REQUESTS=false` or quiet warmup); `[llm:<tag>:res]` raw reply + ms; `[move]` includes `llm=…` parsed JSON. Set `LLM_LOG_RESPONSES=false` to hide replies. Preview prompts with `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
 
 ## SQLite schema (`MATCH_DB_PATH`)
 

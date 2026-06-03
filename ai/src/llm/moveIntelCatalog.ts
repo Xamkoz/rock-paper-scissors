@@ -2,10 +2,17 @@ import type { MatchDbContext } from "./matchContext.js";
 import type { TendencySlice } from "./tacticalIntel.js";
 import type { ThrowPatternProfile } from "./throwPatternIntel.js";
 import type { MoveIntelSignal, MoveIntelSource } from "./parse.js";
+import type { MoveThrowPair } from "./movePrompt.js";
 
 export interface IntelCatalogEntry {
   source: MoveIntelSource;
   signals: MoveIntelSignal[];
+}
+
+export interface BuildIntelCatalogOpts {
+  opponentLeanThisMatch?: string;
+  thisMatchPatterns?: ThrowPatternProfile | null;
+  thisMatchRepeat?: { move: string; streak: number };
 }
 
 /** Short labels for each citable data parameter (shown in move-pick prompts). */
@@ -16,14 +23,21 @@ export const INTEL_SIGNAL_GLOSSARY: Record<MoveIntelSignal, string> = {
   skew: "how concentrated throws are on one move (high/medium/low)",
   secondary: "second-most common opponent throw",
   repeatRate: "how often opponent repeats the same throw back-to-back",
+  alternationRate: "how often opponent switches throws vs repeating",
   lastWindow: "distribution over the last N throws in this source",
   transitions: "what opponent throws after ROCK/PAPER/SCISSORS",
+  secondOrderTransition: "what opponent throws after a two-throw sequence",
   responseToBot: "opponent's next throw distribution after each bot throw",
+  afterBotWin: "opponent throw mix on rounds after bot won the prior round",
+  afterBotLoss: "opponent throw mix on rounds after bot lost the prior round",
+  streakBreakBias: "when on a repeat streak, how often they continue vs switch",
   repeat: "current opponent repeat streak (move + length)",
   recentSeq: "recent opponent throw sequence (cross-game)",
   h2hRecord: "series win record vs this opponent",
   opponentLeanThisMatch: "dominant opponent throw in the current match only",
   thisMatchRounds: "bot/opponent throws so far this match",
+  matchScore: "deprecated — series score is prompt context (seriesScore), not citable",
+  clinchPressure: "deprecated — clinch is prompt context (seriesScore), not citable",
   preparedTactics: "pre-match written tactical plan",
   opponentLifetime: "career throw totals from profile",
   priorMatches: "summaries of earlier bot vs opponent games",
@@ -35,9 +49,20 @@ function signalsFromPattern(p: ThrowPatternProfile): MoveIntelSignal[] {
   const out: MoveIntelSignal[] = ["dominant", "distribution", "skew"];
   if (p.secondary) out.push("secondary");
   if (p.repeatRatePct > 0) out.push("repeatRate");
+  if (p.alternationRatePct > 0) out.push("alternationRate");
   if (p.lastWindow.size > 0) out.push("lastWindow");
   if (p.transitions.length > 0) out.push("transitions");
+  if ((p.secondOrderTransitions?.length ?? 0) > 0) out.push("secondOrderTransition");
   if (p.responseToBot.length > 0) out.push("responseToBot");
+  if (p.outcomeThrows && p.outcomeThrows.afterBotWin.sample >= 2) {
+    out.push("afterBotWin");
+  }
+  if (p.outcomeThrows && p.outcomeThrows.afterBotLoss.sample >= 2) {
+    out.push("afterBotLoss");
+  }
+  if (p.streakBreakBias && p.streakBreakBias.sample >= 2) {
+    out.push("streakBreakBias");
+  }
   return out;
 }
 
@@ -48,10 +73,15 @@ function signalsFromSlice(slice: TendencySlice): MoveIntelSignal[] {
   return [...merged];
 }
 
+function mergeSignals(entry: IntelCatalogEntry | undefined, signals: MoveIntelSignal[]): void {
+  if (!entry) return;
+  entry.signals.push(...signals);
+}
+
 /** Which intel sources + data parameters are available for this pick. */
 export function buildMoveIntelCatalog(
   ctx: MatchDbContext,
-  opts?: { opponentLeanThisMatch?: string },
+  opts?: BuildIntelCatalogOpts,
 ): { catalog: IntelCatalogEntry[]; glossary: Partial<Record<MoveIntelSignal, string>> } {
   const catalog: IntelCatalogEntry[] = [];
   const intel = ctx.tacticalIntel;
@@ -77,8 +107,15 @@ export function buildMoveIntelCatalog(
     catalog.push({ source: "recentVsOpponent", signals: [...new Set(signals)] });
   }
 
+  if (intel?.global) {
+    catalog.push({ source: "global", signals: signalsFromSlice(intel.global) });
+  }
+
   const thisMatchSignals: MoveIntelSignal[] = ["thisMatchRounds"];
   if (opts?.opponentLeanThisMatch) thisMatchSignals.push("opponentLeanThisMatch");
+  if (opts?.thisMatchPatterns) {
+    thisMatchSignals.push(...signalsFromPattern(opts.thisMatchPatterns));
+  }
   catalog.push({ source: "thisMatch", signals: thisMatchSignals });
 
   if (ctx.tactics?.trim()) {
@@ -106,19 +143,17 @@ export function buildMoveIntelCatalog(
       });
   }
 
-  if (intel && intel.sourcesByEfficiency.length > 0) {
-    for (const entry of catalog) {
-      entry.signals = [
-        ...new Set<MoveIntelSignal>([...entry.signals, "sourcesByEfficiency"]),
-      ];
+  if (intel?.opponentRepeat) {
+    for (const source of ["h2h", "recentVsOpponent", "global", "thisMatch"] as const) {
+      mergeSignals(
+        catalog.find((e) => e.source === source),
+        ["repeat"],
+      );
     }
   }
 
-  if (intel?.opponentRepeat) {
-    for (const source of ["h2h", "recentVsOpponent", "thisMatch"] as const) {
-      const entry = catalog.find((e) => e.source === source);
-      if (entry) entry.signals.push("repeat");
-    }
+  if (opts?.thisMatchRepeat) {
+    mergeSignals(catalog.find((e) => e.source === "thisMatch"), ["repeat"]);
   }
 
   for (const entry of catalog) {
@@ -140,28 +175,43 @@ export function glossaryForCatalog(
   return out;
 }
 
+const PATTERN_SIGNALS: MoveIntelSignal[] = [
+  "dominant",
+  "distribution",
+  "openWith",
+  "skew",
+  "secondary",
+  "repeatRate",
+  "alternationRate",
+  "lastWindow",
+  "transitions",
+  "secondOrderTransition",
+  "responseToBot",
+  "afterBotWin",
+  "afterBotLoss",
+  "streakBreakBias",
+];
+
+/** Every citable signal (startup leaderboard + exploration pool). */
+export function allIntelSignals(): MoveIntelSignal[] {
+  const signals = new Set<MoveIntelSignal>();
+  for (const entry of buildStaticIntelCatalog()) {
+    for (const s of entry.signals) signals.add(s);
+  }
+  return [...signals].sort();
+}
+
 /** Full grid of citable source/signal pairs (startup leaderboard). */
 export function buildStaticIntelCatalog(): IntelCatalogEntry[] {
-  const patternSignals: MoveIntelSignal[] = [
-    "dominant",
-    "distribution",
-    "openWith",
-    "skew",
-    "secondary",
-    "repeatRate",
-    "lastWindow",
-    "transitions",
-    "responseToBot",
-  ];
   return [
     {
       source: "lifetime",
-      signals: [...patternSignals, "opponentLifetime", "sourcesByEfficiency"],
+      signals: [...PATTERN_SIGNALS, "opponentLifetime", "sourcesByEfficiency"],
     },
     {
       source: "h2h",
       signals: [
-        ...patternSignals,
+        ...PATTERN_SIGNALS,
         "h2hRecord",
         "priorMatches",
         "repeat",
@@ -171,12 +221,16 @@ export function buildStaticIntelCatalog(): IntelCatalogEntry[] {
     {
       source: "recentVsOpponent",
       signals: [
-        ...patternSignals,
+        ...PATTERN_SIGNALS,
         "recentSeq",
         "crossOpponent",
         "repeat",
         "sourcesByEfficiency",
       ],
+    },
+    {
+      source: "global",
+      signals: [...PATTERN_SIGNALS, "sourcesByEfficiency"],
     },
     {
       source: "thisMatch",
@@ -187,6 +241,15 @@ export function buildStaticIntelCatalog(): IntelCatalogEntry[] {
         "repeat",
         "distribution",
         "dominant",
+        "alternationRate",
+        "transitions",
+        "secondOrderTransition",
+        "responseToBot",
+        "afterBotWin",
+        "afterBotLoss",
+        "streakBreakBias",
+        "repeatRate",
+        "lastWindow",
       ],
     },
   ];
@@ -202,9 +265,16 @@ export function isSignalValidForSource(
 }
 
 const SIGNAL_FALLBACKS: Partial<Record<MoveIntelSignal, MoveIntelSignal[]>> = {
-  repeat: ["repeatRate", "recentSeq", "dominant"],
-  repeatRate: ["repeat", "dominant"],
+  repeat: ["repeatRate", "streakBreakBias", "recentSeq", "dominant"],
+  repeatRate: ["repeat", "alternationRate", "dominant"],
+  alternationRate: ["repeatRate", "repeat", "dominant"],
   recentSeq: ["repeat", "dominant"],
+  secondOrderTransition: ["transitions", "dominant"],
+  afterBotWin: ["responseToBot", "dominant"],
+  afterBotLoss: ["responseToBot", "dominant"],
+  streakBreakBias: ["repeat", "repeatRate"],
+  matchScore: ["thisMatchRounds", "opponentLeanThisMatch", "dominant"],
+  clinchPressure: ["thisMatchRounds", "opponentLeanThisMatch", "dominant"],
   h2hRecord: ["dominant", "openWith"],
   crossOpponent: ["distribution", "dominant"],
   priorMatches: ["h2hRecord", "dominant"],

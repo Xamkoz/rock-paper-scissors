@@ -50,6 +50,16 @@ describe("parseMovePick", () => {
     });
   });
 
+  it("parses slash citation copied from citeHints", () => {
+    const pick = parseMovePick(
+      '{"choice":"SCISSORS","intelSource":"thisMatch/repeat","intelSignal":"Opponent on PAPER ×2 — exploit or break streak","reason":"The opponent has thrown PAPER twice in a row, which is a strong hint to counter with SCISSORS."}',
+    );
+    assert.equal(pick?.choice, "SCISSORS");
+    assert.equal(pick?.intelSource, "thisMatch");
+    assert.equal(pick?.intelSignal, "repeat");
+    assert.ok(pick!.reason.includes("SCISSORS"));
+  });
+
   it("accepts signal aliases", () => {
     const pick = parseMovePick(
       '{"choice":"ROCK","reason":"Mix skewed to Scissors.","intelSource":"recent","intelSignal":"distribution"}',
@@ -85,8 +95,18 @@ describe("parseMovePick", () => {
         intelSource: "lifetime",
         intelSignal: "distribution",
       }),
-      "lifetime/distribution: Lifetime Paper skew.",
+      'cite=lifetime/distribution reason="Lifetime Paper skew."',
     );
+  });
+
+  it("maps tacticalIntel payload key to primary catalog source", () => {
+    const pick = parseMovePick(
+      '{"choice":"SCISSORS","intelSource":"tacticalIntel","intelSignal":"openWith","reason":"Open with Scissors to beat Paper lean."}',
+      { primarySource: "lifetime" },
+    );
+    assert.equal(pick?.choice, "SCISSORS");
+    assert.equal(pick?.intelSource, "lifetime");
+    assert.equal(pick?.intelSignal, "openWith");
   });
 });
 
@@ -131,7 +151,8 @@ describe("buildMoveIntelCatalog", () => {
       currentMatch: null,
       headToHead: [],
       recentBotMatches: [],
-      queryLimits: { headToHead: 0, recentBot: 0 },
+      globalBotMatches: [],
+      queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
       tacticalIntel: intel,
     };
 
@@ -142,7 +163,7 @@ describe("buildMoveIntelCatalog", () => {
     assert.ok(life?.signals.includes("openWith"));
   });
 
-  it("includes repeat on h2h when opponent has a repeat streak", () => {
+  it("includes new pattern signals when data supports them", () => {
     const intel = {
       lifetime: null,
       h2h: {
@@ -155,9 +176,16 @@ describe("buildMoveIntelCatalog", () => {
         patterns: {
           skew: "medium",
           repeatRatePct: 40,
+          alternationRatePct: 60,
           lastWindow: { size: 0, distribution: {}, counts: { total: 0 } },
-          transitions: [],
+          transitions: [{ after: "ROCK", next: { sample: 3 } }],
+          secondOrderTransitions: [{ first: "ROCK", second: "ROCK", next: { sample: 2 } }],
           responseToBot: [],
+          outcomeThrows: {
+            afterBotWin: { sample: 3, rockPct: 33, paperPct: 33, scissorsPct: 34 },
+            afterBotLoss: { sample: 2, rockPct: 50, paperPct: 25, scissorsPct: 25 },
+          },
+          streakBreakBias: { sample: 4, continuePct: 75, breakPct: 25 },
         },
       },
       recentVsOpponent: null,
@@ -182,15 +210,41 @@ describe("buildMoveIntelCatalog", () => {
       currentMatch: null,
       headToHead: [],
       recentBotMatches: [],
-      queryLimits: { headToHead: 0, recentBot: 0 },
+      globalBotMatches: [],
+      queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
       tacticalIntel: intel,
     };
 
     const { catalog } = buildMoveIntelCatalog(ctx);
     const h2h = catalog.find((e) => e.source === "h2h");
     assert.ok(h2h?.signals.includes("repeat"));
+    assert.ok(h2h?.signals.includes("alternationRate"));
+    assert.ok(h2h?.signals.includes("afterBotWin"));
+    assert.ok(h2h?.signals.includes("streakBreakBias"));
     assert.ok(
       coerceCitationForCatalog(catalog, "h2h", "repeat")?.signal === "repeat",
     );
+  });
+
+  it("never includes matchScore or clinchPressure in catalog", () => {
+    const ctx: MatchDbContext = {
+      botUid: "b",
+      opponentUid: "o",
+      opponentName: "X",
+      opponentProfile: null,
+      currentMatch: null,
+      headToHead: [],
+      recentBotMatches: [],
+      globalBotMatches: [],
+      queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
+    };
+    const { catalog } = buildMoveIntelCatalog(ctx, {
+      opponentLeanThisMatch: "ROCK",
+    });
+    const tm = catalog.find((e) => e.source === "thisMatch");
+    assert.ok(tm?.signals.includes("thisMatchRounds"));
+    assert.ok(tm?.signals.includes("opponentLeanThisMatch"));
+    assert.ok(!tm?.signals.includes("matchScore"));
+    assert.ok(!tm?.signals.includes("clinchPressure"));
   });
 });

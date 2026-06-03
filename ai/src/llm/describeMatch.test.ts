@@ -8,6 +8,7 @@ import {
   buildOpponentStyle,
   botClaimsVictory,
   descriptionStatesResult,
+  descriptionStatesRoundOutcomes,
   descriptionStatesScore,
   clampDescription,
   descriptionUsesMoveNames,
@@ -18,7 +19,7 @@ import {
 } from "./describeMatch.js";
 import type { TacticalIntel } from "./tacticalIntel.js";
 import type { TacticalIntelOutcome } from "./tacticalIntelTracking.js";
-import type { DescribeRoundSummary } from "./describeMatch.js";
+import type { DescribeRoundSummary, DescribeFacts } from "./describeMatch.js";
 import type { Match } from "../types.js";
 import type { MatchDbContext } from "./matchContext.js";
 
@@ -30,7 +31,8 @@ const ctx = (name: string): MatchDbContext => ({
   currentMatch: null,
   headToHead: [],
   recentBotMatches: [],
-  queryLimits: { headToHead: 0, recentBot: 0 },
+  globalBotMatches: [],
+  queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
 });
 
 describe("describeMatch facts", () => {
@@ -172,6 +174,43 @@ describe("descriptionStatesScore", () => {
   });
 });
 
+describe("descriptionStatesRoundOutcomes", () => {
+  it("rejects no-losses phrasing when tie rounds exist", () => {
+    const bad =
+      "Ngibator2000 won 2-1 vs Daniil in 7 rounds, leaning on Paper. Bot dominated with 4 wins and no losses.";
+    const outcomes = { botWon: 4, botLost: 0, tie: 3 };
+    assert.equal(descriptionStatesRoundOutcomes(bad, outcomes), false);
+  });
+
+  it("accepts draw-aware round phrasing", () => {
+    const good =
+      "Ngibator2000 won 2-1 vs Daniil in 7 rounds (4-0 with 3 draws), leaning on Paper.";
+    const outcomes = { botWon: 4, botLost: 0, tie: 3 };
+    assert.equal(descriptionStatesRoundOutcomes(good, outcomes), true);
+  });
+
+  it("rejects won when series was a draw", () => {
+    assert.equal(
+      descriptionStatesResult(
+        "Ngibator2000 won 5-5 vs Daniil in a tight BO10.",
+        "draw",
+        "Ngibator2000",
+        "Daniil",
+      ),
+      false,
+    );
+    assert.equal(
+      descriptionStatesResult(
+        "Ngibator2000 and Daniil drew 5-5 in BO10 after ten rounds.",
+        "draw",
+        "Ngibator2000",
+        "Daniil",
+      ),
+      true,
+    );
+  });
+});
+
 describe("intel reasoning sentence", () => {
   it("formats lean hit when read matched opponent", () => {
     const intel = {
@@ -236,6 +275,39 @@ describe("buildDeterministicDescribe", () => {
     assert.match(line, /10 rounds/);
     assert.ok(!/10-0/.test(line));
   });
+
+  it("mentions draw rounds when present", () => {
+    const match: Match = {
+      id: "m",
+      player1: "bot",
+      player2: "opp",
+      player1Name: "Ngibator2000",
+      player2Name: "Daniil",
+      matchMode: "BO3",
+      status: "completed",
+      player1Ready: true,
+      player2Ready: true,
+      readyDeadlineAt: 0,
+      currentRound: 7,
+      player1Wins: 2,
+      player2Wins: 1,
+      winnerId: "bot",
+      rounds: [
+        { roundNumber: 1, player1Submitted: true, player2Submitted: true, player1Choice: "PAPER", player2Choice: "SCISSORS", winner: "bot", resolvedAt: 1 },
+        { roundNumber: 2, player1Submitted: true, player2Submitted: true, player1Choice: "PAPER", player2Choice: "PAPER", winner: "tie", resolvedAt: 2 },
+        { roundNumber: 3, player1Submitted: true, player2Submitted: true, player1Choice: "PAPER", player2Choice: "ROCK", winner: "bot", resolvedAt: 3 },
+        { roundNumber: 4, player1Submitted: true, player2Submitted: true, player1Choice: "SCISSORS", player2Choice: "SCISSORS", winner: "tie", resolvedAt: 4 },
+        { roundNumber: 5, player1Submitted: true, player2Submitted: true, player1Choice: "ROCK", player2Choice: "PAPER", winner: "opp", resolvedAt: 5 },
+        { roundNumber: 6, player1Submitted: true, player2Submitted: true, player1Choice: "PAPER", player2Choice: "PAPER", winner: "tie", resolvedAt: 6 },
+        { roundNumber: 7, player1Submitted: true, player2Submitted: true, player1Choice: "PAPER", player2Choice: "ROCK", winner: "bot", resolvedAt: 7 },
+      ],
+      createdAt: 0,
+      lastActivityAt: 0,
+    };
+    const line = buildDeterministicDescribe(buildDescribeFacts(match, "bot", ctx("Daniil")));
+    assert.match(line, /2-1/);
+    assert.match(line, /3 draws/);
+  });
 });
 
 describe("clampDescription", () => {
@@ -249,6 +321,8 @@ describe("clampDescription", () => {
   });
 });
 
+const emptyRoundOutcomes = { botWon: 0, botLost: 0, tie: 0 };
+
 describe("sanitizeDescription", () => {
   it("strips leaked field names", () => {
     const raw =
@@ -261,6 +335,7 @@ describe("sanitizeDescription", () => {
         bot: "Bot",
         opponent: "Xamkoz",
         roundsResolved: 10,
+        analysis: { roundOutcomes: emptyRoundOutcomes } as DescribeFacts["analysis"],
       }),
       true,
     );
@@ -274,6 +349,7 @@ describe("sanitizeDescription", () => {
         bot: "Bot",
         opponent: "Daniil",
         roundsResolved: 3,
+        analysis: { roundOutcomes: emptyRoundOutcomes } as DescribeFacts["analysis"],
       }),
       false,
     );
@@ -291,6 +367,7 @@ describe("sanitizeDescription", () => {
         bot: "Bot",
         opponent: "Daniil",
         roundsResolved: 2,
+        analysis: { roundOutcomes: emptyRoundOutcomes } as DescribeFacts["analysis"],
       }),
       false,
     );
@@ -306,6 +383,7 @@ describe("sanitizeDescription", () => {
         bot: "Azzy",
         opponent: "Daniil",
         roundsResolved: 4,
+        analysis: { roundOutcomes: emptyRoundOutcomes } as DescribeFacts["analysis"],
       }),
       false,
     );

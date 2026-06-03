@@ -26,6 +26,23 @@ export interface ResponseToBotMove {
   opponentNext: ThrowDistribution & { sample: number };
 }
 
+export interface SecondOrderTransition {
+  first: RpsMove;
+  second: RpsMove;
+  next: ThrowDistribution & { sample: number };
+}
+
+export interface OutcomeConditionedThrows {
+  afterBotWin: ThrowDistribution & { sample: number };
+  afterBotLoss: ThrowDistribution & { sample: number };
+}
+
+export interface StreakBreakBias {
+  sample: number;
+  continuePct: number;
+  breakPct: number;
+}
+
 export interface ThrowPatternProfile {
   counts: MoveCounts;
   distribution: ThrowDistribution;
@@ -42,7 +59,10 @@ export interface ThrowPatternProfile {
   repeatRatePct: number;
   alternationRatePct: number;
   transitions: TransitionProfile[];
+  secondOrderTransitions: SecondOrderTransition[];
   responseToBot: ResponseToBotMove[];
+  outcomeThrows: OutcomeConditionedThrows | null;
+  streakBreakBias: StreakBreakBias | null;
 }
 
 function emptyCounts(): MoveCounts {
@@ -151,6 +171,111 @@ function repeatAndAlternation(throws: RpsMove[]): {
   };
 }
 
+function buildSecondOrderTransitions(throws: RpsMove[]): SecondOrderTransition[] {
+  if (throws.length < 4) return [];
+  const buckets = new Map<string, RpsMove[]>();
+  for (let i = 2; i < throws.length; i++) {
+    const first = throws[i - 2]!;
+    const second = throws[i - 1]!;
+    const key = `${first},${second}`;
+    const list = buckets.get(key) ?? [];
+    list.push(throws[i]!);
+    buckets.set(key, list);
+  }
+  const out: SecondOrderTransition[] = [];
+  for (const [key, nextThrows] of buckets) {
+    const [first, second] = key.split(",") as [RpsMove, RpsMove];
+    if (nextThrows.length === 0) continue;
+    out.push({
+      first,
+      second,
+      next: distWithSample(countsFromThrows(nextThrows)),
+    });
+  }
+  return out.sort((a, b) => b.next.sample - a.next.sample);
+}
+
+function roundWinner(bot: RpsMove, opponent: RpsMove): "bot" | "opponent" | "tie" {
+  if (bot === opponent) return "tie";
+  if (
+    (bot === "ROCK" && opponent === "SCISSORS") ||
+    (bot === "PAPER" && opponent === "ROCK") ||
+    (bot === "SCISSORS" && opponent === "PAPER")
+  ) {
+    return "bot";
+  }
+  return "opponent";
+}
+
+function buildOutcomeThrows(pairs: MoveThrowPair[]): OutcomeConditionedThrows | null {
+  const afterWin: RpsMove[] = [];
+  const afterLoss: RpsMove[] = [];
+  for (let i = 1; i < pairs.length; i++) {
+    const prev = pairs[i - 1]!;
+    const cur = pairs[i]!;
+    if (!prev.bot || !prev.opponent || !cur.opponent) continue;
+    const bot = prev.bot as RpsMove;
+    const oppPrev = prev.opponent as RpsMove;
+    const oppNext = cur.opponent as RpsMove;
+    const outcome = roundWinner(bot, oppPrev);
+    if (outcome === "bot") afterWin.push(oppNext);
+    else if (outcome === "opponent") afterLoss.push(oppNext);
+  }
+  const winSample = afterWin.length;
+  const lossSample = afterLoss.length;
+  if (winSample < 2 && lossSample < 2) return null;
+  return {
+    afterBotWin: distWithSample(countsFromThrows(afterWin)),
+    afterBotLoss: distWithSample(countsFromThrows(afterLoss)),
+  };
+}
+
+function buildStreakBreakBias(throws: RpsMove[]): StreakBreakBias | null {
+  let continueCount = 0;
+  let breakCount = 0;
+  for (let i = 2; i < throws.length; i++) {
+    if (throws[i - 1] !== throws[i - 2]) continue;
+    if (throws[i] === throws[i - 1]) continueCount++;
+    else breakCount++;
+  }
+  const sample = continueCount + breakCount;
+  if (sample < 2) return null;
+  return {
+    sample,
+    continuePct: Math.round((continueCount / sample) * 100),
+    breakPct: Math.round((breakCount / sample) * 100),
+  };
+}
+
+export function topMoveFromDistribution(
+  d: ThrowDistribution & { sample: number },
+): RpsMove | undefined {
+  if (d.sample <= 0) return undefined;
+  const ranked = [
+    { move: "ROCK" as const, pct: d.rockPct },
+    { move: "PAPER" as const, pct: d.paperPct },
+    { move: "SCISSORS" as const, pct: d.scissorsPct },
+  ].sort((a, b) => b.pct - a.pct);
+  return ranked[0]?.pct > 0 ? ranked[0].move : undefined;
+}
+
+function emptyPatternExtras(): Pick<
+  ThrowPatternProfile,
+  | "secondOrderTransitions"
+  | "outcomeThrows"
+  | "streakBreakBias"
+  | "responseToBot"
+  | "transitions"
+> {
+  return {
+    transitions: [],
+    secondOrderTransitions: [],
+    responseToBot: [],
+    outcomeThrows: null,
+    streakBreakBias: null,
+  };
+}
+
 /** Distribution-only profile when only aggregate counts exist (no throw sequence). */
 export function analyzeDistributionOnly(counts: MoveCounts): ThrowPatternProfile | null {
   if (counts.total <= 0) return null;
@@ -177,8 +302,7 @@ export function analyzeDistributionOnly(counts: MoveCounts): ThrowPatternProfile
     },
     repeatRatePct: 0,
     alternationRatePct: 0,
-    transitions: [],
-    responseToBot: [],
+    ...emptyPatternExtras(),
   };
 }
 
@@ -202,6 +326,7 @@ export function analyzeThrowPattern(
   const lastCounts = countsFromThrows(lastThrows);
 
   const { repeatRatePct, alternationRatePct } = repeatAndAlternation(opponentThrows);
+  const pairList = pairs && pairs.length >= 2 ? pairs : undefined;
 
   return {
     counts,
@@ -222,7 +347,10 @@ export function analyzeThrowPattern(
     repeatRatePct,
     alternationRatePct,
     transitions: buildTransitions(opponentThrows),
-    responseToBot: pairs && pairs.length >= 2 ? buildResponseToBot(pairs) : [],
+    secondOrderTransitions: buildSecondOrderTransitions(opponentThrows),
+    responseToBot: pairList ? buildResponseToBot(pairList) : [],
+    outcomeThrows: pairList ? buildOutcomeThrows(pairList) : null,
+    streakBreakBias: buildStreakBreakBias(opponentThrows),
   };
 }
 
@@ -233,6 +361,21 @@ export function analyzeThrowPatternFromPairs(
     .map((p) => p.opponent)
     .filter((o): o is RpsMove => o === "ROCK" || o === "PAPER" || o === "SCISSORS");
   return analyzeThrowPattern(opponentThrows, pairs);
+}
+
+/** Current opponent repeat streak (≥2) from throw sequence. */
+export function detectOpponentRepeat(
+  throws: RpsMove[],
+): { move: RpsMove; streak: number } | undefined {
+  if (throws.length < 2) return undefined;
+  const last = throws[throws.length - 1]!;
+  let streak = 1;
+  for (let i = throws.length - 2; i >= 0; i--) {
+    if (throws[i] === last) streak++;
+    else break;
+  }
+  if (streak < 2) return undefined;
+  return { move: last, streak };
 }
 
 /** Compact pattern summary for logs. */

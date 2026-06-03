@@ -7,6 +7,8 @@
     "start:ai": "npm run dev --prefix ai",
     "build:ai": "npm run build --prefix ai",
     "pull-models": "npm run pull-models --prefix ai",
+    "rank": "npm run rank --prefix ai",
+    "rank:ai": "npm run rank --prefix ai",
     "test:ai": "npm test --prefix ai"
   }
 }

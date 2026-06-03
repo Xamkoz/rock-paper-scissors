@@ -20,7 +20,8 @@ const ctx = (): MatchDbContext => ({
   currentMatch: null,
   headToHead: [],
   recentBotMatches: [],
-  queryLimits: { headToHead: 0, recentBot: 0 },
+  globalBotMatches: [],
+  queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
 });
 
 describe("evaluateTacticalIntelOutcome", () => {

@@ -7,8 +7,11 @@ import {
   buildCompactMoveUserPrompt,
   buildFastMoveUserPrompt,
   buildFullMoveUserPrompt,
+  buildIntelPickDirective,
+  buildMoveIntelCatalogForPick,
   useCompactMovePrompt,
 } from "./movePrompt.js";
+import { buildIntelCitationHints } from "./moveIntelHints.js";
 
 const baseMatch = (round: number, priorRounds: Match["rounds"]): Match => ({
   id: "m1",
@@ -41,7 +44,23 @@ const intel = (): TacticalIntel =>
       distribution: { rockPct: 60, paperPct: 20, scissorsPct: 20 },
       openWith: "PAPER",
     },
-    sourcesByEfficiency: [],
+    sourcesByEfficiency: [
+      {
+        source: "h2h",
+        rank: 1,
+        available: true,
+        sampleThrows: 40,
+        dominant: "ROCK",
+        openWith: "PAPER",
+        dominantPct: 60,
+        skew: "high",
+        leanPctHistorical: 70,
+        leanRoundsHistorical: 20,
+        winPctAsPrimary: 65,
+        primaryMatches: 8,
+        efficiencyScore: 48,
+      },
+    ],
     h2hRecord: { games: 5, botSeriesWins: 10, opponentSeriesWins: 5 },
     recentOpponentThrows: ["PAPER", "SCISSORS"],
     priorH2hGames: [],
@@ -74,7 +93,8 @@ const ctx = (): MatchDbContext => ({
     },
   ],
   recentBotMatches: [],
-  queryLimits: { headToHead: 5, recentBot: 0 },
+  globalBotMatches: [],
+  queryLimits: { headToHead: 5, recentBot: 0, globalBot: 0 },
   tactics: "Open Paper vs Rock lean.",
   tacticalIntel: intel(),
 });
@@ -106,14 +126,18 @@ describe("buildFastMoveUserPrompt", () => {
     const compact = JSON.parse(buildFastMoveUserPrompt(match, ctx())) as Record<string, unknown>;
 
     assert.ok(full.opponentLifetime);
-    assert.ok(full.tacticalIntel);
+    assert.ok(full.patternRead);
     assert.ok(full.priorMatches);
     assert.equal(compact.opponentLifetime, undefined);
-    assert.equal(compact.tacticalIntel, undefined);
     assert.equal(compact.priorMatches, undefined);
+    assert.ok(compact.patternRead);
+    assert.ok(compact.intelDirective);
+    assert.ok(Array.isArray(compact.intelCatalog));
     assert.equal(compact.preparedTactics, "Open Paper vs Rock lean.");
     assert.equal(compact.opponentLeanThisMatch, "ROCK");
-    assert.equal((compact.read as { read: string }).read, "ROCK");
+    assert.ok(Array.isArray(compact.citeHints) && (compact.citeHints as unknown[]).length > 0);
+    assert.match(String(compact.intelDirective), /citeHints/);
+    assert.equal((compact.patternRead as { read: string }).read, "ROCK");
     assert.ok(JSON.stringify(compact).length < JSON.stringify(full).length);
   });
 
@@ -121,7 +145,7 @@ describe("buildFastMoveUserPrompt", () => {
     const match = baseMatch(1, []);
     const payload = JSON.parse(buildFastMoveUserPrompt(match, ctx())) as Record<string, unknown>;
     assert.ok(payload.opponentLifetime);
-    assert.ok(payload.tacticalIntel);
+    assert.ok(payload.patternRead);
   });
 
   it("round 1 omits raw cross history when tactical intel is present", () => {
@@ -129,7 +153,7 @@ describe("buildFastMoveUserPrompt", () => {
     const payload = JSON.parse(buildFastMoveUserPrompt(match, ctx())) as Record<string, unknown>;
     assert.equal(payload.crossMatchHistory, undefined);
     assert.equal(payload.crossPairs, undefined);
-    const intel = payload.tacticalIntel as Record<string, unknown>;
+    const intel = payload.patternRead as Record<string, unknown>;
     assert.ok(intel.recentSeq);
     assert.equal(intel.primaryPatterns, undefined);
     if (intel.crossOpponent) {
@@ -142,11 +166,22 @@ describe("buildFastMoveUserPrompt", () => {
     const payload = JSON.parse(buildFastMoveUserPrompt(match, ctx())) as {
       intelCatalog: Array<{ signals: string[] }>;
       intelSignalGlossary: Record<string, string>;
+      intelDirective?: string;
     };
     const cited = new Set(payload.intelCatalog.flatMap((e) => e.signals));
     for (const key of Object.keys(payload.intelSignalGlossary)) {
       assert.ok(cited.has(key), `unexpected glossary key ${key}`);
     }
     assert.ok(Object.keys(payload.intelSignalGlossary).length < 20);
+    assert.ok(payload.intelDirective);
+  });
+
+  it("intelDirective surfaces citeHints for round 1", () => {
+    const match = baseMatch(1, []);
+    const { catalog } = buildMoveIntelCatalogForPick(match, ctx());
+    const citeHints = buildIntelCitationHints(ctx(), 1, [], catalog);
+    const directive = buildIntelPickDirective(ctx(), catalog, citeHints);
+    assert.match(directive, /citeHints:/);
+    assert.match(directive, /h2h\/h2hRecord|preparedTactics/);
   });
 });

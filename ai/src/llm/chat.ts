@@ -1,6 +1,6 @@
 import { getLlmConfig } from "./client.js";
 import { error, log, msSince } from "../log.js";
-import { MOVE_PICK_JSON_SHAPE, parseMoveChoice, parseMovePick } from "./parse.js";
+import { MOVE_PICK_JSON_SHAPE, formatMovePickLogLine, parseMoveChoice, parseMovePick, type ParseMovePickOptions } from "./parse.js";
 
 /** Minimal prompts — full MOVE_SYSTEM_PROMPT is too large; 16 tokens truncated JSON. */
 export const POST_START_SYSTEM_PROMPT = [
@@ -9,11 +9,48 @@ export const POST_START_SYSTEM_PROMPT = [
 ].join(" ");
 
 export const POST_START_WARMUP_USER =
-  '{"bot":"warmup","opponent":"warmup","round":1,"score":{"bot":0,"opponent":0},"thisMatchRounds":[],"intelCatalog":[{"source":"thisMatch","signals":["thisMatchRounds"]}]}';
+  '{"bot":"warmup","opponent":"warmup","round":1,"seriesScore":{"bot":0,"opponent":0,"botWinsNeeded":2,"opponentWinsNeeded":2,"clinch":false,"leader":"tie"},"thisMatchRounds":[],"intelCatalog":[{"source":"thisMatch","signals":["thisMatchRounds"]}]}';
 
 function truncateForLog(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n… (${text.length - maxChars} more chars)`;
+}
+
+function llmLogRequestsEnabled(): boolean {
+  return process.env.LLM_LOG_REQUESTS !== "false";
+}
+
+function llmLogResponsesEnabled(): boolean {
+  return process.env.LLM_LOG_RESPONSES !== "false";
+}
+
+function shouldLogRequests(options: { quiet?: boolean; logRequests?: boolean }): boolean {
+  if (options.logRequests === false) return false;
+  if (options.logRequests === true) return true;
+  if (options.quiet) return false;
+  return llmLogRequestsEnabled();
+}
+
+function shouldLogResponses(options: { quiet?: boolean; logResponse?: boolean }): boolean {
+  if (options.logResponse === false) return false;
+  if (options.logResponse === true) return true;
+  if (options.quiet) return false;
+  return llmLogResponsesEnabled();
+}
+
+function logLlmResponse(
+  tag: string,
+  durationMs: number,
+  text: string,
+  parseMovePickOptions?: ParseMovePickOptions,
+): void {
+  const maxChars = process.env.LLM_LOG_MAX_CHARS
+    ? Number(process.env.LLM_LOG_MAX_CHARS)
+    : undefined;
+  const body = maxChars ? truncateForLog(text, maxChars) : text;
+  const movePick = /^move\b/i.test(tag) ? parseMovePick(text, parseMovePickOptions) : null;
+  const reasoning = movePick ? `\n→ ${formatMovePickLogLine(movePick)}` : "";
+  log(`[llm:${tag}:res] ${durationMs}ms ${body}${reasoning}`);
 }
 
 function previewLines(text: string, maxLines: number, maxLineChars: number): string {
@@ -109,6 +146,13 @@ export async function chatComplete(
     timeoutMs?: number;
     /** Override active model (startup warmup / A-B without changing config). */
     model?: string;
+    /** Skip request logs (rank CLI, silent warmups). */
+    quiet?: boolean;
+    /** Override request/response logging (default: on for gameplay, off when quiet). */
+    logRequests?: boolean;
+    logResponse?: boolean;
+    /** Salvage move-pick citations in [llm:move*:res] (e.g. tacticalIntel → primary source). */
+    parseMovePickOptions?: ParseMovePickOptions;
   } = {},
 ): Promise<ChatResult> {
   const { baseUrl, model: activeModel, apiKey, timeoutMs: configTimeoutMs } = getLlmConfig();
@@ -138,7 +182,9 @@ export async function chatComplete(
   applyLlmServerOptions(body, maxTokens);
 
   const tag = options.logLabel ?? "chat";
-  logLlmRequest(tag, model, systemPrompt, userPrompt, options.logSummary);
+  if (shouldLogRequests(options)) {
+    logLlmRequest(tag, model, systemPrompt, userPrompt, options.logSummary);
+  }
 
   const startedAt = Date.now();
   const controller = new AbortController();
@@ -162,7 +208,9 @@ export async function chatComplete(
     if (!text) throw new Error("LLM returned empty content");
 
     const durationMs = msSince(startedAt);
-    log(`[llm:${tag}:res] ${durationMs}ms ${text}`);
+    if (shouldLogResponses(options)) {
+      logLlmResponse(tag, durationMs, text, options.parseMovePickOptions);
+    }
     return { text, durationMs };
   } catch (err) {
     error(`[llm:${tag}:res] ${msSince(startedAt)}ms failed`, err);

@@ -3,15 +3,8 @@ import { initFirebase } from "./firebase/client.js";
 import { getLlmConfig, initLlm } from "./llm/client.js";
 import { probeLlm, verifyLlmAfterStart } from "./llm/chat.js";
 import { pullMissingLlmModels } from "./llm/pullModels.js";
-import {
-  bootstrapLlmModels,
-  logLlmModelsRankedAtStart,
-} from "./llm/llmModelRanking.js";
+import { bootstrapLlmModels } from "./llm/llmModelRanking.js";
 import { MatchDatabase } from "./db/matchDatabase.js";
-import {
-  getTacticsIntelEfficiencyLogPath,
-  logBotStartIntelEfficiency,
-} from "./llm/tacticalIntel.js";
 import { error, log, msSince } from "./log.js";
 import { PlayerAgent } from "./player/PlayerAgent.js";
 
@@ -44,18 +37,9 @@ async function main(): Promise<void> {
   log(`[ai] db open ${msSince(dbOpenStartedAt)}ms path=${config.matchDbPath}`);
 
   const rankStartedAt = Date.now();
-  const ranked = await bootstrapLlmModels(db.getSqlite());
-  logLlmModelsRankedAtStart(ranked);
-  log(`[ai] llm model ranking ${msSince(rankStartedAt)}ms (sqlite)`);
-
-  const tacticsIntelLog = getTacticsIntelEfficiencyLogPath();
-  if (tacticsIntelLog) {
-    log(`[ai] tactics intel efficiency log → ${tacticsIntelLog}`);
-  }
-  logBotStartIntelEfficiency(
-    db.getTacticalIntelLeanAccuracy(),
-    db.getTacticalIntelPrimaryLeaderboard(),
-    db.getPickIntelCitationStats(),
+  await bootstrapLlmModels(db.getSqlite(), { quiet: true });
+  log(
+    `[ai] llm active=${getLlmConfig().model} (${msSince(rankStartedAt)}ms warmup; full rankings → npm run rank)`,
   );
 
   const firebaseStartedAt = Date.now();

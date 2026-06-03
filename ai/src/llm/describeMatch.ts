@@ -24,7 +24,10 @@ function buildDescribeSystemPrompt(
     `The series score is ONLY ${seriesScoreLine} (bot series wins vs opponent series wins).`,
     `You MUST state that exact score (e.g. "${seriesScoreLine}"). roundsPlayed is throw count — never use it as the score.`,
     `Example: ${botName} won ${seriesScoreLine} vs ${opponentName} in 10 rounds, leaning on Paper vs their Scissors.`,
-    "result win = bot won the series; result loss = opponent won. roundResults counts individual rounds, not series points.",
+    "result win = bot won the series; result loss = opponent won; result draw = series tied (no winner).",
+    "roundResults: botRoundWins/botRoundLosses/tieRounds are per-throw outcomes. Tie rounds are draws (same throw) and award no series points.",
+    "When tieRounds > 0, mention draws or use phrasing like 'X-Y with Z ties' — never say 'no losses', 'undefeated', or 'flawless' in rounds.",
+    "roundResults counts individual rounds, not series points — do not confuse round wins with the series score.",
     "Cover winner, series score, one throw pattern, optional clinch round — do not repeat the bot name as 'the bot'.",
     "When intelReasoning is present, include exactly one short sentence on whether the pre-match intel lean matched opponent throws.",
     "Use Rock, Paper, Scissors only. Plain ASCII text, no emoji, no JSON labels.",
@@ -57,6 +60,8 @@ function leanStatsForPrimary(
       return { hits: outcome.h2hLeanHits, rounds: outcome.h2hLeanRounds };
     case "recentVsOpponent":
       return { hits: outcome.recentLeanHits, rounds: outcome.recentLeanRounds };
+    case "global":
+      return { hits: outcome.globalLeanHits, rounds: outcome.globalLeanRounds };
     case "lifetime":
       return { hits: outcome.lifetimeLeanHits, rounds: outcome.lifetimeLeanRounds };
     default:
@@ -450,9 +455,53 @@ export function descriptionStatesResult(
   botName: string,
   opponentName: string,
 ): boolean {
-  if (result === "draw") return true;
+  if (result === "draw") {
+    if (botClaimsVictory(text, botName) || opponentClaimsVictory(text, opponentName)) {
+      return false;
+    }
+    return /\b(drew|draw|tied|tie|deadlock)\b/i.test(text);
+  }
   if (result === "win") return !opponentClaimsVictory(text, opponentName);
   return !botClaimsVictory(text, botName);
+}
+
+/** Reject round-record claims that ignore tie rounds or misstate W-L. */
+export function descriptionStatesRoundOutcomes(
+  text: string,
+  roundOutcomes: DescribeAnalytics["roundOutcomes"],
+): boolean {
+  const { botWon, botLost, tie } = roundOutcomes;
+  const normalized = text.toLowerCase();
+
+  if (botLost > 0 && /\b(no losses?|without (?:a )?loss|undefeated|flawless|perfect record)\b/.test(normalized)) {
+    return false;
+  }
+
+  if (tie > 0 && /\b(no losses?|without (?:a )?loss|undefeated|flawless|perfect record|clean sweep)\b/.test(normalized)) {
+    return false;
+  }
+
+  const winsNoLosses = normalized.match(/\b(\d+)\s+wins?\s+and\s+no\s+losses?\b/);
+  if (winsNoLosses) {
+    const claimed = Number(winsNoLosses[1]);
+    if (claimed !== botWon || tie > 0 || botLost > 0) return false;
+  }
+
+  const wonAll = normalized.match(/\bwon all (\d+) rounds?\b/);
+  if (wonAll && Number(wonAll[1]) !== botWon) return false;
+  if (/\bwon (?:every|all) rounds?\b/.test(normalized) && (botLost > 0 || tie > 0)) {
+    return false;
+  }
+
+  const roundRecord = normalized.match(/\b(\d+)\s*-\s*(\d+)\s+in rounds?\b/);
+  if (roundRecord) {
+    const a = Number(roundRecord[1]);
+    const b = Number(roundRecord[2]);
+    if (a === botWon && b === botLost) return true;
+    if (a === botLost && b === botWon) return false;
+  }
+
+  return true;
 }
 
 const FIELD_LEAK_PATTERN = /\b(?:end|score)\.(?:bot|opponent|you|opp)\b/gi;
@@ -570,12 +619,17 @@ export function buildDeterministicDescribe(facts: DescribeFacts): string {
   const outcome =
     facts.result === "win" ? "won" : facts.result === "loss" ? "lost" : "drew";
   const dom = facts.analysis.opponentDominant;
+  const { botWon, botLost, tie } = facts.analysis.roundOutcomes;
   const throwNote = dom
     ? ` Opponent leaned ${dom} across ${facts.roundsResolved} rounds.`
     : "";
+  const roundNote =
+    tie > 0
+      ? ` (${facts.roundsResolved} rounds, ${botWon}-${botLost} with ${tie} ${tie === 1 ? "draw" : "draws"}).`
+      : ` (${facts.roundsResolved} rounds).`;
   return (
     `${facts.bot} ${outcome} ${facts.mode} vs ${facts.opponent} ${scoreStr}` +
-    ` (${facts.roundsResolved} rounds).${throwNote}`
+    `${roundNote}${throwNote}`
   ).trim();
 }
 
@@ -583,7 +637,7 @@ export function isAcceptableDescription(
   text: string,
   facts: Pick<
     DescribeFacts,
-    "score" | "result" | "bot" | "opponent" | "roundsResolved"
+    "score" | "result" | "bot" | "opponent" | "roundsResolved" | "analysis"
   >,
   limits?: { maxWords: number; maxChars: number },
 ): boolean {
@@ -600,6 +654,7 @@ export function isAcceptableDescription(
       facts.roundsResolved,
     ) &&
     descriptionStatesResult(clean, facts.result, facts.bot, facts.opponent) &&
+    descriptionStatesRoundOutcomes(clean, facts.analysis.roundOutcomes) &&
     clean.length > 0
   );
 }
@@ -622,7 +677,12 @@ function buildDescribeUserPrompt(
       note: "series wins only — this is the match result",
     },
     roundsPlayed: facts.roundsResolved,
-    roundResults: facts.analysis.roundOutcomes,
+    roundResults: {
+      botRoundWins: facts.analysis.roundOutcomes.botWon,
+      botRoundLosses: facts.analysis.roundOutcomes.botLost,
+      tieRounds: facts.analysis.roundOutcomes.tie,
+      note: "tieRounds are draws (same throw); they do not add series points",
+    },
     botDominant: facts.analysis.botDominant,
     opponentDominant: facts.analysis.opponentDominant,
     clinchRound: facts.analysis.clinchRound,

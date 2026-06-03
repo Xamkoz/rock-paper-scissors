@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildTacticalIntel } from "./tacticalIntel.js";
 import type { MatchDbContext } from "./matchContext.js";
 import type { Match } from "../types.js";
-import { rankIntelSourcesByEfficiency } from "./tacticalIntelRanking.js";
+import { rankIntelSourcesByEfficiency, rankHistoricalIntelSourcesByEfficiency } from "./tacticalIntelRanking.js";
 
 const ctx = (): MatchDbContext => ({
   botUid: "bot",
@@ -37,7 +37,8 @@ const ctx = (): MatchDbContext => ({
     },
   ],
   recentBotMatches: [],
-  queryLimits: { headToHead: 0, recentBot: 0 },
+  globalBotMatches: [],
+  queryLimits: { headToHead: 0, recentBot: 0, globalBot: 0 },
 });
 
 const match = (): Match => ({
@@ -76,5 +77,24 @@ describe("rankIntelSourcesByEfficiency", () => {
     );
     assert.equal(ranked[0]!.source, "h2h");
     assert.equal(ranked[0]!.rank, 1);
+  });
+});
+
+describe("rankHistoricalIntelSourcesByEfficiency", () => {
+  it("always lists global when other sources have history", () => {
+    const ranked = rankHistoricalIntelSourcesByEfficiency(
+      [
+        { source: "lifetime", leanHits: 500, leanRounds: 1444, leanPct: 37.7 },
+        { source: "h2h", leanHits: 500, leanRounds: 1412, leanPct: 36 },
+        { source: "recentVsOpponent", leanHits: 500, leanRounds: 1438, leanPct: 35.7 },
+        { source: "global", leanHits: 0, leanRounds: 0, leanPct: 0 },
+      ],
+      [{ source: "h2h", matches: 227, wins: 115, winPct: 50.7 }],
+    );
+    assert.equal(ranked.length, 4);
+    assert.ok(ranked.some((r) => r.source === "global"));
+    const global = ranked.find((r) => r.source === "global");
+    assert.equal(global!.leanRoundsHistorical, 0);
+    assert.equal(global!.rank, 4);
   });
 });

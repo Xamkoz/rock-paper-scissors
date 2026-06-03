@@ -51,7 +51,8 @@ const ctx = (): MatchDbContext => ({
     },
   ],
   recentBotMatches: [],
-  queryLimits: { headToHead: 5, recentBot: 0 },
+  globalBotMatches: [],
+  queryLimits: { headToHead: 5, recentBot: 0, globalBot: 0 },
 });
 
 describe("buildTacticalIntel", () => {
@@ -67,5 +68,33 @@ describe("buildTacticalIntel", () => {
     assert.match(line, /read=PAPER→open SCISSORS/);
     assert.equal(intel.lifetime?.patterns.ranked[0]?.move, "PAPER");
     assert.ok(intel.lifetime!.patterns.repeatRatePct >= 0);
+  });
+
+  it("builds global slice from all archived opponents", () => {
+    const globalCtx = (): MatchDbContext => ({
+      ...ctx(),
+      headToHead: [],
+      opponentProfile: null,
+      globalBotMatches: [
+        {
+          id: "g1",
+          opponentUid: "a",
+          opponentName: "Alice",
+          matchMode: "BO3",
+          botWins: 1,
+          opponentWins: 2,
+          rounds: Array.from({ length: 35 }, (_, i) => ({
+            roundNumber: i + 1,
+            opponentMove: i % 3 === 0 ? "PAPER" : "ROCK",
+            botMove: "SCISSORS",
+          })),
+        },
+      ],
+    });
+    const intel = buildTacticalIntel(baseMatch(), globalCtx());
+    assert.equal(intel.global?.label, "global");
+    assert.equal(intel.global?.sampleThrows, 35);
+    assert.equal(intel.primarySource, "global");
+    assert.equal(intel.primary?.dominant, "ROCK");
   });
 });

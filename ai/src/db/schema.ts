@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { backfillGlobalIntelLean } from "./tacticalIntelDb.js";
 import { warn } from "../log.js";
 
 export function pairKey(uidA: string, uidB: string): string {
@@ -14,6 +15,7 @@ const REQUIRED_TABLES = [
   "round_timings",
   "tactical_intel_snapshots",
   "tactical_intel_outcomes",
+  "round_signal_scores",
 ] as const;
 
 function tableExists(db: DatabaseSync, name: string): boolean {
@@ -62,6 +64,8 @@ export function initSchema(db: DatabaseSync): void {
   db.exec(SCHEMA_DDL);
   migrateRoundTimingsPickCitation(db);
   migrateMatchesBotUid(db);
+  migrateTacticalIntelGlobal(db);
+  migrateRoundSignalScores(db);
 }
 
 function matchColumnNamesList(db: DatabaseSync): string[] {
@@ -100,6 +104,72 @@ function migrateMatchesBotUid(db: DatabaseSync): void {
   if (!cols.includes("bot_uid")) {
     db.exec(`ALTER TABLE matches ADD COLUMN bot_uid TEXT`);
   }
+}
+
+function tacticalIntelOutcomeColumnNames(db: DatabaseSync): string[] {
+  if (!tableExists(db, "tactical_intel_outcomes")) return [];
+  const rows = db.prepare(`PRAGMA table_info(tactical_intel_outcomes)`).all() as Array<{
+    name: string;
+  }>;
+  return rows.map((r) => r.name);
+}
+
+function tacticalIntelSnapshotColumnNames(db: DatabaseSync): string[] {
+  if (!tableExists(db, "tactical_intel_snapshots")) return [];
+  const rows = db.prepare(`PRAGMA table_info(tactical_intel_snapshots)`).all() as Array<{
+    name: string;
+  }>;
+  return rows.map((r) => r.name);
+}
+
+/** Add global intel columns without wiping existing outcome rows. */
+function migrateTacticalIntelGlobal(db: DatabaseSync): void {
+  const outcomeCols = tacticalIntelOutcomeColumnNames(db);
+  if (outcomeCols.length > 0) {
+    if (!outcomeCols.includes("global_lean_hits")) {
+      db.exec(
+        `ALTER TABLE tactical_intel_outcomes ADD COLUMN global_lean_hits INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+    if (!outcomeCols.includes("global_lean_rounds")) {
+      db.exec(
+        `ALTER TABLE tactical_intel_outcomes ADD COLUMN global_lean_rounds INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+    if (!outcomeCols.includes("global_open_hit")) {
+      db.exec(`ALTER TABLE tactical_intel_outcomes ADD COLUMN global_open_hit INTEGER`);
+    }
+  }
+
+  const snapCols = tacticalIntelSnapshotColumnNames(db);
+  if (snapCols.length > 0) {
+    if (!snapCols.includes("global_dominant")) {
+      db.exec(`ALTER TABLE tactical_intel_snapshots ADD COLUMN global_dominant TEXT`);
+    }
+    if (!snapCols.includes("global_open_with")) {
+      db.exec(`ALTER TABLE tactical_intel_snapshots ADD COLUMN global_open_with TEXT`);
+    }
+  }
+
+  const backfilled = backfillGlobalIntelLean(db);
+  if (backfilled > 0) {
+    warn(`[db] backfilled global intel lean for ${backfilled} archived match(es)`);
+  }
+}
+
+function migrateRoundSignalScores(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS round_signal_scores (
+      match_id TEXT NOT NULL,
+      round_number INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      signal TEXT NOT NULL,
+      lean_hit INTEGER NOT NULL,
+      PRIMARY KEY (match_id, round_number, source, signal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_round_signal_scores_signal
+      ON round_signal_scores (signal);
+  `);
 }
 
 export const SCHEMA_DDL = `
@@ -169,6 +239,8 @@ CREATE TABLE IF NOT EXISTS tactical_intel_snapshots (
   h2h_open_with TEXT,
   recent_dominant TEXT,
   recent_open_with TEXT,
+  global_dominant TEXT,
+  global_open_with TEXT,
   tactics_fallback INTEGER NOT NULL DEFAULT 0,
   saved_at INTEGER NOT NULL
 );
@@ -184,9 +256,12 @@ CREATE TABLE IF NOT EXISTS tactical_intel_outcomes (
   h2h_lean_rounds INTEGER NOT NULL DEFAULT 0,
   recent_lean_hits INTEGER NOT NULL DEFAULT 0,
   recent_lean_rounds INTEGER NOT NULL DEFAULT 0,
+  global_lean_hits INTEGER NOT NULL DEFAULT 0,
+  global_lean_rounds INTEGER NOT NULL DEFAULT 0,
   lifetime_open_hit INTEGER,
   h2h_open_hit INTEGER,
   recent_open_hit INTEGER,
+  global_open_hit INTEGER,
   best_lean_source TEXT,
   primary_matched_best INTEGER NOT NULL DEFAULT 0,
   saved_at INTEGER NOT NULL
@@ -194,4 +269,16 @@ CREATE TABLE IF NOT EXISTS tactical_intel_outcomes (
 
 CREATE INDEX IF NOT EXISTS idx_tactical_outcomes_primary
   ON tactical_intel_outcomes (primary_source);
+
+CREATE TABLE IF NOT EXISTS round_signal_scores (
+  match_id TEXT NOT NULL,
+  round_number INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  signal TEXT NOT NULL,
+  lean_hit INTEGER NOT NULL,
+  PRIMARY KEY (match_id, round_number, source, signal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_round_signal_scores_signal
+  ON round_signal_scores (signal);
 `;

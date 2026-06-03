@@ -23,8 +23,9 @@ export function saveTacticalIntelSnapshot(
       lifetime_dominant, lifetime_open_with,
       h2h_dominant, h2h_open_with,
       recent_dominant, recent_open_with,
+      global_dominant, global_open_with,
       tactics_fallback, saved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(match_id) DO UPDATE SET
       primary_source = excluded.primary_source,
       lifetime_dominant = excluded.lifetime_dominant,
@@ -33,6 +34,8 @@ export function saveTacticalIntelSnapshot(
       h2h_open_with = excluded.h2h_open_with,
       recent_dominant = excluded.recent_dominant,
       recent_open_with = excluded.recent_open_with,
+      global_dominant = excluded.global_dominant,
+      global_open_with = excluded.global_open_with,
       tactics_fallback = excluded.tactics_fallback,
       saved_at = excluded.saved_at`,
   ).run(
@@ -44,6 +47,8 @@ export function saveTacticalIntelSnapshot(
     intel.h2h?.openWith ?? null,
     intel.recentVsOpponent?.dominant ?? null,
     intel.recentVsOpponent?.openWith ?? null,
+    intel.global?.dominant ?? null,
+    intel.global?.openWith ?? null,
     tacticsFallback ? 1 : 0,
     Date.now(),
   );
@@ -56,9 +61,10 @@ export function saveTacticalIntelOutcome(db: DatabaseSync, outcome: TacticalInte
       lifetime_lean_hits, lifetime_lean_rounds,
       h2h_lean_hits, h2h_lean_rounds,
       recent_lean_hits, recent_lean_rounds,
-      lifetime_open_hit, h2h_open_hit, recent_open_hit,
+      global_lean_hits, global_lean_rounds,
+      lifetime_open_hit, h2h_open_hit, recent_open_hit, global_open_hit,
       best_lean_source, primary_matched_best, saved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(match_id) DO UPDATE SET
       bot_won = excluded.bot_won,
       primary_source = excluded.primary_source,
@@ -69,9 +75,12 @@ export function saveTacticalIntelOutcome(db: DatabaseSync, outcome: TacticalInte
       h2h_lean_rounds = excluded.h2h_lean_rounds,
       recent_lean_hits = excluded.recent_lean_hits,
       recent_lean_rounds = excluded.recent_lean_rounds,
+      global_lean_hits = excluded.global_lean_hits,
+      global_lean_rounds = excluded.global_lean_rounds,
       lifetime_open_hit = excluded.lifetime_open_hit,
       h2h_open_hit = excluded.h2h_open_hit,
       recent_open_hit = excluded.recent_open_hit,
+      global_open_hit = excluded.global_open_hit,
       best_lean_source = excluded.best_lean_source,
       primary_matched_best = excluded.primary_matched_best,
       saved_at = excluded.saved_at`,
@@ -86,9 +95,12 @@ export function saveTacticalIntelOutcome(db: DatabaseSync, outcome: TacticalInte
     outcome.h2hLeanRounds,
     outcome.recentLeanHits,
     outcome.recentLeanRounds,
+    outcome.globalLeanHits,
+    outcome.globalLeanRounds,
     boolToInt(outcome.lifetimeOpenHit),
     boolToInt(outcome.h2hOpenHit),
     boolToInt(outcome.recentOpenHit),
+    boolToInt(outcome.globalOpenHit),
     outcome.bestLeanSource,
     outcome.primaryMatchedBest ? 1 : 0,
     Date.now(),
@@ -126,7 +138,9 @@ export function getTacticalIntelLeanAccuracy(db: DatabaseSync): LeanAccuracyRow[
         SUM(h2h_lean_hits) AS h2h_hits,
         SUM(h2h_lean_rounds) AS h2h_rounds,
         SUM(recent_lean_hits) AS recent_hits,
-        SUM(recent_lean_rounds) AS recent_rounds
+        SUM(recent_lean_rounds) AS recent_rounds,
+        SUM(global_lean_hits) AS global_hits,
+        SUM(global_lean_rounds) AS global_rounds
        FROM tactical_intel_outcomes`,
     )
     .get() as {
@@ -136,6 +150,8 @@ export function getTacticalIntelLeanAccuracy(db: DatabaseSync): LeanAccuracyRow[
     h2h_rounds: number | null;
     recent_hits: number | null;
     recent_rounds: number | null;
+    global_hits: number | null;
+    global_rounds: number | null;
   };
 
   const slice = (
@@ -157,7 +173,110 @@ export function getTacticalIntelLeanAccuracy(db: DatabaseSync): LeanAccuracyRow[
     slice("lifetime", row.life_hits, row.life_rounds),
     slice("h2h", row.h2h_hits, row.h2h_rounds),
     slice("recentVsOpponent", row.recent_hits, row.recent_rounds),
+    slice("global", row.global_hits, row.global_rounds),
   ].sort((a, b) => b.leanPct - a.leanPct);
+}
+
+const GLOBAL_POOL_THROW_LIMIT = 500;
+
+function dominantFromChoices(choices: string[]): string | null {
+  const counts = { ROCK: 0, PAPER: 0, SCISSORS: 0 };
+  for (const c of choices) {
+    if (c === "ROCK" || c === "PAPER" || c === "SCISSORS") counts[c]++;
+  }
+  const total = counts.ROCK + counts.PAPER + counts.SCISSORS;
+  if (total === 0) return null;
+  if (counts.PAPER >= counts.ROCK && counts.PAPER >= counts.SCISSORS) return "PAPER";
+  if (counts.ROCK >= counts.SCISSORS) return "ROCK";
+  return "SCISSORS";
+}
+
+function opponentChoicesForMatch(db: DatabaseSync, matchId: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT
+        CASE WHEN m.player1 = m.bot_uid THEN r.player2_choice ELSE r.player1_choice END AS opp
+       FROM rounds r
+       JOIN matches m ON m.id = r.match_id
+       WHERE r.match_id = ? AND r.resolved_at IS NOT NULL`,
+    )
+    .all(matchId) as Array<{ opp: string | null }>;
+  return rows.map((r) => r.opp).filter((c): c is string => !!c);
+}
+
+function globalPoolChoices(
+  db: DatabaseSync,
+  botUid: string,
+  matchId: string,
+  beforeActivityAt: number,
+): string[] {
+  const rows = db
+    .prepare(
+      `SELECT
+        CASE WHEN m.player1 = m.bot_uid THEN r.player2_choice ELSE r.player1_choice END AS opp
+       FROM rounds r
+       JOIN matches m ON m.id = r.match_id
+       WHERE m.bot_uid = ?
+         AND m.id != ?
+         AND m.last_activity_at <= ?
+         AND r.resolved_at IS NOT NULL
+       ORDER BY m.last_activity_at DESC, r.round_number ASC
+       LIMIT ?`,
+    )
+    .all(botUid, matchId, beforeActivityAt, GLOBAL_POOL_THROW_LIMIT) as Array<{
+    opp: string | null;
+  }>;
+  return rows.map((r) => r.opp).filter((c): c is string => !!c);
+}
+
+/**
+ * Recompute global lean for outcome rows saved before the global intel layer existed.
+ * Uses archived SQLite throws (all opponents) as the population prior at match time.
+ */
+export function backfillGlobalIntelLean(db: DatabaseSync): number {
+  if (
+    !db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='tactical_intel_outcomes'`,
+      )
+      .get()
+  ) {
+    return 0;
+  }
+
+  const pending = db
+    .prepare(
+      `SELECT o.match_id, m.bot_uid, m.last_activity_at
+       FROM tactical_intel_outcomes o
+       JOIN matches m ON m.id = o.match_id
+       WHERE o.global_lean_rounds = 0
+         AND m.bot_uid IS NOT NULL AND m.bot_uid != ''`,
+    )
+    .all() as Array<{ match_id: string; bot_uid: string; last_activity_at: number }>;
+
+  const update = db.prepare(
+    `UPDATE tactical_intel_outcomes
+     SET global_lean_hits = ?, global_lean_rounds = ?
+     WHERE match_id = ?`,
+  );
+
+  let updated = 0;
+  for (const row of pending) {
+    const pool = globalPoolChoices(db, row.bot_uid, row.match_id, row.last_activity_at);
+    const dominant = dominantFromChoices(pool);
+    if (!dominant) continue;
+
+    const matchThrows = opponentChoicesForMatch(db, row.match_id);
+    if (matchThrows.length === 0) continue;
+
+    let hits = 0;
+    for (const o of matchThrows) {
+      if (o === dominant) hits++;
+    }
+    update.run(hits, matchThrows.length, row.match_id);
+    updated++;
+  }
+  return updated;
 }
 
 /** When primary source matched the best lean read for that match. */

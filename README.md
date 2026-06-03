@@ -64,6 +64,12 @@ Self-hosted matchmaking bot — see [ai/docs/README.md](ai/docs/README.md). From
 npm start
 ```
 
+Rank LLM models and intel leaderboards (no Firebase / queue):
+
+```bash
+npm run rank
+```
+
 ## Backend
 
 Deploy Firestore rules, indexes, and Cloud Functions:
