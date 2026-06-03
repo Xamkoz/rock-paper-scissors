@@ -8,6 +8,7 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.data.preferences.HighlightedMatchCache
+import com.rpsonline.app.data.preferences.HighlightedMatchSession
 import com.rpsonline.app.data.preferences.MatchModePreferences
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.HighlightedMatchFunctions
@@ -131,6 +132,7 @@ class HomeViewModel(
                     queueObserveJob = null
                     highlightedMatchJob?.cancel()
                     highlightedMatchJob = null
+                    HighlightedMatchSession.clear()
                     lastProfileStatsFingerprint = null
                     appContext = null
                     stopQueueTimer()
@@ -156,10 +158,17 @@ class HomeViewModel(
                         )
                     }
                 } else {
+                    val highlightedDismissedForSession = HighlightedMatchSession.dismissed
                     if (_uiState.value.profile == null) {
                         _uiState.update {
-                            it.copy(profile = authRepository.fallbackProfile(user), isLoading = false)
+                            it.copy(
+                                profile = authRepository.fallbackProfile(user),
+                                isLoading = false,
+                                isHighlightedMatchDismissed = highlightedDismissedForSession,
+                            )
                         }
+                    } else if (highlightedDismissedForSession && !_uiState.value.isHighlightedMatchDismissed) {
+                        _uiState.update { it.copy(isHighlightedMatchDismissed = true) }
                     }
                     profileJob = viewModelScope.launch {
                         userRepository.observeUserProfile(user.uid).collect { profile ->
@@ -169,13 +178,18 @@ class HomeViewModel(
                                     lastProfileStatsFingerprint != fingerprint
                                 lastProfileStatsFingerprint = fingerprint
                                 _uiState.update { it.copy(profile = profile, isLoading = false, error = null) }
-                                if (statsChanged || _uiState.value.highlightedMatch == null) {
+                                if (
+                                    !HighlightedMatchSession.dismissed &&
+                                    (statsChanged || _uiState.value.highlightedMatch == null)
+                                ) {
                                     loadHighlightedMatch(user.uid, profile.elo)
                                 }
                             }
                         }
                     }
-                    loadHighlightedMatch(user.uid, _uiState.value.profile?.elo ?: 1000)
+                    if (!HighlightedMatchSession.dismissed) {
+                        loadHighlightedMatch(user.uid, _uiState.value.profile?.elo ?: 1000)
+                    }
                     refresh(user)
                     observeActiveMatch()
                     observeQueue()
@@ -863,12 +877,17 @@ class HomeViewModel(
     }
 
     fun dismissHighlightedMatch() {
+        HighlightedMatchSession.dismiss()
         _uiState.update { it.copy(isHighlightedMatchDismissed = true) }
     }
 
     fun onHomeVisible(context: Context) {
         appContext = context.applicationContext
         loadMatchModePreferences(context)
+        if (HighlightedMatchSession.dismissed) {
+            _uiState.update { it.copy(isHighlightedMatchDismissed = true) }
+            return
+        }
         authRepository.currentUserId?.let { uid ->
             _uiState.value.profile?.elo?.let { elo ->
                 loadHighlightedMatch(uid, elo)
@@ -877,15 +896,17 @@ class HomeViewModel(
     }
 
     private fun loadHighlightedMatch(userId: String, currentElo: Int) {
+        if (HighlightedMatchSession.dismissed) return
         highlightedMatchJob?.cancel()
         highlightedMatchJob = viewModelScope.launch {
+            if (HighlightedMatchSession.dismissed) return@launch
             try {
                 val windowStartMs = weeklyChartWindowStartMs()
                 val cacheContext = appContext
                 if (cacheContext != null) {
                     val cached = HighlightedMatchCache(cacheContext).read(userId, windowStartMs)
                     if (cached != null) {
-                        if (authRepository.currentUserId == userId) {
+                        if (authRepository.currentUserId == userId && !HighlightedMatchSession.dismissed) {
                             _uiState.update { it.copy(highlightedMatch = cached.entry) }
                         }
                         return@launch
@@ -910,7 +931,7 @@ class HomeViewModel(
                 cacheContext?.let { context ->
                     HighlightedMatchCache(context).write(userId, windowStartMs, highlighted)
                 }
-                if (authRepository.currentUserId == userId) {
+                if (authRepository.currentUserId == userId && !HighlightedMatchSession.dismissed) {
                     _uiState.update { it.copy(highlightedMatch = highlighted) }
                 }
             } catch (_: Exception) {
@@ -956,7 +977,9 @@ class HomeViewModel(
             if (_uiState.value.profile == null) {
                 userRepository.getUserProfile(uid)?.let { profile ->
                     _uiState.update { it.copy(profile = profile) }
-                    loadHighlightedMatch(uid, profile.elo)
+                    if (!HighlightedMatchSession.dismissed) {
+                        loadHighlightedMatch(uid, profile.elo)
+                    }
                 }
             }
 
@@ -1111,6 +1134,7 @@ class HomeViewModel(
 
     fun signOut(context: Context) {
         val uid = authRepository.currentUserId
+        HighlightedMatchSession.clear()
         appContext?.let { HighlightedMatchCache(it).clear() }
         refreshJob?.cancel()
         resetMatchmakingLocalState()
