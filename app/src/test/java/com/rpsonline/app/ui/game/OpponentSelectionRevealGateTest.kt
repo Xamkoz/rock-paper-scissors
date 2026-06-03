@@ -17,6 +17,16 @@ class OpponentSelectionRevealGateTest {
     )
 
     @Test
+    fun scoresBeforeRecapRound_rollsBackWinnerOnly() {
+        val round = dummyRound().copy(winner = "p1")
+        assertEquals(1 to 0, scoresBeforeRecapRound(1, 1, round, userId = "p2"))
+        assertEquals(0 to 1, scoresBeforeRecapRound(1, 1, round, userId = "p1"))
+        val tie = dummyRound().copy(winner = "tie")
+        assertEquals(2 to 2, scoresBeforeRecapRound(2, 2, tie, userId = "p1"))
+        assertEquals(3 to 1, scoresBeforeRecapRound(3, 1, null, userId = "p1"))
+    }
+
+    @Test
     fun canRevealDualSelection_requiresMinimumDisplayTime() {
         assertFalse(canRevealDualSelection(holdStartedAtMs = 1_000L, nowMs = 1_500L))
         assertTrue(canRevealDualSelection(holdStartedAtMs = 1_000L, nowMs = 2_000L))

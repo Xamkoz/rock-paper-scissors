@@ -1,6 +1,7 @@
 package com.rpsonline.app.ui.game
 
 import com.rpsonline.app.data.model.Move
+import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.RoundResult
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
@@ -28,6 +29,45 @@ fun dualSelectionElapsedMs(holdStartedAtMs: Long, nowMs: Long): Long =
 fun canRevealDualSelection(holdStartedAtMs: Long, nowMs: Long): Boolean =
     holdStartedAtMs == 0L ||
         dualSelectionElapsedMs(holdStartedAtMs, nowMs) >= DUAL_SELECTION_MIN_DISPLAY_MS
+
+/** Score on the panel before the just-resolved recap round is applied (for the 1s reveal gate). */
+fun scoresBeforeRecapRound(
+    myWins: Int,
+    opponentWins: Int,
+    recapRound: RoundResult?,
+    userId: String,
+): Pair<Int, Int> {
+    val round = recapRound ?: return myWins to opponentWins
+    return when (round.winner) {
+        "tie", null -> myWins to opponentWins
+        userId -> (myWins - 1).coerceAtLeast(0) to opponentWins
+        else -> myWins to (opponentWins - 1).coerceAtLeast(0)
+    }
+}
+
+fun winMovesBeforeRecapRound(
+    match: Match,
+    playerId: String,
+    recapRound: RoundResult?,
+): List<Move> {
+    val round = recapRound ?: return match.winMovesFor(playerId)
+    if (round.winner != playerId) return match.winMovesFor(playerId)
+    return match.rounds
+        .filter {
+            it.resolvedAt != null &&
+                it.winner == playerId &&
+                it.roundNumber != round.roundNumber
+        }
+        .sortedBy { it.roundNumber }
+        .mapNotNull { resolved ->
+            val choice = if (playerId == match.player1) {
+                resolved.player1Choice
+            } else {
+                resolved.player2Choice
+            }
+            Move.fromString(choice)
+        }
+}
 
 fun dualSelectionRevealHoldMs(holdStartedAtMs: Long, nowMs: Long): Long =
     if (holdStartedAtMs == 0L) {
@@ -267,12 +307,6 @@ fun rememberDualSelectionRevealAllowed(
     }
 
     LaunchedEffect(roundKey, holdForResolvedRound) {
-        if (roundKey == null) {
-            resolveHoldStartedAtMs = 0L
-            revealAllowed = true
-            return@LaunchedEffect
-        }
-
         if (!holdForResolvedRound) {
             resolveHoldStartedAtMs = 0L
             revealAllowed = true

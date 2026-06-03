@@ -11,6 +11,7 @@ import com.rpsonline.app.R
 import com.rpsonline.app.ui.segment.SegmentedNotificationStatus
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
 import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
+import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 
 object MatchNotificationHelper {
     private const val MATCH_FOUND_CHANNEL_ID = "match_found"
@@ -31,6 +32,7 @@ object MatchNotificationHelper {
 
     /** Ongoing until [dismissMatchFound] — cleared when the game screen opens or the lobby ends. */
     fun showMatchFound(context: Context, matchId: String, opponentName: String?) {
+        triggerMatchFoundFeedback(context, matchId)
         if (MatchmakingForegroundService.isRunning()) {
             MatchmakingForegroundService.requestLaunchAlert()
             return

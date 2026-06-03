@@ -17,6 +17,7 @@ import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.RoundResult
 
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.preferences.SoundFeedbackMode
 
 import kotlinx.coroutines.delay
 
@@ -202,21 +203,13 @@ const val ROUND_RESOLUTION_MUTED_BEAT_MS = 165L
 
 
 /** Typical move clip length — used to cap post-game wait; clips are usually shorter. */
-
 const val TYPICAL_MOVE_SOUND_MS = 850L
 
-
-
-/** Estimated playback time for [repetitions] resolution bursts. */
-
-fun roundResolutionFeedbackDurationMs(repetitions: Int, muted: Boolean): Long {
-
+/** Estimated playback time for resolution sound bursts (single haptic is not counted). */
+fun roundResolutionFeedbackDurationMs(repetitions: Int, mode: SoundFeedbackMode): Long {
     val reps = repetitions.coerceIn(1, 3)
-
-    val beatMs = if (muted) ROUND_RESOLUTION_MUTED_BEAT_MS else TYPICAL_MOVE_SOUND_MS
-
+    val beatMs = if (mode.allowsSound()) TYPICAL_MOVE_SOUND_MS else ROUND_RESOLUTION_MUTED_BEAT_MS
     return reps * beatMs + (reps - 1) * ROUND_RESOLUTION_BURST_GAP_MS
-
 }
 
 
@@ -239,7 +232,7 @@ const val MATCH_END_FEEDBACK_MAX_WAIT_MS = 3_500L
 
 
 
-/** Blocks until final-round move sounds / LED bursts have finished. */
+/** Blocks until final-round resolution feedback has finished. */
 
 suspend fun awaitMatchEndResolutionFeedback(
 
@@ -249,7 +242,7 @@ suspend fun awaitMatchEndResolutionFeedback(
 
     userId: String? = null,
 
-    muted: Boolean = false,
+    feedbackMode: SoundFeedbackMode = SoundFeedbackMode.SOUND_AND_HAPTIC,
 
     maxWaitMs: Long? = null,
 
@@ -270,12 +263,11 @@ suspend fun awaitMatchEndResolutionFeedback(
     val repetitions = userId?.let { roundResolutionRepetitions(resolved, it) } ?: 3
 
     val overallCapMs = (maxWaitMs ?: MATCH_END_FEEDBACK_MAX_WAIT_MS.toLong())
-
         .coerceAtMost(MATCH_END_FEEDBACK_MAX_WAIT_MS)
 
     val startGraceMs = minOf(MATCH_END_FEEDBACK_START_GRACE_MS, overallCapMs)
 
-    val playbackBudgetMs = (roundResolutionFeedbackDurationMs(repetitions, muted) + 400L)
+    val playbackBudgetMs = (roundResolutionFeedbackDurationMs(repetitions, feedbackMode) + 400L)
 
         .coerceAtMost(overallCapMs)
 

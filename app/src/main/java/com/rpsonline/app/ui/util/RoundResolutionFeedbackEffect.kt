@@ -26,36 +26,10 @@ import com.rpsonline.app.data.model.MatchStatus
 
 import com.rpsonline.app.data.model.Move
 
-import com.rpsonline.app.data.model.RoundResult
+import com.rpsonline.app.ui.LocalSoundFeedbackMode
 
-import com.rpsonline.app.ui.LocalClockSoundMuted
-
-import kotlinx.coroutines.delay
-
-
-
-fun roundResolutionRepetitions(resolved: RoundResult, userId: String): Int =
-
-    when (resolved.winner) {
-
-        "tie" -> 2
-
-        userId -> 3
-
-        else -> 1
-
-    }
-
-
-
-/**
-
- * Plays move sounds when a round resolves.
-
- */
-
+/** Plays move-sound bursts (1/2/3) and one haptic when a round resolves. */
 @Composable
-
 fun RoundResolutionFeedbackEffect(
 
     activeMatch: Match?,
@@ -68,7 +42,7 @@ fun RoundResolutionFeedbackEffect(
 
     val context = LocalContext.current
 
-    val muted = LocalClockSoundMuted.current
+    val feedbackMode = LocalSoundFeedbackMode.current
 
     val moveSoundPlayer = remember(context) { MoveSoundPlayer(context) }
 
@@ -148,7 +122,7 @@ fun RoundResolutionFeedbackEffect(
 
         userId,
 
-        muted,
+        feedbackMode,
 
         matchForFeedback?.id,
 
@@ -175,17 +149,12 @@ fun RoundResolutionFeedbackEffect(
 
 
         val myChoice = if (userId == match.player1) resolved.player1Choice else resolved.player2Choice
-
         val move = Move.fromString(myChoice) ?: run {
-
             pulseNotifier.markFeedbackComplete(resolved, match.id)
-
             return@LaunchedEffect
-
         }
 
         val repetitions = roundResolutionRepetitions(resolved, userId)
-
         val matchId = match.id
 
         val matchEnded = match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED
@@ -200,24 +169,13 @@ fun RoundResolutionFeedbackEffect(
 
         try {
 
-            repeat(repetitions) { index ->
-                if (muted) {
-
-                    delay(ROUND_RESOLUTION_MUTED_BEAT_MS)
-
-                } else {
-
-                    moveSoundPlayer.playOnce(move)
-
-                }
-
-                if (index < repetitions - 1) {
-
-                    delay(ROUND_RESOLUTION_BURST_GAP_MS)
-
-                }
-
-            }
+            playRoundResolutionFeedback(
+                context = context,
+                move = move,
+                repetitions = repetitions,
+                mode = feedbackMode,
+                moveSoundPlayer = moveSoundPlayer,
+            )
 
             finished = true
 

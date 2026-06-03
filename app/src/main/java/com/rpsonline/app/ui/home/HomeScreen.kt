@@ -79,7 +79,6 @@ import com.rpsonline.app.ui.components.ownProfileDisplayName
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.RpsCard
 import com.rpsonline.app.ui.components.rpsScreenPadding
-import com.rpsonline.app.ui.util.PreGameReadyFeedbackEffect
 import com.rpsonline.app.ui.util.formatQueueTime
 import com.rpsonline.app.ui.util.rememberQueueElapsedSeconds
 import com.rpsonline.app.ui.util.findActivity
@@ -142,8 +141,6 @@ fun HomeScreen(
         activity = activity,
         viewModel = updateViewModel,
     )
-
-    PreGameReadyFeedbackEffect(preGameSync = uiState.preGameSync)
 
     Column(
         modifier = Modifier

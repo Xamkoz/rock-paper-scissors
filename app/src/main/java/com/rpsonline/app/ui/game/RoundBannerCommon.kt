@@ -43,6 +43,21 @@ data class RoundOutcomeBannerColors(
     val contentColor: Color,
 )
 
+/** You = tertiary (gold), opponent = secondary (magenta/cyan) — matches win-segment palette. */
+data class MatchPanelPlayerScoreColors(
+    val you: Color,
+    val opponent: Color,
+)
+
+@Composable
+fun matchPanelPlayerScoreColors(): MatchPanelPlayerScoreColors {
+    val colorScheme = MaterialTheme.colorScheme
+    return MatchPanelPlayerScoreColors(
+        you = colorScheme.tertiary,
+        opponent = colorScheme.secondary,
+    )
+}
+
 @Composable
 fun roundOutcomeBannerColors(kind: RoundBannerKind): RoundOutcomeBannerColors {
     val colorScheme = MaterialTheme.colorScheme

@@ -10,6 +10,7 @@ import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.data.preferences.HighlightedMatchCache
 import com.rpsonline.app.data.preferences.HighlightedMatchSession
 import com.rpsonline.app.data.preferences.MatchModePreferences
+import com.rpsonline.app.data.preferences.SoundPreferences
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.HighlightedMatchFunctions
 import com.rpsonline.app.data.repository.MatchRepository
@@ -31,7 +32,10 @@ import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
 import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
+import com.rpsonline.app.ui.util.ClockTickPlayer
+import com.rpsonline.app.ui.util.playReadyFeedback
 import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
+import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -103,6 +107,9 @@ class HomeViewModel(
     private var highlightedMatchJob: Job? = null
     private var lastProfileStatsFingerprint: Int? = null
     private var appContext: Context? = null
+    private var preGameReadyFeedbackMatchId: String? = null
+    private var lastPreGameMyReady = false
+    private var lastPreGameOpponentReady = false
 
     companion object {
         private const val MATCH_ASSIGNMENT_GRACE_MS = 30_000L
@@ -114,6 +121,7 @@ class HomeViewModel(
         private const val PROFILE_READY_TIMEOUT_MS = 6_000L
         private const val PRE_GAME_READY_TIMEOUT_MESSAGE =
             "Opponent did not ready in time. Tap Find Match to try again."
+        private const val PRE_GAME_READY_TICK_GAP_MS = 120L
     }
 
     val navigateToGameMatchId: StateFlow<String?> = MatchSessionMonitor.pendingGameNavigationMatchId
@@ -613,6 +621,15 @@ class HomeViewModel(
                         stopQueueTimer()
                         val myReady = match.isPlayerReady(uid)
                         val opponentReady = match.isOpponentReady(uid)
+                        val preGameSync = PreGameSyncUiState(
+                            matchId = match.id,
+                            myDisplayName = match.myName(uid),
+                            opponentUid = match.opponentId(uid),
+                            opponentDisplayName = match.opponentName(uid),
+                            myReady = myReady,
+                            opponentReady = opponentReady,
+                            readyDeadlineAtMs = match.effectiveReadyDeadlineAtMs(),
+                        )
                         _uiState.update {
                             it.copy(
                                 isJoiningQueue = false,
@@ -620,17 +637,11 @@ class HomeViewModel(
                                 queueElapsedSeconds = null,
                                 matchmakingError = null,
                                 activeMatchId = null,
-                                preGameSync = PreGameSyncUiState(
-                                    matchId = match.id,
-                                    myDisplayName = match.myName(uid),
-                                    opponentUid = match.opponentId(uid),
-                                    opponentDisplayName = match.opponentName(uid),
-                                    myReady = myReady,
-                                    opponentReady = opponentReady,
-                                    readyDeadlineAtMs = match.effectiveReadyDeadlineAtMs(),
-                                ),
+                                preGameSync = preGameSync,
                             )
                         }
+                        appContext?.let { triggerMatchFoundFeedback(it, match.id) }
+                        playPreGameReadyFeedbackIfNeeded(preGameSync)
                         ensurePreGameReadyLoop(match.id)
                     }
                     MatchStatus.ACTIVE -> {
@@ -717,17 +728,18 @@ class HomeViewModel(
                         failPreGameSync(PRE_GAME_READY_TIMEOUT_MESSAGE)
                         break
                     }
+                    val updatedSync = PreGameSyncUiState(
+                        matchId = matchId,
+                        myDisplayName = serverMatch.myName(uid),
+                        opponentUid = serverMatch.opponentId(uid),
+                        opponentDisplayName = serverMatch.opponentName(uid),
+                        myReady = serverMatch.isPlayerReady(uid),
+                        opponentReady = serverMatch.isOpponentReady(uid),
+                        readyDeadlineAtMs = serverMatch.effectiveReadyDeadlineAtMs(),
+                    )
                     _uiState.update { state ->
                         state.copy(
-                            preGameSync = PreGameSyncUiState(
-                                matchId = matchId,
-                                myDisplayName = serverMatch.myName(uid),
-                                opponentUid = serverMatch.opponentId(uid),
-                                opponentDisplayName = serverMatch.opponentName(uid),
-                                myReady = serverMatch.isPlayerReady(uid),
-                                opponentReady = serverMatch.isOpponentReady(uid),
-                                readyDeadlineAtMs = serverMatch.effectiveReadyDeadlineAtMs(),
-                            ),
+                            preGameSync = updatedSync,
                             matchmakingError = if (
                                 state.matchmakingError?.startsWith("Could not confirm ready") == true
                             ) {
@@ -737,6 +749,7 @@ class HomeViewModel(
                             },
                         )
                     }
+                    playPreGameReadyFeedbackIfNeeded(updatedSync)
                     if (serverMatch.status == MatchStatus.ACTIVE) {
                         beginAutoGameNavigation(matchId)
                         break
@@ -874,6 +887,46 @@ class HomeViewModel(
         preGameReadyJob?.cancel()
         preGameReadyJob = null
         preGameReadyMatchId = null
+        clearPreGameReadyFeedbackTracking()
+    }
+
+    private fun clearPreGameReadyFeedbackTracking() {
+        preGameReadyFeedbackMatchId = null
+        lastPreGameMyReady = false
+        lastPreGameOpponentReady = false
+    }
+
+    private fun playPreGameReadyFeedbackIfNeeded(sync: PreGameSyncUiState) {
+        val context = appContext ?: return
+        if (sync.matchId != preGameReadyFeedbackMatchId) {
+            preGameReadyFeedbackMatchId = sync.matchId
+            lastPreGameMyReady = false
+            lastPreGameOpponentReady = false
+        }
+        val myBecameReady = !lastPreGameMyReady && sync.myReady
+        val opponentBecameReady = !lastPreGameOpponentReady && sync.opponentReady
+        if (!myBecameReady && !opponentBecameReady) {
+            lastPreGameMyReady = sync.myReady
+            lastPreGameOpponentReady = sync.opponentReady
+            return
+        }
+        lastPreGameMyReady = sync.myReady
+        lastPreGameOpponentReady = sync.opponentReady
+        val mode = SoundPreferences(context).getMode()
+        viewModelScope.launch {
+            val tickPlayer = ClockTickPlayer(context)
+            try {
+                if (myBecameReady) {
+                    playReadyFeedback(context, tickPlayer, mode)
+                }
+                if (opponentBecameReady) {
+                    if (myBecameReady) delay(PRE_GAME_READY_TICK_GAP_MS)
+                    playReadyFeedback(context, tickPlayer, mode)
+                }
+            } finally {
+                tickPlayer.release()
+            }
+        }
     }
 
     fun dismissHighlightedMatch() {

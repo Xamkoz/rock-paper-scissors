@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,10 +44,11 @@ import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.domain.GameRules
-import com.rpsonline.app.ui.LocalClockSoundMuted
+import com.rpsonline.app.ui.LocalSoundFeedbackMode
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.MATCH_END_NAVIGATION_DELAY_MS
 import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
+import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 import com.rpsonline.app.viewmodel.GameTimerUiState
 import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
@@ -65,8 +67,9 @@ fun GameScreen(
     val userId = uiState.userId
     val screenMatch = uiState.match?.takeIf { it.id == matchId }
         ?: monitorMatch?.takeIf { it.id == matchId }
+    val context = LocalContext.current
     val pulseNotifier = LocalRoundResolutionPulse.current
-    val clockSoundMuted = LocalClockSoundMuted.current
+    val soundFeedbackMode = LocalSoundFeedbackMode.current
     val terminalMatch = when {
         screenMatch?.status == MatchStatus.COMPLETED || screenMatch?.status == MatchStatus.ABANDONED -> screenMatch
         monitorMatch?.id == matchId &&
@@ -91,6 +94,7 @@ fun GameScreen(
     }
 
     DisposableEffect(matchId) {
+        triggerMatchFoundFeedback(context, matchId)
         MatchSessionMonitor.setVisibleMatchScreenId(matchId)
         pulseNotifier?.enterLiveMatch(matchId)
         onDispose {
@@ -130,7 +134,7 @@ fun GameScreen(
                     pulseNotifier = pulseNotifier,
                     match = current,
                     userId = userId,
-                    muted = clockSoundMuted,
+                    feedbackMode = soundFeedbackMode,
                 )
                 delay(MATCH_END_NAVIGATION_DELAY_MS)
                 onMatchComplete(matchId)
@@ -374,6 +378,12 @@ fun GameScreen(
             roundKey = recapRoundKey,
             recapPhaseActive = roundRecapVisible,
         )
+        val scoreGateRequested = shouldHoldRecap && recapRound != null && !inMatchEndTransition
+        val scoreGateRoundKey = recapRound?.let { dualRevealHoldRoundKey(it) }
+        val scoreGateOpen = rememberScoreGateOpen(
+            roundKey = scoreGateRoundKey,
+            gateRequested = scoreGateRequested,
+        )
         val preferResolvedRoundPanel = preferResolvedRoundPanel(
             showOutcomeReveal = showOutcomeReveal,
             showDrawReveal = showDrawReveal,
@@ -464,6 +474,38 @@ fun GameScreen(
         }
         val panelMyPresentationFinal = panelMyPresentationRaw
         val panelOpponentPresentation = panelOpponentPresentationRaw
+        val targetMyWins = layoutMatch.myWins(userId)
+        val targetOpponentWins = layoutMatch.opponentWins(userId)
+        val (heldMyWins, heldOpponentWins) = scoresBeforeRecapRound(
+            myWins = targetMyWins,
+            opponentWins = targetOpponentWins,
+            recapRound = recapRound,
+            userId = userId,
+        )
+        val animatedScores = rememberAnimatedMatchScores(
+            gateOpen = scoreGateOpen,
+            heldMy = heldMyWins,
+            targetMy = targetMyWins,
+            heldOpponent = heldOpponentWins,
+            targetOpponent = targetOpponentWins,
+            roundKey = scoreGateRoundKey,
+        )
+        val displayMyWins = animatedScores.myWins
+        val displayOpponentWins = animatedScores.opponentWins
+        val displayMyWinMoves = if (
+            scoreGateOpen && targetMyWins > heldMyWins
+        ) {
+            winMovesBeforeRecapRound(layoutMatch, userId, recapRound)
+        } else {
+            layoutMatch.winMovesFor(userId)
+        }
+        val displayOpponentWinMoves = if (
+            scoreGateOpen && targetOpponentWins > heldOpponentWins
+        ) {
+            winMovesBeforeRecapRound(layoutMatch, layoutMatch.opponentId(userId), recapRound)
+        } else {
+            layoutMatch.winMovesFor(layoutMatch.opponentId(userId))
+        }
         val panelHeaderOutcome = resolvePanelHeaderOutcome(
             panelOutcome = displayPanelOutcome,
             myMove = panelMyPresentationFinal,
@@ -570,10 +612,12 @@ fun GameScreen(
                     opponentLabel = opponentScoreLabel,
                     opponentMove = panelOpponentPresentation,
                     myMove = panelMyPresentationFinal,
-                    myWins = layoutMatch.myWins(userId),
-                    myWinMoves = layoutMatch.winMovesFor(userId),
-                    opponentWins = layoutMatch.opponentWins(userId),
-                    opponentWinMoves = layoutMatch.winMovesFor(layoutMatch.opponentId(userId)),
+                    myWins = displayMyWins,
+                    myScoreScoringActive = animatedScores.myScoringActive,
+                    myWinMoves = displayMyWinMoves,
+                    opponentWins = displayOpponentWins,
+                    opponentScoreScoringActive = animatedScores.opponentScoringActive,
+                    opponentWinMoves = displayOpponentWinMoves,
                     winsToFinish = layoutMatch.matchMode.winsToFinish,
                     outcome = panelHeaderOutcome,
                     roundNumber = when {

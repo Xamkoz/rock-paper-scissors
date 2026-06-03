@@ -231,6 +231,18 @@ data class Match(
     fun opponentClockMs(userId: String): Long =
         if (userId == player1) player2ClockMs else player1ClockMs
 
+    /** Live remaining ms for [userId] while their match clock is running; otherwise stored ms. */
+    fun myClockMsRemainingLive(
+        userId: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Long {
+        val storedMs = myClockMs(userId)
+        if (!isPlayerClockRunning(userId)) return storedMs
+        val anchorMs = clocksUpdatedAt
+        if (anchorMs <= 0L) return storedMs
+        return (storedMs - (nowMs - anchorMs)).coerceAtLeast(0L)
+    }
+
     fun myEloDelta(userId: String): Int? =
         if (userId == player1) player1EloDelta else player2EloDelta
 

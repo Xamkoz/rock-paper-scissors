@@ -79,8 +79,10 @@ fun MatchRoundMovesPanel(
     opponentMove: PanelMovePresentation,
     myMove: PanelMovePresentation,
     myWins: Int,
+    myScoreScoringActive: Boolean = false,
     myWinMoves: List<Move>,
     opponentWins: Int,
+    opponentScoreScoringActive: Boolean = false,
     opponentWinMoves: List<Move>,
     winsToFinish: Int,
     outcome: MatchRoundOutcome?,
@@ -135,6 +137,7 @@ fun MatchRoundMovesPanel(
     val onCardContent = outcomeChrome?.contentColor ?: colorScheme.onSurface
     val onCardLabel = outcomeChrome?.contentColor?.copy(alpha = 0.82f)
         ?: colorScheme.onSurfaceVariant
+    val playerScoreColors = matchPanelPlayerScoreColors()
 
     RpsCard(
         modifier = modifier.fillMaxWidth(),
@@ -168,6 +171,7 @@ fun MatchRoundMovesPanel(
                     PlayerScoreMoveColumn(
                         playerLabel = stringResource(R.string.you),
                         score = myWins,
+                        scoreScoringActive = myScoreScoringActive,
                         winsToFinish = winsToFinish,
                         winMoves = myWinMoves,
                         presentation = panelMyMove,
@@ -182,8 +186,8 @@ fun MatchRoundMovesPanel(
                         compact = compact,
                         tight = tight,
                         emphasized = !compact && !tight,
-                        scoreColor = onCardContent,
-                        labelColor = onCardLabel,
+                        scoreColor = playerScoreColors.you,
+                        labelColor = playerScoreColors.you.copy(alpha = 0.82f),
                         progressEmptyFill = progressBarEmptyFill(outcomeChrome, colorScheme),
                         progressEmptyBorder = progressBarEmptyBorder(outcomeChrome, colorScheme),
                         modifier = Modifier.weight(1f),
@@ -198,6 +202,7 @@ fun MatchRoundMovesPanel(
                     PlayerScoreMoveColumn(
                         playerLabel = opponentLabel,
                         score = opponentWins,
+                        scoreScoringActive = opponentScoreScoringActive,
                         winsToFinish = winsToFinish,
                         winMoves = opponentWinMoves,
                         presentation = opponentMove,
@@ -205,8 +210,8 @@ fun MatchRoundMovesPanel(
                         compact = compact,
                         tight = tight,
                         emphasized = !compact && !tight,
-                        scoreColor = onCardContent,
-                        labelColor = onCardLabel,
+                        scoreColor = playerScoreColors.opponent,
+                        labelColor = playerScoreColors.opponent.copy(alpha = 0.82f),
                         progressEmptyFill = progressBarEmptyFill(outcomeChrome, colorScheme),
                         progressEmptyBorder = progressBarEmptyBorder(outcomeChrome, colorScheme),
                         modifier = Modifier.weight(1f),
@@ -272,6 +277,7 @@ private fun RoundOutcomeHeader(
 private fun PlayerScoreMoveColumn(
     playerLabel: String,
     score: Int,
+    scoreScoringActive: Boolean,
     winsToFinish: Int,
     winMoves: List<Move>,
     presentation: PanelMovePresentation,
@@ -305,6 +311,7 @@ private fun PlayerScoreMoveColumn(
         PlayerScoreLine(
             playerLabel = playerLabel,
             score = score,
+            scoreScoringActive = scoreScoringActive,
             compact = compact,
             tight = tight,
             emphasized = emphasized,
@@ -348,6 +355,7 @@ private fun scoreNumberStyle(
 private fun PlayerScoreLine(
     playerLabel: String,
     score: Int,
+    scoreScoringActive: Boolean,
     compact: Boolean,
     tight: Boolean,
     emphasized: Boolean,
@@ -359,14 +367,14 @@ private fun PlayerScoreLine(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (tight) 0.dp else 2.dp),
     ) {
-        Text(
-            text = "$score",
+        AnimatedPlayerScoreText(
+            score = score,
+            accentColor = scoreColor,
+            scoringActive = scoreScoringActive,
             style = compactScoreTextStyle(
                 compact,
                 scoreNumberStyle(compact, tight, emphasized),
             ),
-            color = scoreColor,
-            textAlign = TextAlign.Center,
         )
         Text(
             text = playerLabel,

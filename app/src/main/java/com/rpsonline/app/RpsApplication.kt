@@ -12,6 +12,7 @@ import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.ui.util.GameAudioContext
+import com.rpsonline.app.ui.util.MatchClockHaptics
 import com.rpsonline.app.ui.util.MatchClockSoundController
 
 class RpsApplication : Application() {
@@ -22,6 +23,7 @@ class RpsApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         MatchClockSoundController.initialize(this)
+        MatchClockHaptics.initialize(this)
         FirebaseApp.initializeApp(this)
         AppLocale.applyFirebaseAuthLanguage()
         MatchSessionMonitor.ensureStarted()

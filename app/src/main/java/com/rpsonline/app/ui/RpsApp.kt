@@ -42,6 +42,7 @@ import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.data.preferences.MatchmakingPreferences
+import com.rpsonline.app.data.preferences.SoundFeedbackMode
 import com.rpsonline.app.data.preferences.SoundPreferences
 import com.rpsonline.app.data.preferences.ThemePreferences
 import com.rpsonline.app.platform.AppForegroundTracker
@@ -85,7 +86,7 @@ fun RpsApp() {
     val soundPreferences = remember { SoundPreferences(context) }
     val matchmakingPreferences = remember { MatchmakingPreferences(context) }
     var themeStyle by remember { mutableStateOf(themePreferences.get()) }
-    var clockSoundMuted by remember { mutableStateOf(soundPreferences.isClockMuted()) }
+    var soundFeedbackMode by remember { mutableStateOf(soundPreferences.getMode()) }
     var backgroundUsageEnabled by remember {
         mutableStateOf(matchmakingPreferences.isBackgroundUsageEnabled())
     }
@@ -477,7 +478,7 @@ fun RpsApp() {
     RpsTheme(style = themeStyle) {
         val roundResolutionPulseNotifier = remember { RoundResolutionPulseNotifier() }
         CompositionLocalProvider(
-            LocalClockSoundMuted provides clockSoundMuted,
+            LocalSoundFeedbackMode provides soundFeedbackMode,
             LocalNetworkConnectionStatus provides connectionStatus,
             LocalRoundResolutionPulse provides roundResolutionPulseNotifier,
         ) {
@@ -489,7 +490,7 @@ fun RpsApp() {
             GlobalMatchClockTickEffect(
                 activeMatch = activeMatch,
                 userId = user?.uid,
-                muted = clockSoundMuted,
+                feedbackMode = soundFeedbackMode,
                 appInForeground = appInForeground,
                 pulseNotifier = roundResolutionPulseNotifier,
             )
@@ -608,11 +609,11 @@ fun RpsApp() {
                                     },
                                 )
                                 ClockSoundMuteButton(
-                                    muted = clockSoundMuted,
+                                    mode = soundFeedbackMode,
                                     modifier = iconSlot,
-                                    onMutedChange = { muted ->
-                                        clockSoundMuted = muted
-                                        soundPreferences.setClockMuted(muted)
+                                    onModeChange = { mode ->
+                                        soundFeedbackMode = mode
+                                        soundPreferences.setMode(mode)
                                     },
                                 )
                                 AppearanceMenuButton(
@@ -643,7 +644,7 @@ fun RpsApp() {
 private fun GlobalMatchClockTickEffect(
     activeMatch: Match?,
     userId: String?,
-    muted: Boolean,
+    feedbackMode: SoundFeedbackMode,
     appInForeground: Boolean,
     pulseNotifier: RoundResolutionPulseNotifier,
 ) {
@@ -653,7 +654,7 @@ private fun GlobalMatchClockTickEffect(
     } == true
     val shouldTick = appInForeground &&
         myClockRunning &&
-        !muted &&
+        (feedbackMode.allowsSound() || feedbackMode.allowsHaptic()) &&
         !suppressForResolutionFeedback
     val openRound = activeMatch?.openRound()
 
