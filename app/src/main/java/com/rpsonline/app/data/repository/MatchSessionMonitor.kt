@@ -381,6 +381,7 @@ object MatchSessionMonitor {
 
     private suspend fun syncFromServer(uid: String) {
         if (hasStableQueueListenerSession() && _activeMatch.value == null) {
+            if (hydrateActiveMatchFromServer()) return
             return
         }
 
@@ -558,12 +559,20 @@ object MatchSessionMonitor {
     }
 
     private suspend fun performQueueRecovery() {
-        if (_hasQueueEntry.value && _queueJoinedAtMs.value != null) return
         if (isQueueEntryPending()) return
-
-        val serverQueueExists = when {
-            _hasQueueEntry.value && queueListener != null -> true
-            else -> matchRepository.queueEntryExistsOnServer()
+        if (hydrateActiveMatchFromServer()) return
+        val serverQueueExists = matchRepository.queueEntryExistsOnServer()
+        if (
+            shouldSkipQueueRecovery(
+                hasQueueEntry = _hasQueueEntry.value,
+                queueJoinedAtMs = _queueJoinedAtMs.value,
+                serverQueueExists = serverQueueExists,
+            )
+        ) {
+            return
+        }
+        if (serverQueueExists == false) {
+            _hasQueueEntry.value = false
         }
         val step = resolveQueueRecoveryStep(
             matchmakingInProgress = _matchmakingInProgress.value,
@@ -728,8 +737,23 @@ object MatchSessionMonitor {
         _hasQueueEntry.value = false
         notifySessionStateChanged()
         if (_matchmakingInProgress.value) {
-            requestQueueRecovery()
+            sessionScope.launch {
+                if (!hydrateActiveMatchFromServer()) {
+                    requestQueueRecovery()
+                }
+            }
         }
+    }
+
+    /**
+     * Pairing may have completed while the queue doc was removed; load [activeMatchId] from the server.
+     */
+    private suspend fun hydrateActiveMatchFromServer(): Boolean {
+        if (_activeMatch.value != null) return true
+        val matchId = matchRepository.fetchLiveActiveMatchIdFromServer() ?: return false
+        val match = matchRepository.getMatchFromServer(matchId) ?: return false
+        publishActiveMatch(match, fromCache = false, authoritative = true)
+        return true
     }
 
     /** Re-join or re-sync queue markers after connectivity returns or heartbeats cleared local state. */

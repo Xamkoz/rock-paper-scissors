@@ -102,4 +102,29 @@ class MatchSessionQueueRecoveryTest {
             ),
         )
     }
+
+    @Test
+    fun shouldSkipQueueRecovery_onlyWhenServerConfirmsDoc() {
+        assertTrue(
+            shouldSkipQueueRecovery(
+                hasQueueEntry = true,
+                queueJoinedAtMs = 1_000L,
+                serverQueueExists = true,
+            ),
+        )
+        assertFalse(
+            shouldSkipQueueRecovery(
+                hasQueueEntry = true,
+                queueJoinedAtMs = 1_000L,
+                serverQueueExists = false,
+            ),
+        )
+        assertFalse(
+            shouldSkipQueueRecovery(
+                hasQueueEntry = true,
+                queueJoinedAtMs = 1_000L,
+                serverQueueExists = null,
+            ),
+        )
+    }
 }

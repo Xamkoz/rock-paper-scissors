@@ -441,8 +441,8 @@ class HomeViewModel(
                 .collect { (hasEntry, joinedAtMs, timerAnchorMs) ->
                 val elapsedAnchorMs = timerAnchorMs ?: joinedAtMs
                 if (elapsedAnchorMs != null && !hasEntry && MatchSessionMonitor.isMatchmakingInProgress()) {
-                    MatchSessionMonitor.confirmQueueJoinedAt(elapsedAnchorMs)
                     syncConfirmedQueueUi()
+                    MatchSessionMonitor.requestQueueRecovery()
                     return@collect
                 }
                 if (elapsedAnchorMs == null) {

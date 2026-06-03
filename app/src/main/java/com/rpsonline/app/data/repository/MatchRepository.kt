@@ -295,6 +295,17 @@ class MatchRepository(
         return resolveJoinableActiveMatchId(matchId, preferCache = userSnap.metadata.isFromCache)
     }
 
+    /** Server read for queue recovery when the queue doc was dropped but [activeMatchId] may exist. */
+    suspend fun fetchLiveActiveMatchIdFromServer(): String? {
+        val userId = uid
+        awaitFirestoreAuth()
+        val userSnap = withTimeoutOrNull(QUEUE_READ_TIMEOUT_MS) {
+            firestore.collection("users").document(userId).get(Source.SERVER).await()
+        } ?: return null
+        val matchId = userSnap.getString("activeMatchId") ?: return null
+        return resolveJoinableActiveMatchId(matchId, preferCache = false)
+    }
+
     /**
      * Returns [matchId] when the user should resume that match instead of joining queue.
      * Abandons expired pre-game lobbies so a stale [activeMatchId] cannot block matchmaking.
