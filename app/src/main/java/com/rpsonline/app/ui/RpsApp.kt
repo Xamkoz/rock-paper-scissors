@@ -72,6 +72,7 @@ import com.rpsonline.app.ui.util.MatchClockSoundController
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.RoundResolutionFeedbackEffect
 import com.rpsonline.app.ui.util.RoundResolutionPulseNotifier
+import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.util.rememberQueueElapsedSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -346,8 +347,12 @@ fun RpsApp() {
         }
         val startedAtMs = match.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         while (true) {
-            matchElapsedSeconds = ((System.currentTimeMillis() - startedAtMs) / 1_000).coerceAtLeast(0L)
-            delay(1_000)
+            val nowMs = System.currentTimeMillis()
+            matchElapsedSeconds = ((nowMs - startedAtMs) / 1_000).coerceAtLeast(0L)
+            delay(
+                SevenSegmentColonBlink.delayMsUntilNextSecondBoundary(startedAtMs, nowMs)
+                    .coerceAtLeast(1L),
+            )
         }
     }
 
@@ -524,6 +529,11 @@ fun RpsApp() {
                                     inMatch || inLobby -> matchElapsedSeconds
                                     else -> queueElapsedSeconds
                                 }
+                                val sessionTimerAnchorMs = when {
+                                    inMatch || inLobby ->
+                                        activeMatch?.createdAt?.takeIf { it > 0L }
+                                    else -> queueAnchorMs?.takeIf { matchmakingInProgress }
+                                }
                                 val playerClockStopped = inMatch &&
                                     (matchEndTransitionActive ||
                                         activeMatch?.isPlayerClockRunning(user?.uid) != true)
@@ -551,6 +561,7 @@ fun RpsApp() {
                                         inLobby = inLobby,
                                         elapsedSeconds = sessionTimerSeconds,
                                         playerClockStopped = playerClockStopped,
+                                        timerAnchorMs = sessionTimerAnchorMs,
                                     )
                                 }
                             }

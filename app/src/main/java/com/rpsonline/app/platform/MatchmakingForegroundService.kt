@@ -21,6 +21,7 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.PresenceRepository
+import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.segment.SegmentedNotificationStatus
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
 import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
@@ -148,13 +149,31 @@ class MatchmakingForegroundService : Service() {
     private fun startNotificationUpdateLoop() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = serviceScope.launch {
-            delay(NOTIFICATION_TICK_MS)
+            delay(notificationDelayMs())
             while (isActive) {
                 updateForegroundNotification()
-                delay(NOTIFICATION_TICK_MS)
+                delay(notificationDelayMs())
             }
         }
     }
+
+    /** Phase-locked to colon toggles (500ms on/off) and anchor-aligned second ticks. */
+    private fun notificationDelayMs(): Long {
+        val display = resolveNotificationDisplay()
+        val nowMs = System.currentTimeMillis()
+        return if (display.showLiveTime) {
+            SevenSegmentColonBlink.delayUntilToggle(display.timerAnchorMs, nowMs).coerceAtLeast(1L)
+        } else {
+            NOTIFICATION_TICK_MS
+        }
+    }
+
+    private fun minNotificationPostIntervalMs(display: TopBarStatusRowSpec): Long =
+        if (display.showLiveTime) {
+            SevenSegmentColonBlink.ON_MS
+        } else {
+            MIN_NOTIFICATION_POST_INTERVAL_MS
+        }
 
     private fun startSessionObserver() {
         sessionObserverJob?.cancel()
@@ -216,7 +235,7 @@ class MatchmakingForegroundService : Service() {
                     0
                 },
             )
-            lastPostedFingerprint = currentNotificationFingerprint()
+            lastPostedFingerprint = currentNotificationFingerprint(resolveNotificationDisplay())
             lastPostedAtMs = System.currentTimeMillis()
         }
     }
@@ -233,12 +252,14 @@ class MatchmakingForegroundService : Service() {
             }
             val force = forceNextNotificationPost
             forceNextNotificationPost = false
-            val fingerprint = currentNotificationFingerprint()
             val nowMs = System.currentTimeMillis()
+            val display = resolveNotificationDisplay()
+            val fingerprint = currentNotificationFingerprint(display, nowMs)
+            val minIntervalMs = minNotificationPostIntervalMs(display)
             if (
                 !force &&
                 fingerprint == lastPostedFingerprint &&
-                nowMs - lastPostedAtMs < MIN_NOTIFICATION_POST_INTERVAL_MS
+                nowMs - lastPostedAtMs < minIntervalMs
             ) {
                 return
             }
@@ -257,18 +278,20 @@ class MatchmakingForegroundService : Service() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = serviceScope.launch {
             updateForegroundNotification()
-            delay(NOTIFICATION_TICK_MS)
+            delay(notificationDelayMs())
             while (isActive) {
                 updateForegroundNotification()
-                delay(NOTIFICATION_TICK_MS)
+                delay(notificationDelayMs())
             }
         }
     }
 
-    private fun currentNotificationFingerprint(): NotificationFingerprint {
+    private fun currentNotificationFingerprint(
+        display: TopBarStatusRowSpec,
+        nowMs: Long = System.currentTimeMillis(),
+    ): NotificationFingerprint {
         val match = MatchSessionMonitor.activeMatch.value
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        val display = resolveNotificationDisplay()
         val launchMatchId = if (
             uid != null &&
             match != null &&
@@ -283,6 +306,11 @@ class MatchmakingForegroundService : Service() {
             status = display.status,
             elapsedSeconds = display.elapsedSeconds,
             onlineCount = display.onlineCount,
+            colonBlinkLit = SevenSegmentColonBlink.isLit(
+                display.showLiveTime,
+                display.timerAnchorMs,
+                nowMs,
+            ),
             launchAlert = shouldUseLaunchAlert(display),
             launchMatchId = launchMatchId,
         )
@@ -292,6 +320,7 @@ class MatchmakingForegroundService : Service() {
         val status: SegmentedNotificationStatus,
         val elapsedSeconds: Long,
         val onlineCount: Int?,
+        val colonBlinkLit: Boolean,
         val launchAlert: Boolean,
         val launchMatchId: String?,
     )
@@ -310,6 +339,7 @@ class MatchmakingForegroundService : Service() {
                 onlineCount = SegmentedNotificationState.onlineCount,
                 showLiveTime = true,
                 elapsedSeconds = ((now - startedAtMs) / 1_000).coerceAtLeast(0L),
+                timerAnchorMs = startedAtMs,
                 spinnerStyle = if (clockStopped) {
                     SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED
                 } else {
@@ -326,6 +356,7 @@ class MatchmakingForegroundService : Service() {
                 onlineCount = SegmentedNotificationState.onlineCount,
                 showLiveTime = true,
                 elapsedSeconds = ((now - startedAtMs) / 1_000).coerceAtLeast(0L),
+                timerAnchorMs = startedAtMs,
                 spinnerStyle = SegmentedSpinnerStyle.QUEUE,
             )
         }
@@ -351,6 +382,7 @@ class MatchmakingForegroundService : Service() {
             onlineCount = SegmentedNotificationState.onlineCount,
             showLiveTime = inQueue,
             elapsedSeconds = joinedAt?.let { queueElapsedSecondsFromAnchor(it, now) } ?: 0L,
+            timerAnchorMs = joinedAt,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
     }
@@ -465,7 +497,7 @@ class MatchmakingForegroundService : Service() {
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background_status"
         private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
-        /** Queue/match timer display is mm:ss — 1 Hz stays under NotificationService enqueue limits. */
+        /** Idle status (no live MM:SS) — 1 Hz stays under NotificationService enqueue limits. */
         private const val NOTIFICATION_TICK_MS = 1_000L
         private const val MIN_NOTIFICATION_POST_INTERVAL_MS = 1_000L
         private const val LAUNCH_ALERT_WINDOW_MS = 8_000L

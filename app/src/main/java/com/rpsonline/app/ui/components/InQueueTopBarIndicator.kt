@@ -27,6 +27,7 @@ fun TopBarSegmentedQueueIndicator(
     elapsedSeconds: Long,
     inLobby: Boolean = false,
     playerClockStopped: Boolean = false,
+    timerAnchorMs: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     val timerDescription = when {
@@ -63,6 +64,7 @@ fun TopBarSegmentedQueueIndicator(
             inLobby = inLobby,
             elapsedSeconds = elapsedSeconds,
             playerClockStopped = playerClockStopped,
+            timerAnchorMs = timerAnchorMs,
             digitWidth = digitWidth,
             digitHeight = TopBarSegmentedDigitHeight,
             modifier = Modifier

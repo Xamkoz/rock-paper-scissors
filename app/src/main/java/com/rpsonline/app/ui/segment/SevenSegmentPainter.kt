@@ -136,7 +136,7 @@ object SevenSegmentPainter {
         gap()
 
         val spinnerSegments = if (spec.animateSpinner) {
-            SegmentedSpinnerSteps.segmentsAt(spec.spinnerStyle, timeMs)
+            SegmentedSpinnerSteps.segmentsAt(spec.spinnerStyle, timeMs, spec.timerAnchorMs)
         } else {
             emptySet()
         }
@@ -161,7 +161,7 @@ object SevenSegmentPainter {
                     top,
                     colonWidthPx,
                     digitHeightPx,
-                    lit = spec.showLiveTime,
+                    lit = SevenSegmentColonBlink.isLit(spec.showLiveTime, spec.timerAnchorMs, timeMs),
                     palette = palette,
                 )
                 x += colonWidthPx

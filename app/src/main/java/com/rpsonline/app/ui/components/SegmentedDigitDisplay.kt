@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,8 +31,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.data.monitoring.NetworkDataActivityKind
 import com.rpsonline.app.ui.segment.SegmentLayout
+import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.segment.SegmentedSpinnerSteps
 import com.rpsonline.app.ui.segment.SevenSegmentColonLayout
+import com.rpsonline.app.ui.util.rememberColonBlinkLit
 import com.rpsonline.app.ui.segment.SevenSegmentGeometry
 import com.rpsonline.app.ui.segment.SevenSegmentPainter
 import com.rpsonline.app.ui.segment.asSevenSegmentTarget
@@ -455,6 +458,7 @@ fun QueueTimeSegmentedDisplay(
     litColor: Color = sevenSegmentLitColor(),
     offColor: Color = sevenSegmentGhostColor(),
     showLiveTime: Boolean = true,
+    timerAnchorMs: Long? = null,
     animateSpinner: Boolean = true,
     spinnerStyle: SegmentedSpinnerStyle = SegmentedSpinnerStyle.QUEUE,
 ) {
@@ -468,6 +472,7 @@ fun QueueTimeSegmentedDisplay(
             digitHeight = digitHeight,
             animate = animateSpinner,
             style = spinnerStyle,
+            timerAnchorMs = timerAnchorMs,
         )
         SpacerBetweenSegments()
         SevenSegmentBlankSlot(
@@ -478,6 +483,7 @@ fun QueueTimeSegmentedDisplay(
         QueueTimerDigitsSegmentedDisplay(
             elapsedSeconds = elapsedSeconds,
             showLiveTime = showLiveTime,
+            timerAnchorMs = timerAnchorMs,
             digitWidth = digitWidth,
             digitHeight = digitHeight,
             litColor = litColor,
@@ -497,6 +503,7 @@ fun TopBarSegmentedStatusRow(
     elapsedSeconds: Long,
     inLobby: Boolean = false,
     playerClockStopped: Boolean = false,
+    timerAnchorMs: Long? = null,
     modifier: Modifier = Modifier,
     digitWidth: Dp = TopBarSegmentedDigitWidth,
     digitHeight: Dp = SegmentedDigitHeight,
@@ -554,6 +561,7 @@ fun TopBarSegmentedStatusRow(
                 digitHeight = digitHeight,
                 animate = animateSpinner,
                 style = spinnerStyle,
+                timerAnchorMs = timerAnchorMs,
             )
         }
         SpacerBetweenSegments()
@@ -567,6 +575,7 @@ fun TopBarSegmentedStatusRow(
         QueueTimerDigitsSegmentedDisplay(
             elapsedSeconds = elapsedSeconds,
             showLiveTime = showLiveTime,
+            timerAnchorMs = timerAnchorMs,
             digitWidth = digitWidth,
             digitHeight = digitHeight,
             baseSlotIndex = TopBarTimerDigitsSlotStart,
@@ -579,6 +588,7 @@ fun TopBarSegmentedStatusRow(
 private fun QueueTimerDigitsSegmentedDisplay(
     elapsedSeconds: Long,
     showLiveTime: Boolean,
+    timerAnchorMs: Long? = null,
     digitWidth: Dp,
     digitHeight: Dp,
     baseSlotIndex: Int = -1,
@@ -586,6 +596,7 @@ private fun QueueTimerDigitsSegmentedDisplay(
     litColor: Color = sevenSegmentLitColor(),
     offColor: Color = sevenSegmentGhostColor(),
 ) {
+    val colonLit = rememberColonBlinkLit(showLiveTime, timerAnchorMs)
     val totalSeconds = elapsedSeconds.coerceAtLeast(0)
     val minutes = (totalSeconds / 60).coerceAtMost(99)
     val seconds = (totalSeconds % 60).coerceAtMost(59)
@@ -601,7 +612,7 @@ private fun QueueTimerDigitsSegmentedDisplay(
         digits.forEachIndexed { index, digit ->
             if (index == 2) {
                 SegmentedColonPulseSlot(
-                    lit = showLiveTime,
+                    lit = colonLit,
                     litColor = litColor,
                     offColor = offColor,
                     digitWidth = digitWidth,
@@ -776,22 +787,24 @@ private fun SpinningSevenSegmentPulseSlot(
     digitHeight: Dp,
     animate: Boolean = true,
     style: SegmentedSpinnerStyle = SegmentedSpinnerStyle.QUEUE,
+    timerAnchorMs: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     val steps = SegmentedSpinnerSteps.steps(style)
-    val stepDelayMs = SegmentedSpinnerSteps.stepDelayMs(style)
-    var step by remember(style) { mutableIntStateOf(0) }
-    LaunchedEffect(animate, style) {
+    var nowMs by remember(style, timerAnchorMs) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(animate, style, timerAnchorMs) {
         if (!animate) {
-            step = 0
             return@LaunchedEffect
         }
-        var currentStep = 0
         while (true) {
-            delay(stepDelayMs)
-            currentStep = (currentStep + 1) % steps.size
-            step = currentStep
+            nowMs = System.currentTimeMillis()
+            delay(SevenSegmentColonBlink.delayUntilToggle(timerAnchorMs, nowMs).coerceAtLeast(1L))
         }
+    }
+    val step = if (animate) {
+        SegmentedSpinnerSteps.stepIndex(style, nowMs, timerAnchorMs)
+    } else {
+        0
     }
     val spinnerHalfLit = if (animate) steps[step] else emptySet()
     SegmentedDisplayPulseSlot(

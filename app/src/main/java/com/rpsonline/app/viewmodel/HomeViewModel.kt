@@ -29,6 +29,7 @@ import com.rpsonline.app.data.repository.UserRepository
 import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
+import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -511,9 +512,13 @@ class HomeViewModel(
                     delay(250)
                     continue
                 }
-                val elapsed = queueElapsedSecondsFromAnchor(anchorMs)
+                val nowMs = System.currentTimeMillis()
+                val elapsed = queueElapsedSecondsFromAnchor(anchorMs, nowMs)
                 _uiState.update { it.copy(queueElapsedSeconds = elapsed) }
-                delay(1_000)
+                delay(
+                    SevenSegmentColonBlink.delayMsUntilNextSecondBoundary(anchorMs, nowMs)
+                        .coerceAtLeast(1L),
+                )
             }
         }
     }

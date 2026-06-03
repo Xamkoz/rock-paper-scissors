@@ -21,8 +21,12 @@ import kotlin.math.roundToInt
 
 /** Segmented notification visuals backed by [SevenSegmentPainter]. */
 object SevenSegmentNotificationRenderer {
-    fun buildRemoteViews(context: Context, state: TopBarStatusRowSpec): RemoteViews {
-        val bitmap = renderComposite(context, state)
+    fun buildRemoteViews(
+        context: Context,
+        state: TopBarStatusRowSpec,
+        nowMs: Long = System.currentTimeMillis(),
+    ): RemoteViews {
+        val bitmap = renderComposite(context, state, nowMs)
         val remoteViews = RemoteViews(context.packageName, R.layout.notification_segmented_status)
         remoteViews.setImageViewBitmap(R.id.segmented_status_image, bitmap)
         return remoteViews
@@ -38,7 +42,8 @@ object SevenSegmentNotificationRenderer {
         state: TopBarStatusRowSpec,
         accessibilitySummary: String,
     ) {
-        val remoteViews = buildRemoteViews(context, state)
+        val nowMs = System.currentTimeMillis()
+        val remoteViews = buildRemoteViews(context, state, nowMs)
         builder
             .setContentTitle(statusHeader(context, state.status))
             .setContentText(accessibilitySummary)
@@ -57,7 +62,7 @@ object SevenSegmentNotificationRenderer {
         return context.getString(resId)
     }
 
-    private fun renderComposite(context: Context, state: TopBarStatusRowSpec): Bitmap {
+    private fun renderComposite(context: Context, state: TopBarStatusRowSpec, nowMs: Long): Bitmap {
         val header = statusHeader(context, state.status)
         val digitWidthPx = dpToPx(context, NotificationSegmentDimensions.DIGIT_WIDTH_DP)
         val digitHeightPx = dpToPx(context, NotificationSegmentDimensions.DIGIT_HEIGHT_DP)
@@ -98,6 +103,7 @@ object SevenSegmentNotificationRenderer {
             spacingPx = spacingPx.toFloat(),
             spec = state,
             palette = palette,
+            timeMs = nowMs,
         )
         return bitmap
     }

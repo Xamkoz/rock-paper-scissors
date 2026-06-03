@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import kotlinx.coroutines.delay
 
 /** Elapsed whole seconds since queue `joinedAt` (anchor must already be [normalizeQueueAnchorMs]). */
@@ -29,10 +30,28 @@ fun rememberQueueElapsedSeconds(anchorMs: Long?): Long? {
             return@LaunchedEffect
         }
         while (true) {
-            elapsed = queueElapsedSecondsFromAnchor(anchorMs)
-            delay(1_000)
+            val nowMs = System.currentTimeMillis()
+            elapsed = queueElapsedSecondsFromAnchor(anchorMs, nowMs)
+            delay(
+                SevenSegmentColonBlink.delayMsUntilNextSecondBoundary(anchorMs, nowMs)
+                    .coerceAtLeast(1L),
+            )
         }
     }
 
     return anchorMs?.let { elapsed }
+}
+
+/** 500ms on / 500ms off, aligned to the same second phase as [rememberQueueElapsedSeconds]. */
+@Composable
+fun rememberColonBlinkLit(showLiveTime: Boolean, timerAnchorMs: Long?): Boolean {
+    if (!showLiveTime) return false
+    var nowMs by remember(timerAnchorMs) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(showLiveTime, timerAnchorMs) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(SevenSegmentColonBlink.delayUntilToggle(timerAnchorMs, nowMs).coerceAtLeast(1L))
+        }
+    }
+    return SevenSegmentColonBlink.isLit(showLiveTime, timerAnchorMs, nowMs)
 }

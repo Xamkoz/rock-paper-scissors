@@ -113,15 +113,29 @@ object SegmentedSpinnerSteps {
         SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED -> 500L
     }
 
-    fun stepIndex(style: SegmentedSpinnerStyle, timeMs: Long = System.currentTimeMillis()): Int {
+    fun stepIndex(
+        style: SegmentedSpinnerStyle,
+        timeMs: Long = System.currentTimeMillis(),
+        timerAnchorMs: Long? = null,
+    ): Int {
         val stepList = steps(style)
         val delayMs = stepDelayMs(style)
-        return ((timeMs / delayMs) % stepList.size).toInt()
+        val cycleMs = stepList.size.toLong() * delayMs
+        val offsetMs = when (timerAnchorMs) {
+            null -> timeMs
+            else -> timeMs - timerAnchorMs
+        }
+        val phaseMs = ((offsetMs % cycleMs) + cycleMs) % cycleMs
+        return (phaseMs / delayMs).toInt() % stepList.size
     }
 
-    fun segmentsAt(style: SegmentedSpinnerStyle, timeMs: Long = System.currentTimeMillis()): Set<Char> {
+    fun segmentsAt(
+        style: SegmentedSpinnerStyle,
+        timeMs: Long = System.currentTimeMillis(),
+        timerAnchorMs: Long? = null,
+    ): Set<Char> {
         val stepList = steps(style)
-        return stepList[stepIndex(style, timeMs) % stepList.size]
+        return stepList[stepIndex(style, timeMs, timerAnchorMs)]
     }
 }
 
@@ -167,6 +181,48 @@ object SevenSegmentStatusRowLayout {
     }
 }
 
+/** MM:SS colon blink — 500ms on / 500ms off, phase-locked to [timerAnchorMs] second ticks. */
+object SevenSegmentColonBlink {
+    const val ON_MS = 500L
+    const val PERIOD_MS = 1_000L
+
+    fun msIntoSecond(timerAnchorMs: Long, nowMs: Long): Long =
+        ((nowMs - timerAnchorMs) % PERIOD_MS + PERIOD_MS) % PERIOD_MS
+
+    fun isLit(
+        showLiveTime: Boolean,
+        timerAnchorMs: Long?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!showLiveTime) return false
+        if (timerAnchorMs == null) return (nowMs % PERIOD_MS) < ON_MS
+        return msIntoSecond(timerAnchorMs, nowMs) < ON_MS
+    }
+
+    fun delayUntilToggle(
+        timerAnchorMs: Long?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Long {
+        val msIntoSecond = msIntoSecondForAnchor(timerAnchorMs, nowMs)
+        return if (msIntoSecond < ON_MS) ON_MS - msIntoSecond else PERIOD_MS - msIntoSecond
+    }
+
+    /** Wait until the next anchor-aligned second tick (when MM:SS seconds digit advances). */
+    fun delayMsUntilNextSecondBoundary(
+        timerAnchorMs: Long?,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Long {
+        val msIntoSecond = msIntoSecondForAnchor(timerAnchorMs, nowMs)
+        return if (msIntoSecond == 0L) PERIOD_MS else PERIOD_MS - msIntoSecond
+    }
+
+    private fun msIntoSecondForAnchor(timerAnchorMs: Long?, nowMs: Long): Long =
+        when (timerAnchorMs) {
+            null -> nowMs % PERIOD_MS
+            else -> msIntoSecond(timerAnchorMs, nowMs)
+        }
+}
+
 /** MM:SS colon slot — narrower than a digit (matches Compose colon slot width). */
 object SevenSegmentColonLayout {
     const val WIDTH_RATIO = 0.4f
@@ -191,6 +247,8 @@ data class TopBarStatusRowSpec(
     val elapsedSeconds: Long,
     val spinnerStyle: SegmentedSpinnerStyle,
     val animateSpinner: Boolean = true,
+    /** Anchor for MM:SS second ticks and colon blink phase (e.g. queue joinedAt, match createdAt). */
+    val timerAnchorMs: Long? = null,
 )
 
 /** @see TopBarStatusRowSpec */

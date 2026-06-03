@@ -42,11 +42,13 @@ object MatchNotificationHelper {
         val body = opponentName?.takeIf { it.isNotBlank() }?.let { name ->
             context.getString(R.string.match_found_notification_body_vs, name)
         } ?: context.getString(R.string.match_found_notification_body)
+        val timerAnchorMs = System.currentTimeMillis()
         val segmentedDisplay = TopBarStatusRowSpec(
             status = SegmentedNotificationStatus.MATCH_FOUND,
             onlineCount = SegmentedNotificationState.onlineCount,
             showLiveTime = true,
             elapsedSeconds = 0L,
+            timerAnchorMs = timerAnchorMs,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
         val notification = NotificationCompat.Builder(context, MATCH_FOUND_CHANNEL_ID)
