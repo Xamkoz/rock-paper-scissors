@@ -137,7 +137,7 @@ fun MatchRoundMovesPanel(
     val onCardContent = outcomeChrome?.contentColor ?: colorScheme.onSurface
     val onCardLabel = outcomeChrome?.contentColor?.copy(alpha = 0.82f)
         ?: colorScheme.onSurfaceVariant
-    val playerScoreColors = matchPanelPlayerScoreColors()
+    val playerScoreColors = matchPanelPlayerScoreColors(cardBackground = cardContainerColor)
 
     RpsCard(
         modifier = modifier.fillMaxWidth(),

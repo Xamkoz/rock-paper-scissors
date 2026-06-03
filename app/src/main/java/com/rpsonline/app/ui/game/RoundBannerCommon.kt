@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,12 +50,39 @@ data class MatchPanelPlayerScoreColors(
     val opponent: Color,
 )
 
+/** Picks the most readable player accent for [background] (card or outcome container). */
+internal fun readableScoreAccent(
+    accent: Color,
+    onAccent: Color,
+    onAccentContainer: Color,
+    background: Color,
+): Color {
+    val candidates = listOf(accent, onAccentContainer, onAccent)
+    return candidates.maxByOrNull { contrastRatio(it, background) } ?: accent
+}
+
+private fun contrastRatio(foreground: Color, background: Color): Float {
+    val fg = foreground.luminance() + 0.05f
+    val bg = background.luminance() + 0.05f
+    return maxOf(fg, bg) / minOf(fg, bg)
+}
+
 @Composable
-fun matchPanelPlayerScoreColors(): MatchPanelPlayerScoreColors {
+fun matchPanelPlayerScoreColors(cardBackground: Color): MatchPanelPlayerScoreColors {
     val colorScheme = MaterialTheme.colorScheme
     return MatchPanelPlayerScoreColors(
-        you = colorScheme.tertiary,
-        opponent = colorScheme.secondary,
+        you = readableScoreAccent(
+            accent = colorScheme.tertiary,
+            onAccent = colorScheme.onTertiary,
+            onAccentContainer = colorScheme.onTertiaryContainer,
+            background = cardBackground,
+        ),
+        opponent = readableScoreAccent(
+            accent = colorScheme.secondary,
+            onAccent = colorScheme.onSecondary,
+            onAccentContainer = colorScheme.onSecondaryContainer,
+            background = cardBackground,
+        ),
     )
 }
 
