@@ -58,6 +58,7 @@ class MatchmakingForegroundService : Service() {
         super.onCreate()
         runningInstance = this
         ensureForegroundChannel()
+        MatchNotificationHelper.dismissMatchFound(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -448,18 +449,10 @@ class MatchmakingForegroundService : Service() {
         val display = resolveNotificationDisplay()
         val accessibilityTime = formatQueueTimeMmSs(display.elapsedSeconds)
         val needsLaunchAlert = shouldUseLaunchAlert(display)
-        val channelId = if (needsLaunchAlert) {
-            FOREGROUND_ALERT_CHANNEL_ID
-        } else {
-            FOREGROUND_CHANNEL_ID
-        }
-        val statusBarIcon = if (needsLaunchAlert) {
-            R.drawable.ic_stat_match_found
-        } else {
-            R.drawable.ic_stat_rps_session
-        }
-        val builder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(statusBarIcon)
+        val builder = NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
+            .setSmallIcon(RpsStatusBarNotification.smallIconRes)
+            .setGroup(RpsStatusBarNotification.SESSION_GROUP_KEY)
+            .setSortKey("foreground")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)

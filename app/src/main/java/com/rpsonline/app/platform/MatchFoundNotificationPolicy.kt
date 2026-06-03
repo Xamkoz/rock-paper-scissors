@@ -24,7 +24,9 @@ internal object MatchFoundNotificationPolicy {
         backgroundUsageEnabled: Boolean,
         hasPostNotificationsPermission: Boolean,
         matchId: String,
+        foregroundServiceRunning: Boolean = false,
     ): Boolean {
+        if (foregroundServiceRunning) return false
         if (appInForeground) return false
         if (matchStatus != MatchStatus.LOBBY) return false
         if (!hasPostNotificationsPermission) return false
@@ -42,6 +44,7 @@ internal object MatchFoundNotificationPolicy {
         hasPostNotificationsPermission: Boolean,
         lastNotifiedMatchId: String?,
         matchId: String,
+        foregroundServiceRunning: Boolean = false,
     ): Boolean {
         if (!shouldShowJoinMatchNotification(
                 appInForeground,
@@ -50,6 +53,7 @@ internal object MatchFoundNotificationPolicy {
                 backgroundUsageEnabled,
                 hasPostNotificationsPermission,
                 matchId,
+                foregroundServiceRunning,
             )
         ) {
             return false

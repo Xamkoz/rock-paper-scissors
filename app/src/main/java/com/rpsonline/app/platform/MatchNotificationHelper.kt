@@ -31,6 +31,10 @@ object MatchNotificationHelper {
 
     /** Ongoing until [dismissMatchFound] — cleared when the game screen opens or the lobby ends. */
     fun showMatchFound(context: Context, matchId: String, opponentName: String?) {
+        if (MatchmakingForegroundService.isRunning()) {
+            MatchmakingForegroundService.requestLaunchAlert()
+            return
+        }
         ensureChannels(context)
         val openAppIntent = MatchLaunchHelper.buildLaunchIntent(context, matchId)
         val pendingIntent = PendingIntent.getActivity(
@@ -52,7 +56,9 @@ object MatchNotificationHelper {
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
         val notification = NotificationCompat.Builder(context, MATCH_FOUND_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_match_found)
+            .setSmallIcon(RpsStatusBarNotification.smallIconRes)
+            .setGroup(RpsStatusBarNotification.SESSION_GROUP_KEY)
+            .setSortKey("match_found")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
             .setOngoing(true)

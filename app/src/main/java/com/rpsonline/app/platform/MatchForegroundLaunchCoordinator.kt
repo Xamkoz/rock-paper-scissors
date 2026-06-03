@@ -63,6 +63,7 @@ object MatchForegroundLaunchCoordinator {
                 hasPostNotificationsPermission =
                     NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
                 matchId = match.id,
+                foregroundServiceRunning = MatchmakingForegroundService.isRunning(),
             )
         ) {
             return

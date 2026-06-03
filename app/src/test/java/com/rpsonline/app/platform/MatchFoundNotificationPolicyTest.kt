@@ -60,6 +60,21 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
+    fun skipsDedicatedNotificationWhileForegroundServiceRuns() {
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+                appInForeground = false,
+                matchStatus = MatchStatus.LOBBY,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+                hasPostNotificationsPermission = true,
+                matchId = "m1",
+                foregroundServiceRunning = true,
+            ),
+        )
+    }
+
+    @Test
     fun composePathSkipsRepeatMatchId() {
         assertFalse(
             MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(

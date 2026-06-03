@@ -449,6 +449,7 @@ fun RpsApp() {
                     NotificationPermissionHelper.hasPostNotificationsPermission(context),
                 lastNotifiedMatchId = lastNotifiedMatchId,
                 matchId = match?.id.orEmpty(),
+                foregroundServiceRunning = MatchmakingForegroundService.isRunning(),
             )
         ) {
             return@LaunchedEffect
