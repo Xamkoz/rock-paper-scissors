@@ -34,7 +34,11 @@ import com.rpsonline.app.ui.segment.SegmentLayout
 import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.segment.SegmentedSpinnerSteps
 import com.rpsonline.app.ui.segment.SevenSegmentColonLayout
+import com.rpsonline.app.ui.util.LocalTopBarSegmentedFrameTimeMs
+import com.rpsonline.app.ui.util.TOP_BAR_SEGMENTED_UPDATE_INTERVAL_MS
+import com.rpsonline.app.ui.util.TopBarSegmentedFrameTimeProvider
 import com.rpsonline.app.ui.util.rememberColonBlinkLit
+import com.rpsonline.app.ui.util.segmentedDisplayTickDelayMs
 import com.rpsonline.app.ui.segment.SevenSegmentGeometry
 import com.rpsonline.app.ui.segment.SevenSegmentPainter
 import com.rpsonline.app.ui.segment.asSevenSegmentTarget
@@ -517,6 +521,35 @@ fun TopBarSegmentedStatusRow(
         else -> SegmentedSpinnerStyle.MATCH
     }
 
+    TopBarSegmentedFrameTimeProvider(timerAnchorMs = timerAnchorMs, enabled = showLiveTime) {
+        TopBarSegmentedStatusRowContent(
+            onlineCount = onlineCount,
+            showLiveTime = showLiveTime,
+            animateSpinner = animateSpinner,
+            spinnerStyle = spinnerStyle,
+            elapsedSeconds = elapsedSeconds,
+            timerAnchorMs = timerAnchorMs,
+            offColor = offColor,
+            digitWidth = digitWidth,
+            digitHeight = digitHeight,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun TopBarSegmentedStatusRowContent(
+    onlineCount: TopBarOnlineCountDisplay,
+    showLiveTime: Boolean,
+    animateSpinner: Boolean,
+    spinnerStyle: SegmentedSpinnerStyle,
+    elapsedSeconds: Long,
+    timerAnchorMs: Long?,
+    offColor: Color,
+    digitWidth: Dp,
+    digitHeight: Dp,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
@@ -791,16 +824,23 @@ private fun SpinningSevenSegmentPulseSlot(
     modifier: Modifier = Modifier,
 ) {
     val steps = SegmentedSpinnerSteps.steps(style)
-    var nowMs by remember(style, timerAnchorMs) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(animate, style, timerAnchorMs) {
-        if (!animate) {
+    val frameFromProvider = LocalTopBarSegmentedFrameTimeMs.current
+    var localNowMs by remember(style, timerAnchorMs) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(animate, style, timerAnchorMs, frameFromProvider != null) {
+        if (!animate || frameFromProvider != null) {
             return@LaunchedEffect
         }
+        var lastTickAtMs = 0L
         while (true) {
-            nowMs = System.currentTimeMillis()
-            delay(SevenSegmentColonBlink.delayUntilToggle(timerAnchorMs, nowMs).coerceAtLeast(1L))
+            val nowMs = System.currentTimeMillis()
+            if (nowMs - lastTickAtMs >= TOP_BAR_SEGMENTED_UPDATE_INTERVAL_MS) {
+                localNowMs = nowMs
+                lastTickAtMs = nowMs
+            }
+            delay(segmentedDisplayTickDelayMs(timerAnchorMs, lastTickAtMs, nowMs))
         }
     }
+    val nowMs = frameFromProvider ?: localNowMs
     val step = if (animate) {
         SegmentedSpinnerSteps.stepIndex(style, nowMs, timerAnchorMs)
     } else {

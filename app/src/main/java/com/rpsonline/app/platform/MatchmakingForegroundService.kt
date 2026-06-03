@@ -157,10 +157,15 @@ class MatchmakingForegroundService : Service() {
     private fun notificationDelayMs(): Long {
         val display = resolveNotificationDisplay()
         val nowMs = System.currentTimeMillis()
-        return if (display.showLiveTime) {
-            SevenSegmentColonBlink.delayUntilToggle(display.timerAnchorMs, nowMs).coerceAtLeast(1L)
-        } else {
-            NOTIFICATION_TICK_MS
+        val minIntervalMs = minNotificationPostIntervalMs(display)
+        synchronized(notificationPostLock) {
+            val rateLimitRemainingMs = (minIntervalMs - (nowMs - lastPostedAtMs)).coerceAtLeast(0L)
+            val phaseDelayMs = if (display.showLiveTime) {
+                SevenSegmentColonBlink.delayUntilToggle(display.timerAnchorMs, nowMs)
+            } else {
+                NOTIFICATION_TICK_MS
+            }
+            return maxOf(phaseDelayMs, rateLimitRemainingMs).coerceAtLeast(1L)
         }
     }
 
@@ -236,7 +241,7 @@ class MatchmakingForegroundService : Service() {
         }
     }
 
-    /** Sole path for notification updates after [promoteToForeground] — max ~1/s to avoid system shedding. */
+    /** Sole path for notification updates after [promoteToForeground] — max 1/s idle, 1/500ms live timer. */
     private fun updateForegroundNotification() {
         synchronized(notificationPostLock) {
             if (!MatchmakingBackgroundCoordinator.shouldRunService(this)) {
@@ -252,11 +257,7 @@ class MatchmakingForegroundService : Service() {
             val display = resolveNotificationDisplay()
             val fingerprint = currentNotificationFingerprint(display, nowMs)
             val minIntervalMs = minNotificationPostIntervalMs(display)
-            if (
-                !force &&
-                fingerprint == lastPostedFingerprint &&
-                nowMs - lastPostedAtMs < minIntervalMs
-            ) {
+            if (!force && nowMs - lastPostedAtMs < minIntervalMs) {
                 return
             }
             if (!force && fingerprint == lastPostedFingerprint) {
