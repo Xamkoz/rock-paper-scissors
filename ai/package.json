@@ -1,0 +1,25 @@
+{
+  "name": "rps-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file=.env lib/index.js",
+    "dev": "npm run build && npm run start",
+    "pull-models": "npm run build && node --env-file=.env lib/pullModelsCli.js",
+    "rank": "npm run build && node --env-file=.env lib/rankCli.js",
+    "test": "npm run build && node --test lib/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "firebase": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}

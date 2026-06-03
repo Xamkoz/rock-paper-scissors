@@ -32,6 +32,7 @@ Pre-built APKs are attached to [GitHub Releases](https://github.com/melkor217/ro
 | Path | Purpose |
 |------|---------|
 | `app/` | Android client (Kotlin, Jetpack Compose) |
+| `ai/` | Self-hosted matchmaking bot (Node); docs in [ai/docs/](ai/docs/README.md) |
 | `functions/` | Firebase Cloud Functions (match logic, timeouts, ELO) |
 | `firestore.rules` | Firestore security rules |
 | `firestore.indexes.json` | Composite indexes for queries |
@@ -54,6 +55,20 @@ Requirements: **JDK 21**, **Android SDK (API 35)**, and a `google-services.json`
 Release builds need a signing keystore; CI uses repository secrets (see [.github/workflows/android-release.yml](.github/workflows/android-release.yml)). Pushing a version tag on `main` (e.g. `v1.0.0`) publishes a signed release APK.
 
 Optional: [scripts/setup-android-env.sh](scripts/setup-android-env.sh) installs SDK packages for CI-like local builds.
+
+## AI bot (optional)
+
+Self-hosted matchmaking bot — see [ai/docs/README.md](ai/docs/README.md). From repo root after `cd ai && npm install` and configuring `ai/.env`:
+
+```bash
+npm start
+```
+
+Rank LLM models and intel leaderboards (no Firebase / queue):
+
+```bash
+npm run rank
+```
 
 ## Backend
 

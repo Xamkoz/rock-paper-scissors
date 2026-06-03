@@ -17,3 +17,9 @@ functions/node_modules/
 functions/lib/
 .firebase/
 *.log
+
+# Self-hosted AI player SQLite (MATCH_DB_PATH, default data/matches.db)
+**/matches.db
+**/matches.db-wal
+**/matches.db-shm
+data/
