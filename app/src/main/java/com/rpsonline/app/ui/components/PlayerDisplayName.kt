@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.PresenceRepository
 import kotlinx.coroutines.delay
@@ -197,9 +198,10 @@ fun onlinePresenceRowStyle(
     defaultContainerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
     defaultBorderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
     defaultBorderWidth: Dp = 1.dp,
-    defaultNameColor: Color = MaterialTheme.colorScheme.onSurface,
+    defaultNameColor: Color? = null,
 ): OnlinePresenceRowStyle {
     val scheme = MaterialTheme.colorScheme
+    val offlineNameColor = defaultNameColor ?: themedPrimaryLabelColor()
     val online = uid?.isNotBlank() == true && isPlayerUidOnline(uid)
     if (online) {
         return OnlinePresenceRowStyle(
@@ -227,7 +229,7 @@ fun onlinePresenceRowStyle(
             containerColor = defaultContainerColor,
             borderColor = defaultBorderColor,
             borderWidth = defaultBorderWidth,
-            nameColor = defaultNameColor,
+            nameColor = offlineNameColor,
             accentStripeColor = null,
         )
     }
@@ -245,7 +247,7 @@ fun onlinePresenceRowStyle(
 fun playerNameColor(
     uid: String?,
     emphasized: Boolean = false,
-    defaultColor: Color = MaterialTheme.colorScheme.onSurface,
+    defaultColor: Color? = null,
 ): Color = onlinePresenceRowStyle(
     uid = uid,
     emphasized = emphasized,
@@ -259,7 +261,7 @@ fun PlayerDisplayNameText(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyMedium,
     emphasized: Boolean = false,
-    defaultColor: Color = MaterialTheme.colorScheme.onSurface,
+    defaultColor: Color? = null,
     textAlign: TextAlign? = null,
     maxLines: Int = 1,
     onClick: (() -> Unit)? = null,

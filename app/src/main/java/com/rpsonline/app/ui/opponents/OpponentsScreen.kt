@@ -197,7 +197,6 @@ private fun OpponentListItem(
     onClick: () -> Unit,
 ) {
     val rowStyle = onlinePresenceRowStyle(uid = opponent.opponentUid)
-    val nameColor = MaterialTheme.colorScheme.onSurface
     RpsCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -249,7 +248,7 @@ private fun OpponentListItem(
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.SemiBold,
                             ),
-                            color = nameColor,
+                            color = rowStyle.nameColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )

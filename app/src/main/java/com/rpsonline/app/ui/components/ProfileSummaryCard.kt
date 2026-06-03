@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,12 +23,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.domain.DisplayNames
 import com.rpsonline.app.ui.leaderboard.ThrowDistributionRadialChart
+import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 
 private val SummaryRowHorizontalPadding = 10.dp
 private val SummaryRowVerticalPadding = 8.dp
@@ -66,6 +67,7 @@ fun ProfileSummaryCard(
     val containerColor = rowStyle.containerColor
     val borderColor = when {
         rowStyle.isOnline -> rowStyle.borderColor
+        accentStripeTop != null -> accentStripeTop.copy(alpha = 0.82f)
         emphasized -> youColor.copy(alpha = 0.82f)
         onClick != null -> scheme.outline.copy(alpha = 0.55f)
         else -> scheme.outline.copy(alpha = 0.55f)
@@ -89,9 +91,9 @@ fun ProfileSummaryCard(
     }
     val resolvedNameColor = when {
         rowStyle.isOnline -> rowStyle.nameColor
-        emphasized -> youColor
         nameColor != null -> nameColor
-        else -> scheme.onSurface
+        emphasized -> youColor
+        else -> themedPrimaryLabelColor()
     }
     val contentDescription = if (onClick != null) {
         "$displayName. ${stringResource(R.string.profile)}"
@@ -228,6 +230,9 @@ fun PlayerSummaryContent(
                 textStyle = statTextStyle,
             )
         }
+        val eloColumnWidth = rememberFourDigitEloColumnWidth(
+            style = MaterialTheme.typography.titleLarge,
+        )
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -239,21 +244,26 @@ fun PlayerSummaryContent(
                 size = 56.dp,
             )
             Column(
+                modifier = Modifier.width(eloColumnWidth),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 EloRatingText(
                     elo = elo,
                     style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .widthIn(min = 40.dp)
+                        .fillMaxWidth()
                         .offset(y = (-1).dp),
                 )
                 Text(
                     text = "ELO",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.offset(y = (-1).dp),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset(y = (-1).dp),
                 )
             }
         }

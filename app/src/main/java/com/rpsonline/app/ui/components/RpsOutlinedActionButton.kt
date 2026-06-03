@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 
 /** Shared height for home nav, back, and version footer row. */
 val RpsOutlinedButtonHeight = 52.dp
@@ -43,7 +44,7 @@ object RpsOutlinedSurfaceStyle {
         MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
 
     @Composable
-    fun contentColor(): Color = MaterialTheme.colorScheme.onSurface
+    fun contentColor(): Color = themedPrimaryLabelColor()
 }
 
 /** Compact outlined button for the version footer (same shape, border, and colors as home actions). */
@@ -64,13 +65,16 @@ fun RpsCompactOutlinedActionButton(
             border = BorderStroke(RpsOutlinedBorderWidth, RpsOutlinedSurfaceStyle.borderColor()),
             contentPadding = RpsCompactOutlinedButtonContentPadding,
             colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = RpsOutlinedSurfaceStyle.containerColor(),
                 contentColor = RpsOutlinedSurfaceStyle.contentColor(),
+                disabledContainerColor = RpsOutlinedSurfaceStyle.containerColor(),
                 disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
             ),
         ) {
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
+                color = RpsOutlinedSurfaceStyle.contentColor(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -101,6 +105,7 @@ fun RpsOutlinedActionButton(
     enabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val labelColor = RpsOutlinedSurfaceStyle.contentColor()
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
@@ -111,10 +116,13 @@ fun RpsOutlinedActionButton(
         border = BorderStroke(RpsOutlinedBorderWidth, RpsOutlinedSurfaceStyle.borderColor()),
         contentPadding = RpsOutlinedButtonContentPadding,
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = scheme.onSurface,
+            containerColor = RpsOutlinedSurfaceStyle.containerColor(),
+            contentColor = labelColor,
+            disabledContainerColor = RpsOutlinedSurfaceStyle.containerColor(),
+            disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
         ),
     ) {
-        RpsActionButtonLabel(text = text)
+        RpsActionButtonLabel(text = text, color = labelColor)
     }
 }
 
@@ -136,7 +144,7 @@ fun RpsPrimaryActionButton(
         shape = MaterialTheme.shapes.medium,
         contentPadding = RpsOutlinedButtonContentPadding,
     ) {
-        RpsActionButtonLabel(text = text)
+        RpsActionButtonLabel(text = text, color = MaterialTheme.colorScheme.onPrimary)
     }
 }
 
@@ -167,10 +175,11 @@ fun RpsHeroPrimaryButton(
 }
 
 @Composable
-private fun RpsActionButtonLabel(text: String) {
+private fun RpsActionButtonLabel(text: String, color: Color) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
+        color = color,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )

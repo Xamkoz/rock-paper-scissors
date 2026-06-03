@@ -227,11 +227,7 @@ private fun LeaderboardListItem(
         displayName = nameLine,
         profile = entry.toUserProfile(),
         playerUid = entry.uid,
-        nameColor = if (isCurrentUser) {
-            null
-        } else {
-            leaderboardPodiumRankLabelColor(rank, darkTheme)
-        },
+        nameColor = leaderboardPodiumRankLabelColor(rank, darkTheme),
         emphasized = isCurrentUser,
         accentStripeTop = medalStripe,
         accentStripeBottom = medalStripe,

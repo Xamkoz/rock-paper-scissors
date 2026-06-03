@@ -24,6 +24,7 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.MatchHistoryEntry
 import com.rpsonline.app.data.model.ViewerMatchResolution
 import com.rpsonline.app.domain.MatchMode
+import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -66,7 +67,7 @@ private fun MatchHistoryCardHeaderContent(
     val outcomeColor = viewerMatchResolutionColor(resolution)
     val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
     val playerNameStyle = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-    val playerNameColor = MaterialTheme.colorScheme.onSurface
+    val playerNameColor = themedPrimaryLabelColor()
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val compactHeader = maxWidth < MatchHeaderCompactBreakpoint

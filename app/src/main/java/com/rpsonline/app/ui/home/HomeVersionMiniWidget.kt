@@ -26,7 +26,7 @@ import com.rpsonline.app.ui.components.RpsOutlinedBorderWidth
 import com.rpsonline.app.ui.components.RpsOutlinedSurfaceStyle
 
 /** Widest expected version label so the chip does not resize on update. */
-private const val HomeVersionChipWidthSample = "v0.7.57"
+private const val HomeVersionChipWidthSample = "v0.7.58"
 
 private const val HomeVersionChipScale = 0.8f
 
