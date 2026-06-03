@@ -304,8 +304,7 @@ fun RpsApp() {
             presenceRepository.touchPresence(
                 uid,
                 awaitServerAck = false,
-                includeOnlineCount = !queueOnlyPresence &&
-                    PresenceRepository.shouldRequestOnlineCount(nowMs),
+                includeOnlineCount = PresenceRepository.shouldRequestOnlineCount(nowMs),
             )
         }
     }

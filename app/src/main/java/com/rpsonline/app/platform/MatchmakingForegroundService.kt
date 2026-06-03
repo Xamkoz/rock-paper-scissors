@@ -108,17 +108,12 @@ class MatchmakingForegroundService : Service() {
                     runCatching {
                         presenceBeat++
                         val nowMs = System.currentTimeMillis()
-                        val queueSearchOnly = MatchSessionMonitor.isMatchmakingInProgress() &&
-                            MatchSessionMonitor.activeMatch.value == null
                         val needsOnlineCount = presenceRepository.onlineCount.value == null
                         presenceRepository.touchPresence(
                             uid,
                             awaitServerAck = false,
                             includeOnlineCount = needsOnlineCount ||
-                                (
-                                    !queueSearchOnly &&
-                                        PresenceRepository.shouldRequestOnlineCount(nowMs)
-                                    ),
+                                PresenceRepository.shouldRequestOnlineCount(nowMs),
                         )
                     }.onSuccess {
                         presenceRepository.onlineCount.value?.let { count ->
