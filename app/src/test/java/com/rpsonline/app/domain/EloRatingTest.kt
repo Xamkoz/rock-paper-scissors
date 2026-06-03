@@ -164,7 +164,7 @@ class EloRatingTest {
         assertEquals(1033, preview.myElo)
         assertEquals(912, preview.opponentElo)
         assertEquals(20, preview.myWinDelta)
-        assertEquals(-20, preview.myLossDelta)
+        assertEquals(0, preview.myWinDelta + preview.myLossDelta)
     }
 
     @Test

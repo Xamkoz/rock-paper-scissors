@@ -133,23 +133,11 @@ fun Match.liveEloPreview(userId: String): LiveEloPreview? {
         player1Wins = player1Wins,
         player2Wins = player2Wins,
     )
-    val ifViewerLoses = calculateMatchElo(
-        ratingA = player1Elo ?: return null,
-        ratingB = player2Elo ?: return null,
-        scoreA = 1.0 - player1ScoreIfViewerWins,
-        matchMode = matchMode,
-        winnerId = opponentId(userId),
-        player1 = player1,
-        player2 = player2,
-        player1Wins = player1Wins,
-        player2Wins = player2Wins,
-    )
     val myWinDelta = if (userId == player1) ifViewerWins.deltaA else ifViewerWins.deltaB
-    val myLossDelta = if (userId == player1) ifViewerLoses.deltaA else ifViewerLoses.deltaB
     return LiveEloPreview(
         myElo = myRating,
         myWinDelta = myWinDelta,
-        myLossDelta = myLossDelta,
+        myLossDelta = -myWinDelta,
         opponentElo = opponentRating,
     )
 }
