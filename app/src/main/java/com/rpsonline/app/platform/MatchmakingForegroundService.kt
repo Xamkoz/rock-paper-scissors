@@ -8,6 +8,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import com.google.firebase.auth.FirebaseAuth
@@ -58,7 +60,6 @@ class MatchmakingForegroundService : Service() {
         super.onCreate()
         runningInstance = this
         ensureForegroundChannel()
-        MatchNotificationHelper.dismissMatchFound(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -399,12 +400,19 @@ class MatchmakingForegroundService : Service() {
             setSound(null, null)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+        val alertSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val alertAudio = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         val matchChannel = NotificationChannel(
             FOREGROUND_ALERT_CHANNEL_ID,
             getString(R.string.match_found_notification_channel),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = getString(R.string.match_found_notification_channel_desc)
+            setSound(alertSound, alertAudio)
+            enableVibration(true)
         }
         manager.createNotificationChannel(queueChannel)
         manager.createNotificationChannel(matchChannel)
@@ -450,19 +458,27 @@ class MatchmakingForegroundService : Service() {
         val display = resolveNotificationDisplay()
         val accessibilityTime = formatQueueTimeMmSs(display.elapsedSeconds)
         val needsLaunchAlert = shouldUseLaunchAlert(display)
-        val builder = NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
+        val channelId = if (needsLaunchAlert) {
+            FOREGROUND_ALERT_CHANNEL_ID
+        } else {
+            FOREGROUND_CHANNEL_ID
+        }
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(RpsStatusBarNotification.smallIconRes)
             .setGroup(RpsStatusBarNotification.SESSION_GROUP_KEY)
             .setSortKey("foreground")
             .setOngoing(true)
-            .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (needsLaunchAlert) {
-            builder.setPriority(NotificationCompat.PRIORITY_HIGH)
-            builder.setCategory(NotificationCompat.CATEGORY_CALL)
+            builder
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setOnlyAlertOnce(false)
+                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+                .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
             if (canUseFullScreenIntent()) {
                 builder.setFullScreenIntent(pendingIntent, true)
             }
@@ -470,6 +486,7 @@ class MatchmakingForegroundService : Service() {
             builder
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setOnlyAlertOnce(true)
                 .setSilent(true)
         }
         SevenSegmentNotificationRenderer.applySegmentedStatusViews(

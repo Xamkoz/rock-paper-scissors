@@ -135,7 +135,12 @@ describe("buildFastMoveUserPrompt", () => {
     assert.ok(Array.isArray(compact.intelCatalog));
     assert.equal(compact.preparedTactics, "Open Paper vs Rock lean.");
     assert.equal(compact.opponentLeanThisMatch, "ROCK");
+    assert.ok(compact.thisMatchRead);
+    assert.equal((compact.thisMatchRead as { lastOpponentThrow: string }).lastOpponentThrow, "ROCK");
+    assert.equal((compact.thisMatchRead as { counterLastThrow: string }).counterLastThrow, "PAPER");
+    assert.match(String(compact.intelDirective), /Priority: cite thisMatch/);
     assert.ok(Array.isArray(compact.citeHints) && (compact.citeHints as unknown[]).length > 0);
+    assert.equal((compact.citeHints as { source: string }[])[0]?.source, "thisMatch");
     assert.match(String(compact.intelDirective), /citeHints/);
     assert.equal((compact.patternRead as { read: string }).read, "ROCK");
     assert.ok(JSON.stringify(compact).length < JSON.stringify(full).length);

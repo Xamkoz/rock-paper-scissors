@@ -51,9 +51,20 @@ export const MOVE_PICK_JSON_SHAPE =
   '{"choice":"PAPER","intelSource":"h2h","intelSignal":"dominant","reason":"H2H Rock lean — Paper beats Rock.","thoughtProcess":"H2H Rock lean at 60%. citeHints favor dominant. Counter with Paper."}';
 
 export const MOVE_PICK_JSON_EXAMPLE_TRANSITIONS =
-  '{"choice":"SCISSORS","intelSource":"h2h","intelSignal":"transitions","reason":"After Paper they throw Rock — Scissors.","thoughtProcess":"After their Paper, transitions favor Rock. Scissors beats Rock."}';
+  '{"choice":"PAPER","intelSource":"h2h","intelSignal":"transitions","reason":"After their Paper they often throw Rock — Paper beats Rock.","thoughtProcess":"Transitions after Paper favor Rock. Counter with Paper, not Scissors."}';
 
-export function movePickJsonExample(round: number): string {
+export const MOVE_PICK_JSON_EXAMPLE_THIS_MATCH =
+  '{"choice":"PAPER","intelSource":"thisMatch","intelSignal":"repeat","reason":"Opponent on Rock ×7 this match — Paper beats Rock.","thoughtProcess":"thisMatchRead shows ROCK streak. citeHints repeat. Paper counters last throw."}';
+
+export const MOVE_PICK_JSON_EXAMPLE_THIS_MATCH_ROUNDS =
+  '{"choice":"PAPER","intelSource":"thisMatch","intelSignal":"thisMatchRounds","reason":"Seven Rocks this match — Paper beats Rock.","thoughtProcess":"thisMatchRounds show opp ROCK lean. Counter with Paper."}';
+
+export function movePickJsonExample(round: number, resolvedRoundsInMatch = 0): string {
+  if (resolvedRoundsInMatch > 0) {
+    return round % 2 === 0
+      ? MOVE_PICK_JSON_EXAMPLE_THIS_MATCH
+      : MOVE_PICK_JSON_EXAMPLE_THIS_MATCH_ROUNDS;
+  }
   return round % 2 === 0 ? MOVE_PICK_JSON_EXAMPLE_TRANSITIONS : MOVE_PICK_JSON_SHAPE;
 }
 
@@ -188,6 +199,16 @@ function normalizePayloadIntelSource(
   if (key === "preparedtactics" || key === "tactics" || key === "plan") {
     return "thisMatch";
   }
+  if (
+    key === "citehints" ||
+    key === "citehint" ||
+    key === "intelcatalog" ||
+    key === "patternread" ||
+    key === "inteldirective" ||
+    key === "thismatchread"
+  ) {
+    return "thisMatch";
+  }
   return null;
 }
 
@@ -269,7 +290,11 @@ const SOURCE_IN_PROSE: Array<{ re: RegExp; source: MoveIntelSource }> = [
   { re: /\blifetime\b/i, source: "lifetime" },
   { re: /\bthismatch\b/i, source: "thisMatch" },
   { re: /\bthis\s+match\b/i, source: "thisMatch" },
+  { re: /\bcite\s*hints?\b/i, source: "thisMatch" },
 ];
+
+const CITE_HINT_REPEAT =
+  /\bopponent\s+on\s+(rock|paper|scissors)\s*[×x]\s*\d+/i;
 
 /** Infer citation when the model only narrates intel in reason (or JSON was truncated). */
 export function inferCitationFromProse(blob: string): {
@@ -290,6 +315,10 @@ export function inferCitationFromProse(blob: string): {
   }
 
   let intelSignal = explicit.intelSignal;
+  if (CITE_HINT_REPEAT.test(blob)) {
+    intelSource = intelSource ?? "thisMatch";
+    intelSignal = intelSignal ?? "repeat";
+  }
   if (!intelSignal) {
     if (/h2h\s+record|series\s+(wins|record)|botserieswins/i.test(blob)) {
       intelSignal = "h2hRecord";
@@ -415,6 +444,13 @@ function parseStrictMovePick(
     );
     intelSource = intelSource ?? inferred.intelSource;
     intelSignal = intelSignal ?? inferred.intelSignal;
+  }
+
+  if (!intelSource && intelSignal) {
+    intelSource =
+      intelSignal === "preparedTactics" || intelSignal === "thisMatchRounds"
+        ? "thisMatch"
+        : options?.primarySource ?? "thisMatch";
   }
 
   if (!intelSource || !intelSignal) return null;

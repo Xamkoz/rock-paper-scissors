@@ -85,4 +85,15 @@ describe("buildIntelCitationHints", () => {
     const r2 = buildIntelCitationHints(withStats, 2, [], catalog).map((h) => h.signal);
     assert.notDeepEqual(r1, r2);
   });
+
+  it("pins thisMatch citeHints first when match has history", () => {
+    const { catalog } = buildMoveIntelCatalog(ctx());
+    const hints = buildIntelCitationHints(
+      ctx(),
+      4,
+      [{ bot: "PAPER", opponent: "ROCK" }],
+      catalog,
+    );
+    assert.equal(hints[0]?.source, "thisMatch");
+  });
 });

@@ -60,8 +60,22 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun skipsDedicatedNotificationWhileForegroundServiceRuns() {
+    fun skipsWhenAppInForeground() {
         assertFalse(
+            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+                appInForeground = true,
+                matchStatus = MatchStatus.LOBBY,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+                hasPostNotificationsPermission = true,
+                matchId = "m1",
+            ),
+        )
+    }
+
+    @Test
+    fun showsInBackgroundWhileForegroundServiceRuns() {
+        assertTrue(
             MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
                 appInForeground = false,
                 matchStatus = MatchStatus.LOBBY,

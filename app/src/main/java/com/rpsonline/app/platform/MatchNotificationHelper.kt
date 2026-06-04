@@ -4,6 +4,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -14,28 +16,42 @@ import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
 import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 
 object MatchNotificationHelper {
-    private const val MATCH_FOUND_CHANNEL_ID = "match_found"
+    /** v2 channel so installs pick up the default notification sound. */
+    private const val MATCH_FOUND_CHANNEL_ID = "match_found_alert"
     const val MATCH_FOUND_NOTIFICATION_ID = 2001
+
+    private fun defaultNotificationSoundUri(context: Context) =
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val soundUri = defaultNotificationSoundUri(context)
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         val channel = NotificationChannel(
             MATCH_FOUND_CHANNEL_ID,
             context.getString(R.string.match_found_notification_channel),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = context.getString(R.string.match_found_notification_channel_desc)
+            setSound(soundUri, audioAttributes)
+            enableVibration(true)
         }
         manager.createNotificationChannel(channel)
     }
 
-    /** Ongoing until [dismissMatchFound] — cleared when the game screen opens or the lobby ends. */
+    /** Background-only: heads-up alert with the default notification sound. */
     fun showMatchFound(context: Context, matchId: String, opponentName: String?) {
-        triggerMatchFoundFeedback(context, matchId)
+        if (AppForegroundTracker.isInForeground) return
+        if (!NotificationPermissionHelper.hasPostNotificationsPermission(context)) {
+            triggerMatchFoundFeedback(context, matchId)
+            return
+        }
         if (MatchmakingForegroundService.isRunning()) {
             MatchmakingForegroundService.requestLaunchAlert()
-            return
         }
         ensureChannels(context)
         val openAppIntent = MatchLaunchHelper.buildLaunchIntent(context, matchId)
@@ -57,14 +73,16 @@ object MatchNotificationHelper {
             timerAnchorMs = timerAnchorMs,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
+        val defaultSound = defaultNotificationSoundUri(context)
         val notification = NotificationCompat.Builder(context, MATCH_FOUND_CHANNEL_ID)
             .setSmallIcon(RpsStatusBarNotification.smallIconRes)
-            .setGroup(RpsStatusBarNotification.SESSION_GROUP_KEY)
             .setSortKey("match_found")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setSound(defaultSound)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
             .setOngoing(true)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(false)
             .setAutoCancel(false)
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

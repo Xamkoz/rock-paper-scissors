@@ -52,6 +52,7 @@ import com.rpsonline.app.platform.MatchFoundNotificationPolicy
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.PresenceEngagementTracker
+import com.rpsonline.app.platform.computeRetainOnlineCountOnPresenceStop
 import com.rpsonline.app.platform.computeSessionNeedsPresenceHeartbeat
 import com.rpsonline.app.platform.MatchmakingForegroundService
 import com.rpsonline.app.platform.NotificationPermissionHelper
@@ -164,6 +165,7 @@ fun RpsApp() {
     val queueJoinedAtMs by MatchSessionMonitor.queueJoinedAtMs.collectAsStateWithLifecycle()
     val queueTimerAnchorMs by MatchSessionMonitor.queueTimerAnchorMs.collectAsStateWithLifecycle()
     val matchmakingInProgress by MatchSessionMonitor.matchmakingInProgress.collectAsStateWithLifecycle()
+    val visibleMatchScreenId by MatchSessionMonitor.visibleMatchScreenId.collectAsStateWithLifecycle()
     var userEngaged by remember { mutableStateOf(PresenceEngagementTracker.isEngaged()) }
 
     LaunchedEffect(Unit) {
@@ -195,27 +197,20 @@ fun RpsApp() {
 
     LaunchedEffect(appForegroundGeneration, user?.uid, backgroundUsageEnabled) {
         val uid = user?.uid ?: return@LaunchedEffect
-        if (
-            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
-                context,
-                backgroundUsageEnabled,
-            )
-        ) {
-            return@LaunchedEffect
-        }
         PresenceRepository.prepareOnlineCountRefreshOnResume()
         delay(PresenceRepository.ONLINE_COUNT_RESUME_REFRESH_DELAY_MS)
         if (!appInForeground) return@LaunchedEffect
-        if (
-            MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
-                context,
-                backgroundUsageEnabled,
-            )
-        ) {
-            return@LaunchedEffect
-        }
         runCatching {
             presenceRepository.touchPresence(uid, includeOnlineCount = true)
+        }
+    }
+
+    LaunchedEffect(activeMatch?.id, activeMatch?.status) {
+        when (activeMatch?.status) {
+            MatchStatus.LOBBY, MatchStatus.ACTIVE -> {
+                PresenceRepository.prepareOnlineCountRefreshOnResume()
+            }
+            else -> Unit
         }
     }
 
@@ -227,6 +222,7 @@ fun RpsApp() {
         matchmakingInProgress,
         activeMatch?.id,
         activeMatch?.status,
+        visibleMatchScreenId,
         backgroundUsageEnabled,
     ) {
         val uid = user?.uid ?: return@LaunchedEffect
@@ -239,6 +235,13 @@ fun RpsApp() {
                 hasQueueEntry = hasQueueEntry,
                 queueJoinedAtMs = queueJoinedAtMs,
                 matchmakingInProgress = matchmakingInProgress,
+                visibleMatchScreenId = visibleMatchScreenId,
+            )
+        fun retainOnlineCountOnStop(): Boolean =
+            computeRetainOnlineCountOnPresenceStop(
+                uid = uid,
+                match = activeMatch,
+                visibleMatchScreenId = visibleMatchScreenId,
             )
         fun serviceOwnsHeartbeats(): Boolean =
             MatchmakingBackgroundCoordinator.foregroundServiceOwnsHeartbeats(
@@ -252,25 +255,33 @@ fun RpsApp() {
             }
         }
 
-        if (!shouldMaintainPresence()) {
-            if (!serviceOwnsHeartbeats() && !MatchSessionMonitor.isMatchmakingInProgress()) {
-                stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
-            }
-            return@LaunchedEffect
-        }
-        if (serviceOwnsHeartbeats()) {
-            return@LaunchedEffect
-        }
-        val queueOnlyPresence = matchmakingInProgress && activeMatch == null
-        if (queueOnlyPresence && onlinePlayerCount == null) {
+        suspend fun touchPresenceBeat(includeOnlineCount: Boolean) {
             runCatching {
                 presenceRepository.touchPresence(
                     uid,
                     forceAuthRefresh = false,
                     awaitServerAck = false,
-                    includeOnlineCount = true,
+                    includeOnlineCount = includeOnlineCount,
                 )
             }
+        }
+
+        fun shouldRequestOnlineCountNow(nowMs: Long = System.currentTimeMillis()): Boolean =
+            onlinePlayerCount == null ||
+                PresenceRepository.shouldRequestOnlineCount(nowMs)
+
+        if (!shouldMaintainPresence()) {
+            if (!serviceOwnsHeartbeats()) {
+                stopLocalPresence(
+                    clearOnlineCount = !retainOnlineCountOnStop() &&
+                        !PresenceEngagementTracker.isEngaged(),
+                )
+            }
+            return@LaunchedEffect
+        }
+        val queueOnlyPresence = matchmakingInProgress && activeMatch == null
+        if (queueOnlyPresence && onlinePlayerCount == null) {
+            touchPresenceBeat(includeOnlineCount = true)
         }
         if (queueOnlyPresence) {
             val joinDeadlineMs = System.currentTimeMillis() + 12_000L
@@ -282,31 +293,31 @@ fun RpsApp() {
                 delay(200)
             }
         }
-        presenceRepository.touchPresence(
-            uid,
-            forceAuthRefresh = false,
-            awaitServerAck = false,
-            includeOnlineCount = onlinePlayerCount == null,
-        )
-        var heartbeat = 0
+        if (serviceOwnsHeartbeats()) {
+            if (shouldRequestOnlineCountNow()) {
+                touchPresenceBeat(includeOnlineCount = true)
+            }
+        } else {
+            touchPresenceBeat(includeOnlineCount = shouldRequestOnlineCountNow())
+        }
         while (true) {
             delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             if (!shouldMaintainPresence()) {
-                if (!serviceOwnsHeartbeats() && !MatchSessionMonitor.isMatchmakingInProgress()) {
-                    stopLocalPresence(clearOnlineCount = !PresenceEngagementTracker.isEngaged())
+                if (!serviceOwnsHeartbeats()) {
+                    stopLocalPresence(
+                        clearOnlineCount = !retainOnlineCountOnStop() &&
+                            !PresenceEngagementTracker.isEngaged(),
+                    )
                 }
                 break
             }
             if (serviceOwnsHeartbeats()) {
-                break
+                if (shouldRequestOnlineCountNow()) {
+                    touchPresenceBeat(includeOnlineCount = true)
+                }
+            } else {
+                touchPresenceBeat(includeOnlineCount = shouldRequestOnlineCountNow())
             }
-            heartbeat++
-            val nowMs = System.currentTimeMillis()
-            presenceRepository.touchPresence(
-                uid,
-                awaitServerAck = false,
-                includeOnlineCount = PresenceRepository.shouldRequestOnlineCount(nowMs),
-            )
         }
     }
 

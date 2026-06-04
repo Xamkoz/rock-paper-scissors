@@ -143,6 +143,7 @@ export class PlayerAgent {
   /** Delay before auto-queue after a concluded game or transient queue drop. */
   private scheduleRequeue(delayMs = this.ctx.config.requeueDelayMs): void {
     if (this.requeueTimer) return;
+    this.stopSessionHeartbeat();
     if (delayMs <= 0) {
       void this.joinQueue();
       return;

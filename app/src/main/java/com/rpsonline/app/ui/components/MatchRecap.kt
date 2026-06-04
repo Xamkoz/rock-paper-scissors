@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,10 +48,84 @@ private val RecapColOutcome = 40.dp
 private fun recapRowTotalWidth(): Dp =
     RecapColRound + RecapColTime * 2 + RecapColChoices + RecapColOutcome + RecapRowColumnSpacing * 4
 
+private val RecapFitTopPadding = 0.dp
+private val RecapFitBottomPadding = 0.dp
+private val RecapFitRowStrideCompact = 24.dp
+private val RecapFitRowStrideRegular = 28.dp
+private val RecapFitRowGap = 4.dp
+private val RecapFitDividerHeight = 1.dp
+
+/** Total height for [rowCount] stacked recap rows (divider + gap between rows). */
+fun recapStackHeight(
+    rowCount: Int,
+    compact: Boolean,
+    topPadding: Dp = RecapFitTopPadding,
+    bottomPadding: Dp = RecapFitBottomPadding,
+): Dp {
+    if (rowCount <= 0) return 0.dp
+    val rowH = if (compact) RecapFitRowStrideCompact else RecapFitRowStrideRegular
+    val between = RecapFitRowGap + RecapFitDividerHeight
+    return topPadding + bottomPadding + rowH * rowCount + between * (rowCount - 1)
+}
+
+/** How many recap rows fit in [availableHeight] without scrolling (in-game panel). */
+fun maxRecapRowsThatFit(availableHeight: Dp, compact: Boolean): Int {
+    if (availableHeight <= RecapFitTopPadding + RecapFitBottomPadding) return 0
+    var n = 0
+    while (recapStackHeight(n + 1, compact) <= availableHeight) {
+        n++
+        if (n >= 64) break
+    }
+    return n
+}
+
+/** Newest round at top; when truncated, only the most recent [maxRows] rounds are shown. */
+fun visibleMatchRoundRecaps(recaps: List<RoundRecap>, maxRows: Int): List<RoundRecap> {
+    if (maxRows <= 0 || recaps.isEmpty()) return emptyList()
+    return recaps
+        .sortedByDescending { it.roundNumber }
+        .take(maxRows)
+}
+
 fun formatRecapMoveMs(ms: Int?): String {
     if (ms == null) return "—"
     val seconds = ((ms + 500) / 1000).coerceAtLeast(0)
     return "${seconds}s"
+}
+
+/**
+ * In-match round log: newest round at top, no scroll.
+ * Parent should center this block vertically; [availableHeight] caps how many rows fit.
+ */
+@Composable
+fun MatchRoundHistoryFit(
+    recaps: List<RoundRecap>,
+    compact: Boolean,
+    availableHeight: Dp,
+    modifier: Modifier = Modifier,
+) {
+    if (recaps.isEmpty()) return
+    val maxRows = maxRecapRowsThatFit(availableHeight, compact)
+    val visible = visibleMatchRoundRecaps(recaps, maxRows)
+    if (visible.isEmpty()) return
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = RecapFitTopPadding, bottom = RecapFitBottomPadding),
+        verticalArrangement = Arrangement.spacedBy(RecapFitRowGap),
+    ) {
+        visible.forEachIndexed { index, recap ->
+            if (index > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            RoundRecapRow(
+                roundLabel = roundRecapLabel(recap.roundNumber, compact),
+                recap = recap,
+                compact = compact,
+            )
+        }
+    }
 }
 
 @Composable

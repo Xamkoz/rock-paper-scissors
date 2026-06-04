@@ -2,6 +2,8 @@ import type { MatchDbContext } from "./matchContext.js";
 import type { TendencySlice } from "./tacticalIntel.js";
 import type { MoveIntelSignal, MoveIntelSource } from "./parse.js";
 import type { IntelCatalogEntry } from "./moveIntelCatalog.js";
+import type { RpsMove } from "./throwPatternIntel.js";
+import { counterToOpponentThrow } from "./opponentTendency.js";
 import { isSignalValidForSource } from "./moveIntelCatalog.js";
 import { pickExplorationSignals } from "./intelCitationRanking.js";
 import { moveCode } from "./movePrompt.js";
@@ -18,7 +20,7 @@ export interface IntelCitationHint {
 
 export interface PickIntelHintContext {
   thisMatchPatterns?: ThrowPatternProfile | null;
-  thisMatchRepeat?: { move: string; streak: number };
+  thisMatchRepeat?: { move: RpsMove; streak: number };
 }
 
 const ROTATING_SIGNALS: MoveIntelSignal[] = [
@@ -103,21 +105,23 @@ export function buildIntelCitationHints(
 
   const thisRepeat = hintCtx.thisMatchRepeat;
   if (thisRepeat && thisRepeat.streak >= 2) {
+    const counter = counterToOpponentThrow(thisRepeat.move);
     pushHint(
       hints,
       catalog,
       "thisMatch",
       "repeat",
-      `This match: opponent on ${thisRepeat.move} ×${thisRepeat.streak}`,
+      `This match: opponent on ${thisRepeat.move} ×${thisRepeat.streak} — counter with ${counter}`,
     );
   } else if (intel?.opponentRepeat && intel.opponentRepeat.streak >= 2) {
-    for (const source of ["thisMatch", "h2h", "recentVsOpponent", "global"] as const) {
+    const counter = counterToOpponentThrow(intel.opponentRepeat.move);
+    for (const source of ["h2h", "recentVsOpponent", "global"] as const) {
       pushHint(
         hints,
         catalog,
         source,
         "repeat",
-        `Opponent on ${intel.opponentRepeat.move} ×${intel.opponentRepeat.streak} — exploit or break streak`,
+        `Opponent on ${intel.opponentRepeat.move} ×${intel.opponentRepeat.streak} — counter with ${counter}`,
       );
       if (hints.some((h) => h.signal === "repeat")) break;
     }
@@ -125,16 +129,22 @@ export function buildIntelCitationHints(
 
   if (thisMatchRounds.length > 0) {
     const last = thisMatchRounds[thisMatchRounds.length - 1];
+    const opponentSeq = thisMatchRounds
+      .map((r) => r.opponent)
+      .filter((o): o is RpsMove => o === "ROCK" || o === "PAPER" || o === "SCISSORS")
+      .slice(-8)
+      .join("→");
     const lastPart =
       last?.bot && last.opponent
         ? ` Last: bot ${last.bot} vs opp ${last.opponent}.`
         : "";
+    const seqPart = opponentSeq ? ` Opp seq: ${opponentSeq}.` : "";
     pushHint(
       hints,
       catalog,
       "thisMatch",
       "thisMatchRounds",
-      `${thisMatchRounds.length} throw(s) this match.${lastPart}`,
+      `${thisMatchRounds.length} throw(s) this match.${seqPart}${lastPart}`,
     );
     const lean = dominantOpponentThisMatch(thisMatchRounds);
     if (lean) {
@@ -226,23 +236,33 @@ export function buildIntelCitationHints(
     );
   }
 
-  return prioritizeExplorationHints(hints, explorationSignals).slice(0, 6);
+  return prioritizeExplorationHints(hints, explorationSignals, thisMatchRounds.length > 0).slice(
+    0,
+    6,
+  );
 }
 
-/** Surface under-sampled signals early in citeHints (model reads left-to-right). */
+/** Surface under-sampled signals early, but always pin live thisMatch hints first. */
 function prioritizeExplorationHints(
   hints: IntelCitationHint[],
   explorationSignals: MoveIntelSignal[],
+  pinThisMatch = false,
 ): IntelCitationHint[] {
-  if (explorationSignals.length === 0) return hints;
-  const exploreSet = new Set(explorationSignals.slice(0, 2));
-  const preferred: IntelCitationHint[] = [];
-  const rest: IntelCitationHint[] = [];
-  for (const h of hints) {
-    if (exploreSet.has(h.signal)) preferred.push(h);
-    else rest.push(h);
+  let ordered = hints;
+  if (explorationSignals.length > 0) {
+    const exploreSet = new Set(explorationSignals.slice(0, 2));
+    const preferred: IntelCitationHint[] = [];
+    const rest: IntelCitationHint[] = [];
+    for (const h of hints) {
+      if (exploreSet.has(h.signal)) preferred.push(h);
+      else rest.push(h);
+    }
+    ordered = [...preferred, ...rest];
   }
-  return [...preferred, ...rest];
+  if (!pinThisMatch) return ordered;
+  const thisMatch = ordered.filter((h) => h.source === "thisMatch");
+  const other = ordered.filter((h) => h.source !== "thisMatch");
+  return [...thisMatch, ...other];
 }
 
 function pickRotatingSignals(round: number, count: number): MoveIntelSignal[] {
@@ -305,12 +325,15 @@ function addRotatingPatternHint(
   }
 
   if (signal === "repeatRate" && patterns && patterns.repeatRatePct >= 15) {
+    const last = patterns.lastThrows.at(-1);
+    const counterHint =
+      last != null ? ` on ${last} — counter with ${counterToOpponentThrow(last)}` : "";
     pushHint(
       hints,
       catalog,
       primary,
       "repeatRate",
-      `Repeat rate ${patterns.repeatRatePct}%`,
+      `Repeat rate ${patterns.repeatRatePct}%${counterHint}`,
     );
     return;
   }

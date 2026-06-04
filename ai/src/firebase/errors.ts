@@ -33,6 +33,14 @@ export function isTransientFirebaseError(err: unknown): boolean {
   return TRANSIENT_MESSAGE.test(errorMessage(err));
 }
 
+/** Firestore often returns permission-denied when updating a deleted queue/{uid} doc. */
+export function isQueueDocAccessDenied(err: unknown): boolean {
+  if (err instanceof FirebaseError) {
+    return firebaseErrorCodes(err).some((c) => c === "permission-denied");
+  }
+  return /permission[- ]denied/i.test(errorMessage(err));
+}
+
 export async function withRetries<T>(
   fn: () => Promise<T>,
   opts: { attempts?: number; baseDelayMs?: number; label?: string } = {},

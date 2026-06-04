@@ -162,7 +162,9 @@ internal fun computeSessionNeedsPresenceHeartbeat(
     hasQueueEntry: Boolean,
     queueJoinedAtMs: Long?,
     matchmakingInProgress: Boolean = false,
+    visibleMatchScreenId: String? = null,
 ): Boolean {
+    if (!visibleMatchScreenId.isNullOrBlank()) return true
     if (
         computeSessionNeedsBackgroundService(
             uid,
@@ -175,6 +177,23 @@ internal fun computeSessionNeedsPresenceHeartbeat(
         return true
     }
     return appInForeground && userEngaged
+}
+
+/** Keep the top-bar online count when the game screen is visible or a live match session is active. */
+internal fun computeRetainOnlineCountOnPresenceStop(
+    uid: String,
+    match: Match?,
+    visibleMatchScreenId: String?,
+): Boolean {
+    if (!visibleMatchScreenId.isNullOrBlank()) return true
+    if (
+        match != null &&
+        match.isParticipant(uid) &&
+        (match.status == MatchStatus.LOBBY || match.status == MatchStatus.ACTIVE)
+    ) {
+        return true
+    }
+    return false
 }
 
 /** Minimum gap between session [syncFromServer] runs from resume unless forced. */

@@ -105,6 +105,16 @@ describe("parseMovePick", () => {
     assert.equal(pick?.intelSignal, "dominant");
   });
 
+  it("maps citeHints payload key to thisMatch with repeat signal", () => {
+    const pick = parseMovePick(
+      '{"choice":"ROCK","intelSource":"citeHints","intelSignal":"repeat","reason":"CiteHints indicates Opponent on SCISSORS ×4 — counter with ROCK.","thoughtProcess":"intelCatalog shows repeat."}',
+    );
+    assert.equal(pick?.choice, "ROCK");
+    assert.equal(pick?.intelSource, "thisMatch");
+    assert.equal(pick?.intelSignal, "repeat");
+    assert.match(pick!.reason, /SCISSORS/i);
+  });
+
   it("formats log line with source and signal", () => {
     assert.equal(
       formatMovePickLogLine({

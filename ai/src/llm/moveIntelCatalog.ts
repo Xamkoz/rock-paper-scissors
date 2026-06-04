@@ -144,7 +144,7 @@ export function buildMoveIntelCatalog(
   }
 
   if (intel?.opponentRepeat) {
-    for (const source of ["h2h", "recentVsOpponent", "global", "thisMatch"] as const) {
+    for (const source of ["h2h", "recentVsOpponent", "global"] as const) {
       mergeSignals(
         catalog.find((e) => e.source === source),
         ["repeat"],

@@ -17,14 +17,19 @@ import {
   type RpsMove,
 } from "./throwPatternIntel.js";
 import type { TacticalIntel } from "./tacticalIntel.js";
+import { counterToOpponentThrow } from "./opponentTendency.js";
 
 const INTEL_PICK_RULES = [
-  "Ground every pick in intel: use citeHints + patternRead + intelCatalog.",
+  "When thisMatchRead or thisMatchRounds has throws, treat live in-match history as primary — it overrides patternRead, preparedTactics, and cross-match leans.",
+  "intelSource must be a catalog source (lifetime, h2h, recentVsOpponent, global, thisMatch) — never citeHints, intelCatalog, patternRead, or preparedTactics as the source name.",
+  "Ground every pick in intel: use thisMatchRead + citeHints + intelCatalog; patternRead is pre-match context only once throws exist.",
+  "Prefer thisMatch citations (thisMatchRounds, repeat, repeatRate, opponentLeanThisMatch) over lifetime/h2h/global when this match has history.",
   "Pick the citeHints entry that matches your read — vary intelSignal across rounds (not always dominant).",
-  "intelSource must be a catalog source (lifetime, h2h, recentVsOpponent, global, thisMatch) — never patternRead or preparedTactics as the source name.",
+  "Counters (mandatory): vs Rock → Paper; vs Paper → Scissors; vs Scissors → Rock. Scissors does NOT beat Rock.",
+  "repeatRate is back-to-back same throw (%), not a move name — counter the last opponent throw from citeHints/thisMatchRounds.",
   "intelSource and intelSignal are separate JSON catalog keys (e.g. thisMatch + repeat) — not source/signal slash, not hint text.",
   "intelSource+intelSignal must match intelCatalog; reason must name that specific signal.",
-  "thoughtProcess last: 2–3 short sentences walking citeHints/patternRead/thisMatchRounds (optional if truncated).",
+  "thoughtProcess last: 2–3 short sentences walking thisMatchRead/citeHints first, then pre-match intel (optional if truncated).",
   "reason: one short sentence for THIS choice only — do not copy preparedTactics; choice must match any move named in reason.",
   "seriesScore in the JSON is context only — never cite matchScore or clinchPressure; cite throw/pattern intel from intelCatalog.",
 ];
@@ -36,14 +41,15 @@ export function useCompactMovePrompt(round: number, resolvedRoundsInMatch: numbe
 
 export function buildMoveSystemPrompt(round: number, resolvedRoundsInMatch = 0): string {
   const intelRules = INTEL_PICK_RULES.join(" ");
-  const example = movePickJsonExample(round);
+  const example = movePickJsonExample(round, resolvedRoundsInMatch);
   if (useCompactMovePrompt(round, resolvedRoundsInMatch)) {
     return [
       "Pick the bot's next rock-paper-scissors move.",
       "Rules: ROCK beats SCISSORS, PAPER beats ROCK, SCISSORS beats PAPER.",
       intelRules,
-      "JSON: citeHints = suggested citations; patternRead = primary pattern read; intelCatalog = allowed pairs.",
-      "Adapt to thisMatchRounds; avoid blindly repeating lastBotMove.",
+      "JSON: thisMatchRead = live throws (primary); citeHints = suggested citations; patternRead = pre-match only; intelCatalog = allowed pairs.",
+      "Read thisMatchRead and thisMatchRounds before patternRead; counter the opponent's last in-match throw or streak.",
+      "Adapt to opponent throws this match; avoid blindly repeating lastBotMove unless it still counters.",
       `Reply JSON only: choice, intelSource, intelSignal, reason first; thoughtProcess last (2-3 short sentences).`,
       `Example: ${example}`,
       "intelSource + intelSignal must match intelCatalog.",
@@ -65,15 +71,51 @@ const CROSS_MATCH_MAX_PAIRS = 40;
 const MOVE_PICK_CROSS_MAX_PAIRS = 8;
 const PREPARED_TACTICS_MAX_CHARS = 220;
 
+/** Live in-match summary — steers the model past stale pre-match reads. */
+export function buildThisMatchRead(
+  thisMatchRounds: Array<{ bot?: string; opponent?: string }>,
+  thisMatchRepeat?: { move: RpsMove; streak: number },
+  patterns?: ReturnType<typeof analyzeThrowPatternFromPairs> | null,
+): Record<string, unknown> | undefined {
+  if (thisMatchRounds.length === 0) return undefined;
+
+  const opponentSeq = thisMatchRounds
+    .map((r) => r.opponent)
+    .filter((o): o is RpsMove => o === "ROCK" || o === "PAPER" || o === "SCISSORS");
+  const lastOpp = opponentSeq.at(-1);
+  const out: Record<string, unknown> = {
+    priority: "Primary — use over patternRead and preparedTactics",
+    roundsPlayed: thisMatchRounds.length,
+    opponentThrows: opponentSeq.slice(-12),
+  };
+  if (lastOpp) {
+    out.lastOpponentThrow = lastOpp;
+    out.counterLastThrow = counterToOpponentThrow(lastOpp);
+  }
+  if (thisMatchRepeat && thisMatchRepeat.streak >= 2) {
+    out.opponentRepeat = thisMatchRepeat;
+    out.counterRepeat = counterToOpponentThrow(thisMatchRepeat.move);
+  }
+  const lean = dominantOpponentMoveThisMatch(thisMatchRounds);
+  if (lean) out.opponentLean = lean;
+  if (patterns?.suggestedCounter) out.suggestedCounter = patterns.suggestedCounter;
+  return out;
+}
+
 /** Actionable one-liner so the model treats intel as mandatory, not optional context. */
 export function buildIntelPickDirective(
   ctx: MatchDbContext,
   catalog: IntelCatalogEntry[],
   citeHints: ReturnType<typeof buildIntelCitationHints>,
+  thisMatchRounds: Array<{ bot?: string; opponent?: string }> = [],
 ): string {
-  const parts: string[] = [
-    "Required: pick one citeHints row (source+signal) that matches your counter.",
-  ];
+  const parts: string[] = [];
+  if (thisMatchRounds.length > 0) {
+    parts.push(
+      "Priority: cite thisMatch (thisMatchRounds/repeat/repeatRate) from live throws — not lifetime/h2h dominant.",
+    );
+  }
+  parts.push("Required: pick one citeHints row (source+signal) that matches your counter.");
   if (citeHints.length > 0) {
     const list = citeHints
       .map((h) => `source=${h.source} signal=${h.signal}: ${h.hint}`)
@@ -112,7 +154,18 @@ function attachIntelPickPayload(
   payload.intelCatalog = pickIntel.catalog;
   payload.intelSignalGlossary = pickIntel.glossary;
   payload.citeHints = citeHints;
-  payload.intelDirective = buildIntelPickDirective(ctx, pickIntel.catalog, citeHints);
+  const thisMatchRead = buildThisMatchRead(
+    thisMatchRounds,
+    pickIntel.thisMatchRepeat,
+    pickIntel.thisMatchPatterns,
+  );
+  if (thisMatchRead) payload.thisMatchRead = thisMatchRead;
+  payload.intelDirective = buildIntelPickDirective(
+    ctx,
+    pickIntel.catalog,
+    citeHints,
+    thisMatchRounds,
+  );
 }
 
 /** ROCK | PAPER | SCISSORS for prompts and output. */
@@ -432,6 +485,7 @@ export function buildCompactMoveUserPrompt(match: Match, ctx: MatchDbContext): s
     thisMatchRounds,
   };
 
+  if (lastRound?.opponent) payload.lastOpponentMove = lastRound.opponent;
   if (lastRound?.bot) payload.lastBotMove = lastRound.bot;
   const matchLean = dominantOpponentMoveThisMatch(thisMatchRounds);
   if (matchLean) payload.opponentLeanThisMatch = matchLean;
@@ -492,7 +546,7 @@ export function buildMoveIntelCatalogForPick(
   ctx: MatchDbContext,
 ): ReturnType<typeof buildMoveIntelCatalog> & {
   thisMatchPatterns: ReturnType<typeof analyzeThrowPatternFromPairs>;
-  thisMatchRepeat?: { move: string; streak: number };
+  thisMatchRepeat?: { move: RpsMove; streak: number };
 } {
   const snap = compactMatchForPick(match, ctx.botUid);
   const thisMatchPairs = (

@@ -135,9 +135,9 @@ The callable can succeed on the server while the client still sees an error. The
 
 ### `PERMISSION_DENIED` on queue heartbeat
 
-Firestore returns this when the bot tries to **update a queue doc that no longer exists** (matched and server deleted `queue/{uid}`).
+Firestore often returns **permission-denied** (not `not-found`) when the bot tries to **update a queue doc that no longer exists** (matched and server deleted `queue/{uid}`). The client treats that as **missing** and stops the heartbeat instead of crashing.
 
-1. **Matched but heartbeat still running** — you should see `[queue-heartbeat] queue doc gone, stopping heartbeat`.
+1. **Matched but heartbeat still running** — you should see `[queue] queue doc missing after repeated heartbeats` or a clean re-join, not an uncaught `[queue-heartbeat] FirebaseError`.
 2. **App Check enforced** — Firebase Console → App Check → Firestore = **Monitoring**, not Enforced.
 3. **Rules not deployed** — `./scripts/deploy-backend.sh`
 4. **Bot Auth** — `BOT_EMAIL` / `BOT_PASSWORD` must match Authentication → Users.

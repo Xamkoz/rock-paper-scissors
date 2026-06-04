@@ -1,12 +1,175 @@
+import {
+  counterToOpponentThrow,
+  COUNTER_TO_OPPONENT,
+  lastOpponentThrowFromMatch,
+  moveBeats,
+  opponentThrowsFromMatch,
+} from "./opponentTendency.js";
 import type { MatchDbContext } from "./matchContext.js";
 import type { IntelCatalogEntry } from "./moveIntelCatalog.js";
 import { isSignalValidForSource } from "./moveIntelCatalog.js";
 import { moveDisplayName } from "./movePrompt.js";
 import type { MoveIntelSignal, MoveIntelSource, MovePickParsed } from "./parse.js";
 import type { Move } from "../types.js";
+import { detectOpponentRepeat, type RpsMove } from "./throwPatternIntel.js";
 
 const TACTICS_DUMP =
   /\bleans?\s+(rock|paper|scissors)\b.*\bopen with\b|\bif they throw\b/i;
+
+const BEATS_CLAIM = /\b(rock|paper|scissors)\s+beats\s+(rock|paper|scissors)\b/gi;
+
+function asRpsMove(word: string | undefined): RpsMove | null {
+  if (!word) return null;
+  const u = word.toUpperCase();
+  if (u === "ROCK" || u === "PAPER" || u === "SCISSORS") return u;
+  return null;
+}
+
+/** Detect prose like "Scissors beats Rock" that violates RPS rules. */
+export function reasonClaimsInvalidBeat(reason: string): boolean {
+  for (const match of reason.matchAll(BEATS_CLAIM)) {
+    const winner = asRpsMove(match[1]);
+    const loser = asRpsMove(match[2]);
+    if (winner && loser && !moveBeats(winner, loser)) return true;
+  }
+  return false;
+}
+
+function opponentMoveFromRepeatReason(reason: string): RpsMove | null {
+  const r = reason;
+  return (
+    asRpsMove(r.match(/\b(rock|paper|scissors)\s+streak\b/i)?.[1]) ??
+    asRpsMove(r.match(/\bon\s+(?:a\s+)?(rock|paper|scissors)\b/i)?.[1]) ??
+    asRpsMove(r.match(/\b(rock|paper|scissors)\s*[×x]\s*\d+/i)?.[1]) ??
+    asRpsMove(r.match(/\b(?:throwing|throws?|threw)\s+(rock|paper|scissors)\b/i)?.[1])
+  );
+}
+
+function opponentMoveFromLeanReason(reason: string): RpsMove | null {
+  const r = reason;
+  return (
+    asRpsMove(r.match(/\b(rock|paper|scissors)\s+lean\b/i)?.[1]) ??
+    asRpsMove(r.match(/\bleans?\s+(?:towards?\s+)?(rock|paper|scissors)\b/i)?.[1]) ??
+    asRpsMove(r.match(/\b(rock|paper|scissors)\s+skew\b/i)?.[1])
+  );
+}
+
+function opponentMoveFromBeatClaim(reason: string): RpsMove | null {
+  const m = reason.match(/\b(rock|paper|scissors)\s+beats\s+(rock|paper|scissors)\b/i);
+  if (!m) return null;
+  const winner = asRpsMove(m[1]);
+  const loser = asRpsMove(m[2]);
+  if (!winner || !loser || !moveBeats(winner, loser)) return null;
+  return loser;
+}
+
+function thisMatchRepeatFromCtx(ctx: MatchDbContext): { move: RpsMove; streak: number } | undefined {
+  return detectOpponentRepeat(opponentThrowsFromMatch(ctx.currentMatch, ctx.botUid));
+}
+
+/** Best guess of which opponent throw to counter from intel + reason + match history. */
+export function resolveLikelyOpponentThrow(ctx: MatchDbContext, reason: string): RpsMove | null {
+  const intel = ctx.tacticalIntel;
+  const liveRepeat = thisMatchRepeatFromCtx(ctx);
+  const fromMatch = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
+
+  if (fromMatch) {
+    if (liveRepeat?.move) return liveRepeat.move;
+    return fromMatch;
+  }
+
+  const fromBeat = opponentMoveFromBeatClaim(reason);
+  if (fromBeat) return fromBeat;
+
+  const fromReason =
+    opponentMoveFromRepeatReason(reason) ?? opponentMoveFromLeanReason(reason);
+  if (fromReason) return fromReason;
+
+  if (intel?.opponentRepeat?.move) return intel.opponentRepeat.move;
+
+  const recent = intel?.recentOpponentThrows;
+  if (recent?.length) {
+    const last = asRpsMove(recent[recent.length - 1]);
+    if (last) return last;
+  }
+
+  return intel?.primary?.dominant ?? null;
+}
+
+const PATTERN_COUNTER_SIGNALS: MoveIntelSignal[] = [
+  "repeatRate",
+  "alternationRate",
+  "streakBreakBias",
+  "recentSeq",
+  "thisMatchRounds",
+];
+
+function resolveOpponentThrowForCounter(
+  parsed: MovePickParsed,
+  ctx: MatchDbContext,
+): RpsMove | null {
+  const { intelSignal, reason } = parsed;
+  const intel = ctx.tacticalIntel;
+
+  if (intelSignal === "repeat") {
+    const live = thisMatchRepeatFromCtx(ctx);
+    if (live?.move) return live.move;
+    const last = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
+    if (last) return last;
+    if (intel?.opponentRepeat?.move) return intel.opponentRepeat.move;
+    return opponentMoveFromRepeatReason(reason);
+  }
+
+  if (
+    intelSignal === "dominant" ||
+    intelSignal === "opponentLeanThisMatch" ||
+    intelSignal === "openWith"
+  ) {
+    const fromReason = opponentMoveFromLeanReason(reason);
+    if (fromReason) return fromReason;
+    if (intel?.primary?.dominant) return intel.primary.dominant;
+  }
+
+  if (intelSignal === "transitions") {
+    const afterThrow = reason.match(/\bafter\s+(?:their\s+)?(rock|paper|scissors)\b/i)?.[1];
+    const transitionTarget = reason.match(/\b(?:throw|throws?|favor[s]?)\s+(rock|paper|scissors)\b/i)?.[1];
+    return asRpsMove(transitionTarget) ?? asRpsMove(afterThrow);
+  }
+
+  if (PATTERN_COUNTER_SIGNALS.includes(intelSignal)) {
+    return resolveLikelyOpponentThrow(ctx, reason);
+  }
+
+  return null;
+}
+
+/** Fix inverted counters (e.g. Scissors vs Rock streak) before submit. */
+export function ensureCounterMatchesOpponentThrow(
+  parsed: MovePickParsed,
+  ctx: MatchDbContext,
+): MovePickParsed {
+  const opponentThrow = resolveOpponentThrowForCounter(parsed, ctx);
+  if (!opponentThrow) {
+    if (reasonClaimsInvalidBeat(parsed.reason) && ctx.tacticalIntel?.primary?.dominant) {
+      const correct = counterToOpponentThrow(ctx.tacticalIntel.primary.dominant);
+      return {
+        ...parsed,
+        choice: correct,
+        reason: buildShortMoveReason(correct, parsed.intelSource, parsed.intelSignal, ctx),
+      };
+    }
+    return parsed;
+  }
+
+  const correct = COUNTER_TO_OPPONENT[opponentThrow];
+  if (parsed.choice === correct && !reasonClaimsInvalidBeat(parsed.reason)) return parsed;
+
+  return {
+    ...parsed,
+    choice: correct,
+    reason: buildShortMoveReason(correct, parsed.intelSource, parsed.intelSignal, ctx),
+  };
+}
 
 function moveInProse(text: string): Move | null {
   const patterns = [
@@ -50,9 +213,10 @@ export function reasonMatchesCitation(
   }
   if (signal === "transitions") return /\bafter\b|\btransition\b/i.test(r);
   if (signal === "repeat") return /\brepeat\b|\bstreak\b|\bin a row\b/i.test(r);
+  if (signal === "repeatRate") return /\brepeat\s+rate\b|\bpattern\b|\bcontinue\b/i.test(r);
   if (signal === "h2hRecord") return /\bh2h\b|\bseries\b|\brecord\b/i.test(r);
   if (signal === "thisMatchRounds") {
-    return /\bthis match\b|\bthrow(s)? so far\b|\blast:\b/i.test(r);
+    return /\bthis match\b|\bthrow(s)? so far\b|\bcounters\b/i.test(r);
   }
   return !reasonLooksLikeTacticsDump(reason);
 }
@@ -61,6 +225,8 @@ function primarySource(ctx: MatchDbContext): MoveIntelSource {
   const s = ctx.tacticalIntel?.primarySource;
   if (s && s !== "none") return s;
   if (ctx.tacticalIntel?.h2h) return "h2h";
+  if (ctx.tacticalIntel?.recentVsOpponent) return "recentVsOpponent";
+  if (ctx.tacticalIntel?.global) return "global";
   if (ctx.tacticalIntel?.lifetime) return "lifetime";
   return "thisMatch";
 }
@@ -110,6 +276,77 @@ function pickCitationForContent(
   return null;
 }
 
+const CROSS_MATCH_SOURCES: MoveIntelSource[] = [
+  "lifetime",
+  "h2h",
+  "recentVsOpponent",
+  "global",
+];
+
+/** When live throws exist, stop attributing picks to stale pre-match leans. */
+function nudgeCitationToThisMatchHistory(
+  parsed: MovePickParsed,
+  ctx: MatchDbContext,
+  catalog: IntelCatalogEntry[],
+): MovePickParsed {
+  const lastThrow = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
+  const liveRepeat = thisMatchRepeatFromCtx(ctx);
+
+  if (parsed.intelSource === "thisMatch" && parsed.intelSignal === "repeat") {
+    if (!liveRepeat) {
+      if (isSignalValidForSource(catalog, "thisMatch", "preparedTactics") && ctx.tactics?.trim()) {
+        return {
+          ...parsed,
+          intelSignal: "preparedTactics",
+          reason: buildShortMoveReason(parsed.choice, "thisMatch", "preparedTactics", ctx),
+        };
+      }
+      const src = primarySource(ctx);
+      if (isSignalValidForSource(catalog, src, "openWith")) {
+        return {
+          ...parsed,
+          intelSource: src,
+          intelSignal: "openWith",
+          reason: buildShortMoveReason(parsed.choice, src, "openWith", ctx),
+        };
+      }
+    }
+    return {
+      ...parsed,
+      reason: buildShortMoveReason(parsed.choice, parsed.intelSource, "repeat", ctx),
+    };
+  }
+
+  if (
+    lastThrow &&
+    parsed.intelSource === "thisMatch" &&
+    parsed.intelSignal === "preparedTactics" &&
+    isSignalValidForSource(catalog, "thisMatch", "thisMatchRounds")
+  ) {
+    return {
+      ...parsed,
+      intelSignal: "thisMatchRounds",
+      reason: buildShortMoveReason(parsed.choice, "thisMatch", "thisMatchRounds", ctx),
+    };
+  }
+
+  if (parsed.intelSource === "thisMatch") return parsed;
+
+  if (!lastThrow) return parsed;
+  if (!CROSS_MATCH_SOURCES.includes(parsed.intelSource)) return parsed;
+  if (!["dominant", "openWith", "preparedTactics"].includes(parsed.intelSignal)) return parsed;
+
+  if (isSignalValidForSource(catalog, "thisMatch", "thisMatchRounds")) {
+    return {
+      ...parsed,
+      intelSource: "thisMatch",
+      intelSignal: "thisMatchRounds",
+      reason: buildShortMoveReason(parsed.choice, "thisMatch", "thisMatchRounds", ctx),
+    };
+  }
+  return parsed;
+}
+
 function reciteScoreCitation(
   reason: string,
   choice: Move,
@@ -146,14 +383,30 @@ export function buildShortMoveReason(
       return `${source} read ${leanName} — ${pick} counters ${opp}.`;
     case "preparedTactics":
       return `${pick} follows the pre-match plan vs ${opp}.`;
-    case "thisMatchRounds":
-      return `${pick} from throws so far this match vs ${opp}.`;
+    case "thisMatchRounds": {
+      const last = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
+      const lastName = last ? (moveDisplayName(last) ?? last) : "throws so far";
+      return `${pick} counters ${opp}'s ${lastName} this match (${source} thisMatchRounds).`;
+    }
     case "opponentLeanThisMatch":
       return `${pick} vs ${opp}'s in-match lean (${source}).`;
     case "transitions":
       return `${pick} from ${source} transition read vs ${opp}.`;
-    case "repeat":
-      return `${pick} vs ${opp}'s repeat pattern (${source}).`;
+    case "repeat": {
+      const streakMove =
+        thisMatchRepeatFromCtx(ctx)?.move ??
+        lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid) ??
+        ctx.tacticalIntel?.opponentRepeat?.move;
+      const streakName = streakMove ? (moveDisplayName(streakMove) ?? streakMove) : "their throw";
+      return `${pick} counters ${opp}'s ${streakName} repeat (${source}).`;
+    }
+    case "repeatRate": {
+      const last =
+        lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid) ??
+        ctx.tacticalIntel?.opponentRepeat?.move;
+      const lastName = last ? (moveDisplayName(last) ?? last) : "their last throw";
+      return `${pick} counters ${opp}'s ${lastName} (${source} repeatRate).`;
+    }
     default:
       return `${pick} from ${source}/${signal} vs ${opp}.`;
   }
@@ -165,7 +418,8 @@ export function normalizeMovePick(
   ctx: MatchDbContext,
   catalog: IntelCatalogEntry[],
 ): MovePickParsed {
-  let { choice, reason, intelSource, intelSignal } = parsed;
+  let working = ensureCounterMatchesOpponentThrow(parsed, ctx);
+  let { choice, reason, intelSource, intelSignal } = working;
   let nextReason = reason.trim();
   let nextSource = intelSource;
   let nextSignal = intelSignal;
@@ -191,11 +445,17 @@ export function normalizeMovePick(
     nextReason = buildShortMoveReason(choice, nextSource, nextSignal, ctx);
   }
 
-  return {
-    choice,
-    reason: nextReason,
-    thoughtProcess: parsed.thoughtProcess,
-    intelSource: nextSource,
-    intelSignal: nextSignal,
-  };
+  const nudged = nudgeCitationToThisMatchHistory(
+    {
+      choice,
+      reason: nextReason,
+      thoughtProcess: parsed.thoughtProcess,
+      intelSource: nextSource,
+      intelSignal: nextSignal,
+    },
+    ctx,
+    catalog,
+  );
+
+  return ensureCounterMatchesOpponentThrow(nudged, ctx);
 }

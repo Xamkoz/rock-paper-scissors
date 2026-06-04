@@ -24,9 +24,8 @@ internal object MatchFoundNotificationPolicy {
         backgroundUsageEnabled: Boolean,
         hasPostNotificationsPermission: Boolean,
         matchId: String,
-        foregroundServiceRunning: Boolean = false,
+        @Suppress("UNUSED_PARAMETER") foregroundServiceRunning: Boolean = false,
     ): Boolean {
-        if (foregroundServiceRunning) return false
         if (appInForeground) return false
         if (matchStatus != MatchStatus.LOBBY) return false
         if (!hasPostNotificationsPermission) return false

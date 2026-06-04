@@ -10,7 +10,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { matchFromSnapshot } from "./matchDoc.js";
-import { isTransientFirebaseError } from "./errors.js";
+import { isQueueDocAccessDenied, isTransientFirebaseError } from "./errors.js";
 import type { Match, MatchMode, Move, UserProfile } from "../types.js";
 
 export async function ensureUserProfile(
@@ -117,6 +117,7 @@ export async function sendQueueHeartbeat(
     });
     return "ok";
   } catch (err) {
+    if (isQueueDocAccessDenied(err)) return "missing";
     if (isTransientFirebaseError(err)) return "transient";
     throw err;
   }

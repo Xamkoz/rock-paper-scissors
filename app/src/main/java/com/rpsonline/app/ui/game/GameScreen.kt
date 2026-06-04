@@ -2,6 +2,7 @@ package com.rpsonline.app.ui.game
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.components.formatMatchModeCode
+import com.rpsonline.app.ui.components.MatchRoundHistoryFit
 import com.rpsonline.app.ui.components.MovePicker
 import com.rpsonline.app.ui.components.PlayerDisplayNameText
 import com.rpsonline.app.ui.components.ProvideOnlinePresence
@@ -608,6 +610,9 @@ fun GameScreen(
             else -> null
         }
         val pickerTitle = panelStatusMessage ?: pickPrompt
+        val roundRecaps = layoutMatch.resolvedRoundRecaps(userId)
+        val recapCompact = compactLayout || tightLayout
+        val recapTopGap = if (tightLayout) 2.dp else 4.dp
 
         Column(
             modifier = Modifier
@@ -615,6 +620,10 @@ fun GameScreen(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -670,61 +679,74 @@ fun GameScreen(
                 tightLayout = tightLayout,
             )
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                MatchRoundMovesPanel(
-                    opponentLabel = opponentScoreLabel,
-                    opponentMove = panelOpponentPresentation,
-                    myMove = panelMyPresentationFinal,
-                    myWins = displayMyWins,
-                    myScoreScoringActive = animatedScores.myScoringActive,
-                    myWinMoves = displayMyWinMoves,
-                    opponentWins = displayOpponentWins,
-                    opponentScoreScoringActive = animatedScores.opponentScoringActive,
-                    opponentWinMoves = displayOpponentWinMoves,
-                    winsToFinish = layoutMatch.matchMode.winsToFinish,
-                    outcome = panelHeaderOutcome,
-                    roundNumber = when {
-                        inMatchEndTransition -> endTransition!!.roundKey
-                        recapRound != null -> recapRound.roundNumber
-                        else -> openRound?.roundNumber ?: layoutMatch.currentRound
-                    },
-                    compact = compactLayout,
-                    tight = tightLayout,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            uiState.error?.let { error ->
-                Spacer(modifier = Modifier.height(if (tightLayout) 6.dp else 12.dp))
-                Text(text = error, color = MaterialTheme.colorScheme.error)
-            }
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            MovePickerActionTitle(
-                title = pickerTitle,
+            MatchRoundMovesPanel(
+                opponentLabel = opponentScoreLabel,
+                opponentMove = panelOpponentPresentation,
+                myMove = panelMyPresentationFinal,
+                myWins = displayMyWins,
+                myScoreScoringActive = animatedScores.myScoringActive,
+                myWinMoves = displayMyWinMoves,
+                opponentWins = displayOpponentWins,
+                opponentScoreScoringActive = animatedScores.opponentScoringActive,
+                opponentWinMoves = displayOpponentWinMoves,
+                winsToFinish = layoutMatch.matchMode.winsToFinish,
+                outcome = panelHeaderOutcome,
+                roundNumber = when {
+                    inMatchEndTransition -> endTransition!!.roundKey
+                    recapRound != null -> recapRound.roundNumber
+                    else -> openRound?.roundNumber ?: layoutMatch.currentRound
+                },
                 compact = compactLayout,
                 tight = tightLayout,
+                modifier = Modifier.fillMaxWidth(),
             )
-            MovePicker(
-                enabled = movePickerEnabled,
-                selectedMove = selectedPickerMove,
-                onMove = viewModel::submitMove,
-                compact = compactLayout,
-                roundKey = if (inMatchEndTransition) {
-                    endTransition!!.roundKey
-                } else {
-                    openRound?.roundNumber
-                },
-            )
+                }
+
+            if (roundRecaps.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(recapTopGap))
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    MatchRoundHistoryFit(
+                        recaps = roundRecaps,
+                        compact = recapCompact,
+                        availableHeight = maxHeight,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .fillMaxWidth(),
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                uiState.error?.let { error ->
+                    Spacer(modifier = Modifier.height(if (tightLayout) 4.dp else 8.dp))
+                    Text(text = error, color = MaterialTheme.colorScheme.error)
+                }
+                MovePickerActionTitle(
+                    title = pickerTitle,
+                    compact = compactLayout,
+                    tight = tightLayout,
+                )
+                MovePicker(
+                    enabled = movePickerEnabled,
+                    selectedMove = selectedPickerMove,
+                    onMove = viewModel::submitMove,
+                    compact = compactLayout,
+                    roundKey = if (inMatchEndTransition) {
+                        endTransition!!.roundKey
+                    } else {
+                        openRound?.roundNumber
+                    },
+                )
+            }
         }
         }
         }

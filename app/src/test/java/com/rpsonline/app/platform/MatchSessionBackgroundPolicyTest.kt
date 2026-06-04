@@ -201,6 +201,25 @@ class MatchSessionBackgroundPolicyTest {
     }
 
     @Test
+    fun activeMatch_needsPresenceHeartbeatEvenWhenIdle() {
+        val match = Match(
+            player1 = uid,
+            player2 = "player-2",
+            status = MatchStatus.ACTIVE,
+        )
+        assertTrue(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = true,
+                userEngaged = false,
+                uid = uid,
+                match = match,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+            ),
+        )
+    }
+
+    @Test
     fun foregroundEngagedIdle_needsPresenceHeartbeat() {
         assertTrue(
             computeSessionNeedsPresenceHeartbeat(
@@ -268,6 +287,60 @@ class MatchSessionBackgroundPolicyTest {
                 hasQueueEntry = false,
                 queueJoinedAtMs = 1_000L,
                 matchmakingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
+    fun visibleGameScreen_needsPresenceHeartbeatEvenWhenIdle() {
+        assertTrue(
+            computeSessionNeedsPresenceHeartbeat(
+                appInForeground = true,
+                userEngaged = false,
+                uid = uid,
+                match = null,
+                hasQueueEntry = false,
+                queueJoinedAtMs = null,
+                matchmakingInProgress = false,
+                visibleMatchScreenId = "match-42",
+            ),
+        )
+    }
+
+    @Test
+    fun visibleGameScreen_retainsOnlineCountOnPresenceStop() {
+        assertTrue(
+            computeRetainOnlineCountOnPresenceStop(
+                uid = uid,
+                match = null,
+                visibleMatchScreenId = "match-42",
+            ),
+        )
+    }
+
+    @Test
+    fun activeMatch_retainsOnlineCountOnPresenceStop() {
+        val match = Match(
+            player1 = uid,
+            player2 = "player-2",
+            status = MatchStatus.ACTIVE,
+        )
+        assertTrue(
+            computeRetainOnlineCountOnPresenceStop(
+                uid = uid,
+                match = match,
+                visibleMatchScreenId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun idleHome_clearsOnlineCountOnPresenceStop() {
+        assertFalse(
+            computeRetainOnlineCountOnPresenceStop(
+                uid = uid,
+                match = null,
+                visibleMatchScreenId = null,
             ),
         )
     }
