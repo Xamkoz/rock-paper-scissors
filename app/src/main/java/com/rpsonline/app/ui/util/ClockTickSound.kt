@@ -1,6 +1,7 @@
 package com.rpsonline.app.ui.util
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
@@ -8,7 +9,10 @@ import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 
-class ClockTickPlayer(context: Context) {
+class ClockTickPlayer(
+    context: Context,
+    private val audioAttributes: AudioAttributes = GameAudioContext.gameSoundAttributes(),
+) {
     private val audioContext = GameAudioContext.wrap(context)
     private var clockTrack: AudioTrack? = null
     private var readyTrack: AudioTrack? = null
@@ -69,7 +73,7 @@ class ClockTickPlayer(context: Context) {
     private fun createAudioTrack(amplitude: Double): AudioTrack {
         val samples = tickSamples(amplitude)
         val builder = AudioTrack.Builder()
-            .setAudioAttributes(GameAudioContext.gameSoundAttributes())
+            .setAudioAttributes(audioAttributes)
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setSampleRate(SAMPLE_RATE)

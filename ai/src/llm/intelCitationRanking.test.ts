@@ -69,6 +69,34 @@ describe("pickExplorationSignals", () => {
     assert.ok(!picked.includes("dominant") || picked[0] !== "dominant");
   });
 
+  it("reserves slots for never-cited signals before warm under-sampled ones", () => {
+    const catalog = [
+      {
+        source: "lifetime" as const,
+        signals: ["dominant", "opponentLifetime", "distribution"] as MoveIntelSignal[],
+      },
+      {
+        source: "h2h" as const,
+        signals: ["priorMatches", "transitions"] as MoveIntelSignal[],
+      },
+      {
+        source: "recentVsOpponent" as const,
+        signals: ["crossOpponent"] as MoveIntelSignal[],
+      },
+    ];
+    const stats = [
+      { source: "h2h" as const, signal: "dominant" as const, picks: 200, roundWins: 80, roundWinPct: 40 },
+      { source: "h2h" as const, signal: "transitions" as const, picks: 10, roundWins: 4, roundWinPct: 40 },
+    ];
+    const picked = pickExplorationSignals(3, 4, catalog, stats, ["dominant"]);
+    assert.ok(
+      picked.some((s) =>
+        ["opponentLifetime", "priorMatches", "crossOpponent", "distribution"].includes(s),
+      ),
+    );
+    assert.ok(!picked.every((s) => s === "transitions" || s === "dominant"));
+  });
+
   it("uses counterfactual lean opportunities when pick citations are sparse", () => {
     const catalog = [
       { source: "h2h" as const, signals: ["dominant", "transitions"] as MoveIntelSignal[] },

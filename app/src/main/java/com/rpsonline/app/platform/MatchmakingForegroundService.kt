@@ -20,6 +20,7 @@ import com.rpsonline.app.MainActivity
 import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.preferences.MatchmakingPreferences
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.PresenceRepository
@@ -55,6 +56,8 @@ class MatchmakingForegroundService : Service() {
     @Volatile
     private var forceNextNotificationPost = false
     private var foregroundPromoted = false
+    @Volatile
+    private var sessionMatchHint: Match? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -138,6 +141,7 @@ class MatchmakingForegroundService : Service() {
                 } else if (MatchSessionMonitor.isMatchmakingInProgress()) {
                     MatchSessionMonitor.requestQueueRecovery()
                 }
+                maybeConfirmLobbyReadyFromBackground()
                 delay(PresenceRepository.HEARTBEAT_INTERVAL_MS)
             }
         }
@@ -284,11 +288,66 @@ class MatchmakingForegroundService : Service() {
         }
     }
 
+    private fun persistInMatchDisplay() {
+        forceNextNotificationPost = true
+        synchronized(notificationPostLock) {
+            lastPostedFingerprint = null
+        }
+        requestImmediateNotificationRefresh()
+    }
+
+    private fun persistMatchFoundDisplay() {
+        armImmediateForegroundRefresh()
+    }
+
+    private fun armImmediateForegroundRefresh() {
+        forceNextNotificationPost = true
+        synchronized(notificationPostLock) {
+            lastPostedFingerprint = null
+        }
+        requestImmediateNotificationRefresh()
+    }
+
+    private suspend fun maybeConfirmLobbyReadyFromBackground() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val match = sessionMatchForNotification() ?: return
+        if (match.status != MatchStatus.LOBBY || !match.isParticipant(uid)) return
+        MatchSessionMonitor.setMatchmakingInProgress(true)
+        val needsReady = !match.isPlayerReady(uid)
+        val pastDeadline = match.isReadyDeadlineExpired()
+        if (needsReady || pastDeadline) {
+            runCatching { matchRepository.confirmMatchReady(match.id) }
+        }
+    }
+
+    private fun sessionMatchForNotification(): Match? {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (JoinMatchNotificationState.isLobbyAlertPhase()) {
+            val lobby = JoinMatchNotificationState.lobbyMatch()
+            if (
+                lobby != null &&
+                uid != null &&
+                lobby.isParticipant(uid) &&
+                lobby.status == MatchStatus.LOBBY
+            ) {
+                return lobby
+            }
+        }
+        val live = MatchSessionMonitor.activeMatch.value
+        val hint = sessionMatchHint
+        val stickyLobby = JoinMatchNotificationState.lobbyMatch()
+        return listOfNotNull(hint, live, stickyLobby).firstOrNull { candidate ->
+            uid != null &&
+                candidate.isParticipant(uid) &&
+                (candidate.status == MatchStatus.LOBBY || candidate.status == MatchStatus.ACTIVE)
+        } ?: live ?: hint ?: stickyLobby
+    }
+
     private fun currentNotificationFingerprint(
         display: TopBarStatusRowSpec,
         nowMs: Long = System.currentTimeMillis(),
     ): NotificationFingerprint {
-        val match = MatchSessionMonitor.activeMatch.value
+        val match = sessionMatchForNotification()
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         val launchMatchId = if (
             uid != null &&
@@ -324,7 +383,7 @@ class MatchmakingForegroundService : Service() {
     )
 
     private fun resolveNotificationDisplay(): TopBarStatusRowSpec {
-        val match = MatchSessionMonitor.activeMatch.value
+        val match = sessionMatchForNotification()
         val queueJoinedAt = MatchSessionMonitor.queueElapsedAnchorMs()
         val now = System.currentTimeMillis()
         val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -400,18 +459,13 @@ class MatchmakingForegroundService : Service() {
             setSound(null, null)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        val alertSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val alertAudio = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
         val matchChannel = NotificationChannel(
             FOREGROUND_ALERT_CHANNEL_ID,
             getString(R.string.match_found_notification_channel),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = getString(R.string.match_found_notification_channel_desc)
-            setSound(alertSound, alertAudio)
+            setSound(null, null)
             enableVibration(true)
         }
         manager.createNotificationChannel(queueChannel)
@@ -424,13 +478,19 @@ class MatchmakingForegroundService : Service() {
     }
 
     private fun shouldUseLaunchAlert(display: TopBarStatusRowSpec): Boolean {
-        if (System.currentTimeMillis() < launchAlertUntilMs) return true
-        return display.status == SegmentedNotificationStatus.MATCH_FOUND &&
-            !AppForegroundTracker.isInForeground
+        if (display.status == SegmentedNotificationStatus.IN_MATCH) return false
+        if (display.status != SegmentedNotificationStatus.MATCH_FOUND) return false
+        if (System.currentTimeMillis() >= launchAlertUntilMs) return false
+        if (!AppForegroundTracker.isInForeground) return true
+        return MatchmakingPreferences(this).isMatchFoundNotificationsEnabled()
     }
 
+    private fun usesPersistentSessionChannel(display: TopBarStatusRowSpec): Boolean =
+        display.status == SegmentedNotificationStatus.IN_MATCH ||
+            display.status == SegmentedNotificationStatus.MATCH_FOUND
+
     private fun buildForegroundNotification(): Notification {
-        val match = MatchSessionMonitor.activeMatch.value
+        val match = sessionMatchForNotification()
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         val launchMatchId = if (
             uid != null &&
@@ -458,7 +518,8 @@ class MatchmakingForegroundService : Service() {
         val display = resolveNotificationDisplay()
         val accessibilityTime = formatQueueTimeMmSs(display.elapsedSeconds)
         val needsLaunchAlert = shouldUseLaunchAlert(display)
-        val channelId = if (needsLaunchAlert) {
+        val persistentSession = usesPersistentSessionChannel(display)
+        val channelId = if (needsLaunchAlert || persistentSession) {
             FOREGROUND_ALERT_CHANNEL_ID
         } else {
             FOREGROUND_CHANNEL_ID
@@ -474,14 +535,20 @@ class MatchmakingForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (needsLaunchAlert) {
             builder
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_EVENT)
-                .setOnlyAlertOnce(false)
-                .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
-                .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setOnlyAlertOnce(true)
+                .setSilent(false)
+                .setDefaults(0)
             if (canUseFullScreenIntent()) {
                 builder.setFullScreenIntent(pendingIntent, true)
             }
+        } else if (persistentSession) {
+            builder
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
         } else {
             builder
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -501,12 +568,13 @@ class MatchmakingForegroundService : Service() {
     companion object {
         /** New id so existing installs pick up [NotificationManager.IMPORTANCE_DEFAULT] for the status bar icon. */
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background_status"
-        private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert"
+        private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert_v3"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
         /** Idle status (no live MM:SS) — 1 Hz stays under NotificationService enqueue limits. */
         private const val NOTIFICATION_TICK_MS = 1_000L
         private const val MIN_NOTIFICATION_POST_INTERVAL_MS = 1_000L
-        private const val LAUNCH_ALERT_WINDOW_MS = 8_000L
+        /** Align with server lobby ready window so match-found shade persists through pre-game. */
+        private val LAUNCH_ALERT_WINDOW_MS = MatchLobbyNotificationTiming.LOBBY_ALERT_MS
 
         @Volatile
         private var runningInstance: MatchmakingForegroundService? = null
@@ -514,17 +582,53 @@ class MatchmakingForegroundService : Service() {
         @Volatile
         private var launchAlertUntilMs: Long = 0L
 
-        fun requestLaunchAlert() {
-            launchAlertUntilMs = System.currentTimeMillis() + LAUNCH_ALERT_WINDOW_MS
-            runningInstance?.requestImmediateNotificationRefresh()
+        @Volatile
+        private var launchAlertAudible: Boolean = true
+
+        fun requestLaunchAlert(playSound: Boolean = true) {
+            val now = System.currentTimeMillis()
+            if (now < launchAlertUntilMs) {
+                if (!playSound) {
+                    runningInstance?.requestImmediateNotificationRefresh()
+                }
+                return
+            }
+            launchAlertUntilMs = now + LAUNCH_ALERT_WINDOW_MS
+            launchAlertAudible = playSound
+            runningInstance?.armImmediateForegroundRefresh()
         }
 
         fun clearLaunchAlert() {
             launchAlertUntilMs = 0L
+            launchAlertAudible = true
         }
 
-        /** No-op: [MatchmakingForegroundService] tick loop owns notification updates. */
-        fun refreshNotificationIfRunning() = Unit
+        private fun isLaunchAlertAudible(): Boolean {
+            val now = System.currentTimeMillis()
+            return now < launchAlertUntilMs && launchAlertAudible
+        }
+
+        fun refreshNotificationIfRunning() {
+            runningInstance?.requestImmediateNotificationRefresh()
+        }
+
+        fun applySessionMatchHint(match: Match?) {
+            if (match != null && match.status == MatchStatus.LOBBY) {
+                JoinMatchNotificationState.bindLobby(match)
+            }
+            runningInstance?.let { service ->
+                service.sessionMatchHint = match
+                service.requestImmediateNotificationRefresh()
+            }
+        }
+
+        fun persistMatchFoundForegroundDisplay() {
+            runningInstance?.persistMatchFoundDisplay()
+        }
+
+        fun persistInMatchForegroundDisplay() {
+            runningInstance?.persistInMatchDisplay()
+        }
 
         fun isRunning(): Boolean = runningInstance != null
 

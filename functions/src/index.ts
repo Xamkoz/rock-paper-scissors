@@ -95,7 +95,7 @@ const PLAYED_ROUND_END_REASON: RoundEndReason = "normal";
 const ROUND_TIMEOUT_END_REASON: RoundEndReason = "round_timeout";
 const CLOCK_TIMEOUT_END_REASON: RoundEndReason = "clock_timeout";
 const CANCELLED_ROUND_END_REASON: RoundEndReason = "cancelled";
-const LOBBY_READY_MS = 15_000;
+const LOBBY_READY_MS = 20_000;
 
 interface MatchDoc {
   player1: string;

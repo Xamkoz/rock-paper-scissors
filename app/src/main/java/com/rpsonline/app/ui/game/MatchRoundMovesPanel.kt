@@ -89,6 +89,8 @@ fun MatchRoundMovesPanel(
     roundNumber: Int,
     compact: Boolean,
     tight: Boolean = false,
+    /** When true, own submitted move stays tap-to-hide even if parent passes [PanelMoveDisplay.Revealed]. */
+    ownMoveTapRevealable: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val cardPadding = when {
@@ -125,8 +127,12 @@ fun MatchRoundMovesPanel(
     } else {
         myMove
     }
-    val allowOwnMoveTapToReveal =
-        panelMyMove.display == PanelMoveDisplay.Secret && panelMyMove.move != null
+    val effectiveMyMove = if (ownMoveTapRevealable && panelMyMove.move != null) {
+        panelMyMove.copy(display = PanelMoveDisplay.Secret)
+    } else {
+        panelMyMove
+    }
+    val allowOwnMoveTapToReveal = ownMoveTapRevealable && effectiveMyMove.move != null
 
     val colorScheme = MaterialTheme.colorScheme
     val outcomeChrome = outcome?.let { roundOutcomeBannerColors(it.kind) }
@@ -174,7 +180,7 @@ fun MatchRoundMovesPanel(
                         scoreScoringActive = myScoreScoringActive,
                         winsToFinish = winsToFinish,
                         winMoves = myWinMoves,
-                        presentation = panelMyMove,
+                        presentation = effectiveMyMove,
                         moveRevealed = ownMoveRevealed,
                         allowTapToReveal = allowOwnMoveTapToReveal,
                         onTapToReveal = {

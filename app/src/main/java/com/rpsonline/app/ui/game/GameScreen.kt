@@ -679,10 +679,18 @@ fun GameScreen(
                 tightLayout = tightLayout,
             )
 
+            val mySubmittedOnOpenRound = openRound?.hasSubmittedFor(userId, layoutMatch.player1) == true
+            val ownMoveTapRevealable = !showRecapRoundMoves &&
+                !inDualSelectionHold &&
+                layoutMatch.status == MatchStatus.ACTIVE &&
+                openRound != null &&
+                panelMyPresentationFinal.move != null &&
+                (panelHasSubmittedMove || mySubmittedOnOpenRound)
             MatchRoundMovesPanel(
                 opponentLabel = opponentScoreLabel,
                 opponentMove = panelOpponentPresentation,
                 myMove = panelMyPresentationFinal,
+                ownMoveTapRevealable = ownMoveTapRevealable,
                 myWins = displayMyWins,
                 myScoreScoringActive = animatedScores.myScoringActive,
                 myWinMoves = displayMyWinMoves,

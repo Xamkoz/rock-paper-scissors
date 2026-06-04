@@ -38,6 +38,9 @@ const ROTATING_SIGNALS: MoveIntelSignal[] = [
   "skew",
   "openWith",
   "dominant",
+  "opponentLifetime",
+  "priorMatches",
+  "crossOpponent",
 ];
 
 function primarySource(ctx: MatchDbContext): MoveIntelSource {
@@ -170,7 +173,7 @@ export function buildIntelCitationHints(
 
   const explorationSignals = pickExplorationSignals(
     round,
-    4,
+    5,
     catalog,
     ctx.signalPickStats,
     ROTATING_SIGNALS,
@@ -178,6 +181,8 @@ export function buildIntelCitationHints(
   );
   for (const signal of explorationSignals) {
     const before = hints.length;
+    addMetaExplorationHint(hints, catalog, ctx, signal);
+    if (hints.length > before) continue;
     addRotatingPatternHint(hints, catalog, primary, signal, patterns, slice);
     if (hints.length === before && hintCtx.thisMatchPatterns) {
       addRotatingPatternHint(
@@ -238,7 +243,7 @@ export function buildIntelCitationHints(
 
   return prioritizeExplorationHints(hints, explorationSignals, thisMatchRounds.length > 0).slice(
     0,
-    6,
+    7,
   );
 }
 
@@ -250,7 +255,7 @@ function prioritizeExplorationHints(
 ): IntelCitationHint[] {
   let ordered = hints;
   if (explorationSignals.length > 0) {
-    const exploreSet = new Set(explorationSignals.slice(0, 2));
+    const exploreSet = new Set(explorationSignals);
     const preferred: IntelCitationHint[] = [];
     const rest: IntelCitationHint[] = [];
     for (const h of hints) {
@@ -272,6 +277,74 @@ function pickRotatingSignals(round: number, count: number): MoveIntelSignal[] {
     out.push(ROTATING_SIGNALS[(start + i) % ROTATING_SIGNALS.length]!);
   }
   return out;
+}
+
+/** Hints for catalog signals that are not backed by a single tendency pattern blob. */
+function addMetaExplorationHint(
+  hints: IntelCitationHint[],
+  catalog: IntelCatalogEntry[],
+  ctx: MatchDbContext,
+  signal: MoveIntelSignal,
+): void {
+  const intel = ctx.tacticalIntel;
+
+  if (signal === "opponentLifetime" && ctx.opponentProfile) {
+    const p = ctx.opponentProfile;
+    const total = p.throwsRock + p.throwsPaper + p.throwsScissors;
+    if (total > 0) {
+      const lean =
+        p.throwsRock >= p.throwsPaper && p.throwsRock >= p.throwsScissors
+          ? "ROCK"
+          : p.throwsPaper >= p.throwsScissors
+            ? "PAPER"
+            : "SCISSORS";
+      pushHint(
+        hints,
+        catalog,
+        "lifetime",
+        "opponentLifetime",
+        `Profile ${p.elo} elo — career lean ${lean}, mix R${Math.round((p.throwsRock / total) * 100)}/P${Math.round((p.throwsPaper / total) * 100)}/S${Math.round((p.throwsScissors / total) * 100)}`,
+      );
+    } else {
+      pushHint(
+        hints,
+        catalog,
+        "lifetime",
+        "opponentLifetime",
+        `Profile ${p.elo} elo — no throw totals yet`,
+      );
+    }
+    return;
+  }
+
+  if (signal === "priorMatches" && ctx.headToHead.length > 0) {
+    const g = ctx.headToHead[0]!;
+    const last = g.rounds.at(-1);
+    const lastLine =
+      last?.opponentMove != null
+        ? ` last opp ${moveCode(last.opponentMove) ?? "?"}`
+        : "";
+    pushHint(
+      hints,
+      catalog,
+      "h2h",
+      "priorMatches",
+      `Prior H2H ${g.botWins}-${g.opponentWins} (${g.rounds.length} rounds logged)${lastLine}`,
+    );
+    return;
+  }
+
+  if (signal === "crossOpponent" && intel?.crossPatterns.opponent) {
+    const cross = intel.crossPatterns.opponent;
+    const d = cross.distribution;
+    pushHint(
+      hints,
+      catalog,
+      "recentVsOpponent",
+      "crossOpponent",
+      `Cross-match opp lean ${cross.dominant} (${cross.dominantPct}%) mix R${d.rockPct}/P${d.paperPct}/S${d.scissorsPct} (n=${intel.crossPatterns.pairCount})`,
+    );
+  }
 }
 
 function addRotatingPatternHint(

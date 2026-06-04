@@ -24,10 +24,22 @@ import {
   type MoveIntelSource,
   type ParseMovePickOptions,
 } from "./parse.js";
-import { normalizeMovePick } from "./movePickValidation.js";
+import {
+  buildDeterministicMovePick,
+  normalizeMovePick,
+} from "./movePickValidation.js";
 import { log } from "../log.js";
 
 export { pickMoveContextLimits };
+
+/** True when the move LLM fetch was aborted by our timeout budget. */
+export function isLlmPickTimeoutError(err: unknown): boolean {
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return true;
+    return /aborted|timeout/i.test(err.message);
+  }
+  return false;
+}
 
 function logFailedMovePickReason(
   round: number,
@@ -139,6 +151,36 @@ export async function pickMoveWithLlm(
     pickMs: durationMs,
     llmModel,
     llmResponse: text,
+  };
+}
+
+/** Submit-ready pick without calling the LLM (live counter or pre-match open). */
+export function pickMoveDeterministic(
+  match: Match,
+  ctx: MatchDbContext,
+): PickMoveResult {
+  const { catalog, thisMatchRepeat } = buildMoveIntelCatalogForPick(match, ctx);
+  const normalized = buildDeterministicMovePick(ctx, catalog, thisMatchRepeat);
+  const citation = coerceCitationForCatalog(
+    catalog,
+    normalized.intelSource,
+    normalized.intelSignal,
+  );
+  if (!citation) {
+    throw new Error(
+      `Deterministic pick cited ${normalized.intelSource}/${normalized.intelSignal} not in intelCatalog`,
+    );
+  }
+  const llmModel = getLlmConfig().model;
+  return {
+    choice: normalized.choice,
+    reason: normalized.reason,
+    thoughtProcess: normalized.thoughtProcess,
+    intelSource: citation.source,
+    intelSignal: citation.signal,
+    pickMs: 0,
+    llmModel: `${llmModel} (timeout-fallback)`,
+    llmResponse: "",
   };
 }
 

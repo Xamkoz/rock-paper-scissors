@@ -4,11 +4,13 @@ import type { Match } from "../types.js";
 import type { MatchDbContext } from "./matchContext.js";
 import type { TacticalIntel } from "./tacticalIntel.js";
 import {
+  buildDeterministicMovePick,
   ensureCounterMatchesOpponentThrow,
   normalizeMovePick,
   reasonClaimsInvalidBeat,
   reasonLooksLikeTacticsDump,
   reasonPrimaryMoveMatchesChoice,
+  sanitizeThoughtProcess,
 } from "./movePickValidation.js";
 
 const ctx = (): MatchDbContext => ({
@@ -267,7 +269,70 @@ describe("movePickValidation", () => {
         { source: "lifetime", signals: ["dominant", "openWith"] },
       ],
     );
-    assert.equal(fixed.intelSignal, "thisMatchRounds");
-    assert.match(fixed.reason, /this match/i);
+    assert.equal(fixed.intelSignal, "preparedTactics");
+    assert.match(fixed.reason, /pre-match plan/i);
+  });
+
+  it("rewrites thoughtProcess when it claims an invalid beat", () => {
+    const parsed = {
+      choice: "ROCK" as const,
+      reason: "Counter scissors repeat.",
+      intelSource: "thisMatch" as const,
+      intelSignal: "repeat" as const,
+      thoughtProcess:
+        "Opponent last throw was SCISSORS. Scissors beats Paper. I choose SCISSORS.",
+    };
+    const fixed = normalizeMovePick(parsed, ctx(), catalog);
+    assert.equal(fixed.choice, "ROCK");
+    assert.ok(!reasonClaimsInvalidBeat(fixed.thoughtProcess ?? ""));
+    assert.match(fixed.thoughtProcess ?? "", /Rock|ROCK/i);
+  });
+
+  it("deterministic pick opens with Scissors vs paper lean on round 1", () => {
+    const pick = buildDeterministicMovePick(ctx(), catalog);
+    assert.equal(pick.choice, "SCISSORS");
+    assert.equal(pick.intelSignal, "openWith");
+  });
+
+  it("deterministic pick counters live scissors repeat with Rock", () => {
+    const pick = buildDeterministicMovePick(
+      {
+        ...ctx(),
+        currentMatch: {
+          id: "m1",
+          player1: "bot",
+          player2: "opp",
+          rounds: [
+            {
+              roundNumber: 1,
+              player1Choice: "PAPER",
+              player2Choice: "SCISSORS",
+              player1Submitted: true,
+              player2Submitted: true,
+              winner: "opp",
+              resolvedAt: 1,
+            },
+            {
+              roundNumber: 2,
+              player1Choice: "ROCK",
+              player2Choice: "SCISSORS",
+              player1Submitted: true,
+              player2Submitted: true,
+              winner: "opp",
+              resolvedAt: 2,
+            },
+          ],
+        } as Match,
+      },
+      [
+        { source: "lifetime", signals: ["dominant", "openWith"] },
+        {
+          source: "thisMatch",
+          signals: ["repeat", "thisMatchRounds", "preparedTactics"],
+        },
+      ],
+    );
+    assert.equal(pick.choice, "ROCK");
+    assert.equal(pick.intelSignal, "repeat");
   });
 });
