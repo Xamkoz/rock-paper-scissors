@@ -31,11 +31,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 data class GameTimerUiState(
     val countdownSeconds: Int? = null,
@@ -53,6 +51,8 @@ data class GameUiState(
     val isSubmitting: Boolean = false,
     val pendingMove: Move? = null,
     val error: String? = null,
+    /** True when pre-game ready deadline passed on the game screen (navigate back to home). */
+    val lobbyWaitFailed: Boolean = false,
     val isResolvingTimeout: Boolean = false,
     val lockedMove: Move? = null,
     val eloPreview: LiveEloPreview? = null,
@@ -92,6 +92,7 @@ class GameViewModel(
     private var resolvingRetryJob: Job? = null
     private var stuckRoundNudgeJob: Job? = null
     private var completionPollJob: Job? = null
+    private var lobbyReadyJob: Job? = null
     private var lastAppliedMatchFingerprint: String? = null
     init {
         MatchSessionMonitor.ensureStarted()
@@ -119,17 +120,7 @@ class GameViewModel(
         }
 
         if (_uiState.value.match?.status == MatchStatus.LOBBY) {
-            runCatching { matchRepository.confirmMatchReady(matchId) }
-            val activated = withTimeoutOrNull(LOBBY_ACTIVE_TIMEOUT_MS) {
-                MatchSessionMonitor.activeMatch
-                    .filter { it?.id == matchId && it.status == MatchStatus.ACTIVE }
-                    .first()
-            }
-            if (activated != null) {
-                applyMatchSnapshot(activated, authoritative = true)
-            } else {
-                syncMatchFromServer()
-            }
+            ensureLobbyReadyLoop()
             return
         }
 
@@ -153,7 +144,80 @@ class GameViewModel(
         applyMatchSnapshot(match, authoritative = true)
     }
 
+    private fun ensureLobbyReadyLoop() {
+        if (lobbyReadyJob?.isActive == true) return
+        lobbyReadyJob = viewModelScope.launch {
+            while (isActive) {
+                val uid = authRepository.currentUserId ?: break
+                val match = _uiState.value.match
+                if (match?.status != MatchStatus.LOBBY) break
+
+                if (match.isReadyDeadlineExpired()) {
+                    runCatching { matchRepository.confirmMatchReady(matchId) }
+                    val afterTimeout = runCatching {
+                        matchRepository.getMatchFromServer(matchId)
+                    }.getOrNull()
+                    if (afterTimeout == null ||
+                        afterTimeout.status == MatchStatus.ABANDONED ||
+                        afterTimeout.isReadyDeadlineExpired()
+                    ) {
+                        failLobbyWait()
+                        break
+                    }
+                }
+
+                runCatching { matchRepository.confirmMatchReady(matchId) }
+
+                val serverMatch = runCatching {
+                    matchRepository.getMatchFromServer(matchId)
+                }.getOrNull()
+
+                if (serverMatch != null && serverMatch.isParticipant(uid)) {
+                    applyMatchSnapshot(serverMatch, authoritative = true)
+                    if (serverMatch.status == MatchStatus.ABANDONED) {
+                        failLobbyWait()
+                        break
+                    }
+                    if (serverMatch.status == MatchStatus.ACTIVE) break
+                    if (serverMatch.isReadyDeadlineExpired() && !serverMatch.isOpponentReady(uid)) {
+                        runCatching { matchRepository.confirmMatchReady(matchId) }
+                        val after = runCatching {
+                            matchRepository.getMatchFromServer(matchId)
+                        }.getOrNull()
+                        if (after == null || after.status == MatchStatus.ABANDONED) {
+                            failLobbyWait()
+                            break
+                        }
+                    }
+                }
+
+                delay(1_000)
+            }
+        }
+    }
+
+    private fun stopLobbyReadyLoop() {
+        lobbyReadyJob?.cancel()
+        lobbyReadyJob = null
+    }
+
+    private fun failLobbyWait() {
+        stopLobbyReadyLoop()
+        MatchSessionMonitor.setMatchmakingInProgress(false)
+        _uiState.update {
+            it.copy(
+                lobbyWaitFailed = true,
+                error = LOBBY_WAIT_TIMEOUT_MESSAGE,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { matchRepository.confirmMatchReady(matchId) }
+            runCatching { MatchSessionMonitor.refreshOnResume(forceServerSync = true) }
+        }
+    }
+
     private fun applyMatchSnapshot(match: Match?, authoritative: Boolean = false) {
+        val wasLobby = _uiState.value.match?.status == MatchStatus.LOBBY
         if (match == null) {
             val current = _uiState.value.match
             if (current?.status == MatchStatus.COMPLETED || current?.status == MatchStatus.ABANDONED) {
@@ -296,6 +360,22 @@ class GameViewModel(
         syncMatchClocks(match, userId)
         scheduleStuckRoundNudge(match, userId)
         scheduleCompletionPoll(match)
+        when (match?.status) {
+            MatchStatus.LOBBY -> ensureLobbyReadyLoop()
+            MatchStatus.ACTIVE -> stopLobbyReadyLoop()
+            MatchStatus.ABANDONED -> {
+                stopLobbyReadyLoop()
+                if (wasLobby && !_uiState.value.lobbyWaitFailed) {
+                    _uiState.update {
+                        it.copy(
+                            lobbyWaitFailed = true,
+                            error = LOBBY_WAIT_TIMEOUT_MESSAGE,
+                        )
+                    }
+                }
+            }
+            else -> stopLobbyReadyLoop()
+        }
     }
 
     private fun cancelInFlightSubmit(clearPendingUi: Boolean = false) {
@@ -1013,6 +1093,7 @@ class GameViewModel(
 
     override fun onCleared() {
         observeJob?.cancel()
+        stopLobbyReadyLoop()
         countdownJob?.cancel()
         clockJob?.cancel()
         resolvingRetryJob?.cancel()
@@ -1023,7 +1104,8 @@ class GameViewModel(
     }
 
     companion object {
-        private const val LOBBY_ACTIVE_TIMEOUT_MS = 8_000L
+        private const val LOBBY_WAIT_TIMEOUT_MESSAGE =
+            "Opponent did not ready in time. Tap Find Match to try again."
         private const val SUBMIT_STUCK_WATCHDOG_MS = 22_000L
         private const val SUBMIT_CONFIRM_ATTEMPTS = 6
         private const val SUBMIT_CONFIRM_DELAY_MS = 400L

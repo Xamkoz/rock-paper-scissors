@@ -33,10 +33,18 @@ object MatchForegroundLaunchCoordinator {
                 activeJoinMatchNotificationId = lastNotifiedMatchId,
             )
         ) {
-            MatchNotificationHelper.dismissMatchFound(appContext)
+            MatchNotificationHelper.dismissMatchFound(appContext, match, uid)
             lastNotifiedMatchId = null
         } else if (uid != null) {
+            val liveSession = match ?: MatchSessionMonitor.activeMatch.value
+            val suppressMatchFound = MatchFoundNotificationPolicy.shouldSuppressMatchFoundAlerts(
+                liveMatch = liveSession,
+                uid = uid,
+                backgroundUsageEnabled =
+                    MatchmakingPreferences(appContext).isBackgroundUsageEnabled(),
+            )
             val lobbyMatch = when {
+                suppressMatchFound -> null
                 match != null && match.isParticipant(uid) && match.status == MatchStatus.LOBBY -> match
                 else -> JoinMatchNotificationState.lobbyMatch()
                     ?.takeIf { it.isParticipant(uid) && it.status == MatchStatus.LOBBY }
@@ -90,7 +98,10 @@ object MatchForegroundLaunchCoordinator {
 
     private fun postMatchFoundIfNeeded(appContext: Context, uid: String, match: Match) {
         val prefs = MatchmakingPreferences(appContext)
-        val mayPost = MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+        val fgsOwnsDisplay =
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext)
+        val liveSession = MatchSessionMonitor.activeMatch.value
+        val mayPostShade = MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
             appInForeground = AppForegroundTracker.isInForeground,
             matchStatus = match.status,
             matchFoundNotificationsEnabled = prefs.isMatchFoundNotificationsEnabled(),
@@ -98,9 +109,11 @@ object MatchForegroundLaunchCoordinator {
             hasPostNotificationsPermission =
                 NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
             matchId = match.id,
-            foregroundServiceRunning = MatchmakingForegroundService.isRunning(),
+            foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+            liveSessionMatch = liveSession,
+            uid = uid,
         )
-        if (mayPost) {
+        if (fgsOwnsDisplay || mayPostShade) {
             if (MatchNotificationHelper.showMatchFound(appContext, match, uid)) {
                 lastNotifiedMatchId = match.id
             }

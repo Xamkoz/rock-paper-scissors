@@ -265,6 +265,16 @@ fun RpsNavGraph() {
                         launchSingleTop = true
                     }
                 },
+                onLobbyWaitExited = {
+                    MatchSessionMonitor.setMatchmakingInProgress(false)
+                    MatchSessionMonitor.suppressAutoGameNavigation(matchId)
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.home()) {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onOpponentProfile = { profileUserId ->
                     navController.navigate(Routes.profile(profileUserId))
                 },

@@ -481,24 +481,32 @@ fun RpsApp() {
                         ?: JoinMatchNotificationState.activeMatchId(),
             )
         ) {
-            MatchNotificationHelper.dismissMatchFound(context)
+            MatchNotificationHelper.dismissMatchFound(context, match, uid)
             return@LaunchedEffect
         }
         if (match == null || uid == null) return@LaunchedEffect
+        val fgsOwnsDisplay = MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(
+            context,
+        )
         if (
             match.status == MatchStatus.LOBBY &&
-            MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
-                appInForeground = AppForegroundTracker.isInForeground,
-                matchStatus = match.status,
-                matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
-                backgroundUsageEnabled = backgroundUsageEnabled,
-                hasPostNotificationsPermission =
-                    NotificationPermissionHelper.hasPostNotificationsPermission(context),
-                lastNotifiedMatchId =
-                    MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId(),
-                matchId = match.id,
-                foregroundServiceRunning = MatchmakingForegroundService.isRunning(),
-            )
+            (
+                fgsOwnsDisplay ||
+                    MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
+                        appInForeground = AppForegroundTracker.isInForeground,
+                        matchStatus = match.status,
+                        matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
+                        backgroundUsageEnabled = backgroundUsageEnabled,
+                        hasPostNotificationsPermission =
+                            NotificationPermissionHelper.hasPostNotificationsPermission(context),
+                        lastNotifiedMatchId =
+                            MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId(),
+                        matchId = match.id,
+                        foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                        liveSessionMatch = match,
+                        uid = uid,
+                    )
+                )
         ) {
             MatchForegroundLaunchCoordinator.postLobbyMatchFoundIfNeeded(context, match)
         }
@@ -513,6 +521,8 @@ fun RpsApp() {
                 backgroundUsageEnabled = backgroundUsageEnabled,
                 hasPostNotificationsPermission =
                     NotificationPermissionHelper.hasPostNotificationsPermission(context),
+                foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                liveSessionMatch = match,
             ) &&
             !MatchmakingForegroundService.isRunning()
         ) {

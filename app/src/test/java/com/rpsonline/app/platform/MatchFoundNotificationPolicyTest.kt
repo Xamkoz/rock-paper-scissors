@@ -210,8 +210,16 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun showsInBackgroundWhileForegroundServiceRuns() {
+    fun suppressesMatchFoundAlertsWhileInActiveMatchWithBackgroundUsage() {
+        val active = lobbyMatch.copy(status = MatchStatus.ACTIVE)
         assertTrue(
+            MatchFoundNotificationPolicy.shouldSuppressMatchFoundAlerts(
+                liveMatch = active,
+                uid = "u1",
+                backgroundUsageEnabled = true,
+            ),
+        )
+        assertFalse(
             MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
                 appInForeground = false,
                 matchStatus = MatchStatus.LOBBY,
@@ -219,7 +227,47 @@ class MatchFoundNotificationPolicyTest {
                 backgroundUsageEnabled = true,
                 hasPostNotificationsPermission = true,
                 matchId = "m1",
-                foregroundServiceRunning = true,
+                liveSessionMatch = active,
+                uid = "u1",
+            ),
+        )
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
+                appInForeground = false,
+                match = lobbyMatch,
+                uid = "u1",
+                visibleMatchScreenId = null,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+                hasPostNotificationsPermission = true,
+                liveSessionMatch = active,
+            ),
+        )
+    }
+
+    @Test
+    fun defersShadeToForegroundServiceWhenItOwnsDisplay() {
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+                appInForeground = true,
+                matchStatus = MatchStatus.LOBBY,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+                hasPostNotificationsPermission = true,
+                matchId = "m1",
+                foregroundServiceOwnsDisplay = true,
+            ),
+        )
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
+                appInForeground = true,
+                match = lobbyMatch,
+                uid = "u1",
+                visibleMatchScreenId = null,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+                hasPostNotificationsPermission = true,
+                foregroundServiceOwnsDisplay = true,
             ),
         )
     }

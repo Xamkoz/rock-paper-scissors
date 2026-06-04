@@ -5,6 +5,21 @@ import com.rpsonline.app.data.model.MatchStatus
 
 /** When to post or clear session shade notifications (match found / in match). */
 internal object MatchFoundNotificationPolicy {
+    /**
+     * While in an active match with background usage on, match-found heads-up / high-importance
+     * alerts must not compete with the in-match FGS tile.
+     */
+    fun shouldSuppressMatchFoundAlerts(
+        liveMatch: Match?,
+        uid: String?,
+        backgroundUsageEnabled: Boolean,
+    ): Boolean {
+        if (!backgroundUsageEnabled) return false
+        if (liveMatch == null || uid == null) return false
+        if (!liveMatch.isParticipant(uid)) return false
+        return liveMatch.status == MatchStatus.ACTIVE
+    }
+
     fun shouldDismissJoinMatchNotification(
         match: Match?,
         uid: String?,
@@ -37,7 +52,19 @@ internal object MatchFoundNotificationPolicy {
         matchFoundNotificationsEnabled: Boolean,
         backgroundUsageEnabled: Boolean,
         hasPostNotificationsPermission: Boolean,
+        foregroundServiceOwnsDisplay: Boolean = false,
+        liveSessionMatch: Match? = null,
     ): Boolean {
+        if (foregroundServiceOwnsDisplay) return false
+        if (
+            shouldSuppressMatchFoundAlerts(
+                liveMatch = liveSessionMatch,
+                uid = uid,
+                backgroundUsageEnabled = backgroundUsageEnabled,
+            )
+        ) {
+            return false
+        }
         if (appInForeground && !matchFoundNotificationsEnabled) return false
         if (match == null || uid == null) return false
         if (!match.isParticipant(uid)) return false
@@ -67,8 +94,20 @@ internal object MatchFoundNotificationPolicy {
         backgroundUsageEnabled: Boolean,
         hasPostNotificationsPermission: Boolean,
         matchId: String,
-        @Suppress("UNUSED_PARAMETER") foregroundServiceRunning: Boolean = false,
+        foregroundServiceOwnsDisplay: Boolean = false,
+        liveSessionMatch: Match? = null,
+        uid: String? = null,
     ): Boolean {
+        if (foregroundServiceOwnsDisplay) return false
+        if (
+            shouldSuppressMatchFoundAlerts(
+                liveMatch = liveSessionMatch,
+                uid = uid,
+                backgroundUsageEnabled = backgroundUsageEnabled,
+            )
+        ) {
+            return false
+        }
         if (appInForeground && !matchFoundNotificationsEnabled) return false
         if (matchStatus != MatchStatus.LOBBY) return false
         if (!hasPostNotificationsPermission) return false
@@ -86,7 +125,9 @@ internal object MatchFoundNotificationPolicy {
         hasPostNotificationsPermission: Boolean,
         lastNotifiedMatchId: String?,
         matchId: String,
-        foregroundServiceRunning: Boolean = false,
+        foregroundServiceOwnsDisplay: Boolean = false,
+        liveSessionMatch: Match? = null,
+        uid: String? = null,
     ): Boolean {
         if (
             !shouldShowJoinMatchNotification(
@@ -96,7 +137,9 @@ internal object MatchFoundNotificationPolicy {
                 backgroundUsageEnabled,
                 hasPostNotificationsPermission,
                 matchId,
-                foregroundServiceRunning,
+                foregroundServiceOwnsDisplay,
+                liveSessionMatch,
+                uid,
             )
         ) {
             return false

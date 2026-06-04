@@ -322,6 +322,15 @@ class MatchmakingForegroundService : Service() {
 
     private fun sessionMatchForNotification(): Match? {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
+        val live = MatchSessionMonitor.activeMatch.value
+        if (
+            uid != null &&
+            live != null &&
+            live.isParticipant(uid) &&
+            live.status == MatchStatus.ACTIVE
+        ) {
+            return live
+        }
         if (JoinMatchNotificationState.isLobbyAlertPhase()) {
             val lobby = JoinMatchNotificationState.lobbyMatch()
             if (
@@ -333,7 +342,6 @@ class MatchmakingForegroundService : Service() {
                 return lobby
             }
         }
-        val live = MatchSessionMonitor.activeMatch.value
         val hint = sessionMatchHint
         val stickyLobby = JoinMatchNotificationState.lobbyMatch()
         return listOfNotNull(hint, live, stickyLobby).firstOrNull { candidate ->
@@ -477,7 +485,15 @@ class MatchmakingForegroundService : Service() {
         return getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
     }
 
+    private fun shouldSuppressMatchFoundDuringActiveSession(): Boolean {
+        if (!MatchmakingPreferences(this).isBackgroundUsageEnabled()) return false
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return false
+        val live = MatchSessionMonitor.activeMatch.value ?: return false
+        return live.isParticipant(uid) && live.status == MatchStatus.ACTIVE
+    }
+
     private fun shouldUseLaunchAlert(display: TopBarStatusRowSpec): Boolean {
+        if (shouldSuppressMatchFoundDuringActiveSession()) return false
         if (display.status == SegmentedNotificationStatus.IN_MATCH) return false
         if (display.status != SegmentedNotificationStatus.MATCH_FOUND) return false
         if (System.currentTimeMillis() >= launchAlertUntilMs) return false

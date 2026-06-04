@@ -57,8 +57,6 @@ object MatchmakingBackgroundCoordinator {
                     if (
                         match != null &&
                         uid != null &&
-                        match.status == MatchStatus.ACTIVE &&
-                        match.isParticipant(uid) &&
                         MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
                             match = match,
                             uid = uid,
@@ -109,6 +107,10 @@ object MatchmakingBackgroundCoordinator {
         if (!MatchmakingPreferences(context).isBackgroundUsageEnabled()) return false
         return sessionNeedsBackgroundService()
     }
+
+    /** Match-found shade (2001/2002) must not post while FGS is starting or running. */
+    fun foregroundServiceOwnsMatchFoundDisplay(context: Context): Boolean =
+        shouldRunService(context)
 
     /**
      * When true, [MatchmakingForegroundService] runs queue and presence heartbeats;

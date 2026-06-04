@@ -52,7 +52,11 @@ object MatchClockSoundController {
     }
 
     private fun lobbyAlertSoundsAudible(ctx: Context): Boolean {
-        if (!SoundPreferences(ctx).getMode().allowsLobbyAlertTickSounds()) return false
+        val mode = SoundPreferences(ctx).getMode()
+        if (AppForegroundTracker.isInForeground) {
+            return mode.allowsSound()
+        }
+        if (!mode.allowsLobbyAlertTickSounds()) return false
         return NotificationAlertSoundPolicy.notificationSoundsAudible(ctx)
     }
 
@@ -106,13 +110,11 @@ object MatchClockSoundController {
             lobbyTickJob?.cancel()
             lobbyTickJob = null
             lobbyTickPlayer?.stop()
-            hapticAnchorElapsedMs = null
             return
         }
         sync(false)
         val tickPlayer = lobbyTickPlayer ?: return
         if (lobbyTickJob?.isActive == true) return
-        hapticAnchorElapsedMs = SystemClock.elapsedRealtime()
         lobbyTickJob = scope.launch {
             try {
                 val ctx = appContext
@@ -123,23 +125,10 @@ object MatchClockSoundController {
                     if (ctx != null && lobbyAlertSoundsAudible(ctx)) {
                         tickPlayer.playTick()
                     }
-                    val mode = ctx?.let { SoundPreferences(it).getMode() }
-                    val anchor = hapticAnchorElapsedMs
-                    if (
-                        mode?.allowsHaptic() == true &&
-                        anchor != null &&
-                        matchClockHapticDelayElapsed(
-                            anchorElapsedMs = anchor,
-                            nowElapsedMs = SystemClock.elapsedRealtime(),
-                        )
-                    ) {
-                        MatchClockHaptics.pulseTick()
-                    }
                     delay(500)
                 }
             } finally {
                 tickPlayer.stop()
-                hapticAnchorElapsedMs = null
             }
         }
     }

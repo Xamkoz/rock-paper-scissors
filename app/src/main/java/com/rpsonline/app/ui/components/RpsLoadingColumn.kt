@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 fun RpsLoadingColumn(
     modifier: Modifier = Modifier,
     message: String? = null,
+    subtitle: String? = null,
 ) {
     Column(
         modifier = modifier,
@@ -27,6 +28,14 @@ fun RpsLoadingColumn(
                 text = message,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center,
+            )
+        }
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
                 textAlign = TextAlign.Center,
             )
         }

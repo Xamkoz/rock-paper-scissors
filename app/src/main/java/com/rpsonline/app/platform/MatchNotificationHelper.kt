@@ -14,6 +14,7 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.preferences.MatchmakingPreferences
+import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.ui.segment.SegmentedNotificationStatus
 import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
@@ -71,6 +72,9 @@ object MatchNotificationHelper {
      */
     fun showMatchFound(context: Context, match: Match, uid: String): Boolean {
         val appContext = context.applicationContext
+        if (suppressMatchFoundDuringActiveSession(appContext, uid)) {
+            return false
+        }
         if (
             AppForegroundTracker.isInForeground &&
             !MatchmakingPreferences(appContext).isMatchFoundNotificationsEnabled()
@@ -90,7 +94,12 @@ object MatchNotificationHelper {
         JoinMatchNotificationState.beginLobbyAlertPhase(match)
         manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
         manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+        val fgsOwnsDisplay =
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext)
         val fgsRunning = MatchmakingForegroundService.isRunning()
+        if (fgsOwnsDisplay) {
+            MatchmakingBackgroundCoordinator.sync(appContext)
+        }
         if (fgsRunning) {
             MatchmakingForegroundService.requestLaunchAlert(playSound = false)
             MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
@@ -104,12 +113,20 @@ object MatchNotificationHelper {
             return true
         }
 
-        if (!fgsRunning) {
-            postMatchFoundHeadsUp(context, match, uid)
+        if (!fgsOwnsDisplay) {
+            if (!fgsRunning) {
+                postMatchFoundHeadsUp(context, match, uid)
+            } else {
+                manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+            }
+            maintainJoinMatchNotification(context, match, uid)
         } else {
+            manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
             manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+            if (fgsRunning) {
+                MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
+            }
         }
-        maintainJoinMatchNotification(context, match, uid)
         triggerMatchFoundFeedback(context, matchId, playReadyBurst = false)
         startLobbyAlertRefresh(context, match, uid)
         return true
@@ -159,10 +176,19 @@ object MatchNotificationHelper {
 
     /** Refreshes lobby match-found UI: FGS tile when running, otherwise notification 2001 (never both). */
     fun maintainJoinMatchNotification(context: Context, match: Match, uid: String) {
+        if (suppressMatchFoundDuringActiveSession(context.applicationContext, uid)) return
         if (match.status != MatchStatus.LOBBY || !match.isParticipant(uid)) return
         JoinMatchNotificationState.bindLobby(match)
         MatchmakingForegroundService.applySessionMatchHint(match)
         val manager = NotificationManagerCompat.from(context)
+        if (MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(context)) {
+            manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
+            manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+            if (MatchmakingForegroundService.isRunning()) {
+                MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
+            }
+            return
+        }
         if (MatchmakingForegroundService.isRunning()) {
             manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
             manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
@@ -259,15 +285,81 @@ object MatchNotificationHelper {
             .build()
     }
 
-    /** Ongoing in-match shade until the game screen for this match is visible. */
-    fun showInMatch(context: Context, match: Match, uid: String) {
-        cancelLobbyAlertTimers(context)
-        JoinMatchNotificationState.clear()
+    private fun suppressMatchFoundDuringActiveSession(context: Context, uid: String): Boolean {
+        val appContext = context.applicationContext
+        val prefs = MatchmakingPreferences(appContext)
+        val live = MatchSessionMonitor.activeMatch.value
+        if (
+            !MatchFoundNotificationPolicy.shouldSuppressMatchFoundAlerts(
+                liveMatch = live,
+                uid = uid,
+                backgroundUsageEnabled = prefs.isBackgroundUsageEnabled(),
+            )
+        ) {
+            return false
+        }
+        dismissMatchFound(appContext, live, uid)
+        return true
+    }
+
+    private fun syncInMatchSession(context: Context, match: Match, uid: String) {
+        if (match.status != MatchStatus.ACTIVE || !match.isParticipant(uid)) return
         MatchmakingForegroundService.applySessionMatchHint(match)
         MatchmakingForegroundService.clearLaunchAlert()
         if (MatchmakingForegroundService.isRunning()) {
             MatchmakingForegroundService.persistInMatchForegroundDisplay()
         }
+    }
+
+    /** Clears match-found alerts; keeps the in-match FGS tile when [liveMatch] is active. */
+    fun dismissMatchFound(context: Context, liveMatch: Match? = null, uid: String? = null) {
+        val appContext = context.applicationContext
+        cancelLobbyAlertTimers(appContext)
+        JoinMatchNotificationState.clear()
+        val active = liveMatch?.takeIf {
+            uid != null && it.isParticipant(uid) && it.status == MatchStatus.ACTIVE
+        } ?: MatchSessionMonitor.activeMatch.value?.takeIf {
+            uid != null && it.isParticipant(uid) && it.status == MatchStatus.ACTIVE
+        }
+        if (active != null && uid != null) {
+            syncInMatchSession(appContext, active, uid)
+        } else {
+            MatchmakingForegroundService.applySessionMatchHint(null)
+            MatchmakingForegroundService.clearLaunchAlert()
+        }
+        dismissMatchFoundNotifications(appContext, liveMatch, uid)
+    }
+
+    private fun dismissMatchFoundNotifications(
+        context: Context,
+        @Suppress("UNUSED_PARAMETER") liveMatch: Match? = null,
+        @Suppress("UNUSED_PARAMETER") uid: String? = null,
+    ) {
+        NotificationManagerCompat.from(context.applicationContext).apply {
+            cancel(MATCH_FOUND_NOTIFICATION_ID)
+            cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+        }
+    }
+
+    /** True when only the FGS tile (1001) should show in-match — never duplicate 2001. */
+    private fun deferInMatchShadeToForegroundService(context: Context): Boolean {
+        val appContext = context.applicationContext
+        if (
+            !MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext) &&
+            !MatchmakingForegroundService.isRunning()
+        ) {
+            return false
+        }
+        dismissMatchFoundNotifications(appContext)
+        return true
+    }
+
+    /** Ongoing in-match shade until the game screen for this match is visible. */
+    fun showInMatch(context: Context, match: Match, uid: String) {
+        cancelLobbyAlertTimers(context)
+        JoinMatchNotificationState.clear()
+        syncInMatchSession(context, match, uid)
+        if (deferInMatchShadeToForegroundService(context)) return
         if (!NotificationPermissionHelper.hasPostNotificationsPermission(context)) return
         ensureChannels(context)
         val manager = NotificationManagerCompat.from(context)
@@ -322,15 +414,6 @@ object MatchNotificationHelper {
             }
             .build()
         manager.notify(MATCH_FOUND_NOTIFICATION_ID, notification)
-    }
-
-    fun dismissMatchFound(context: Context) {
-        cancelLobbyAlertTimers(context)
-        JoinMatchNotificationState.clear()
-        MatchmakingForegroundService.applySessionMatchHint(null)
-        val manager = NotificationManagerCompat.from(context)
-        manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
-        manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
     }
 
     fun resetMatchFoundAlertSession() {

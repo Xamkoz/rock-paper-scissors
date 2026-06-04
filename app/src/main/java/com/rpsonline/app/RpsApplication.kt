@@ -56,7 +56,7 @@ class RpsApplication : Application() {
                         ?: JoinMatchNotificationState.activeMatchId(),
             )
         ) {
-            MatchNotificationHelper.dismissMatchFound(this)
+            MatchNotificationHelper.dismissMatchFound(this, match, uid)
         }
     }
 
