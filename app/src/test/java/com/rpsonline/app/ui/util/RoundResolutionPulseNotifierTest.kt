@@ -1,9 +1,9 @@
 package com.rpsonline.app.ui.util
 
 import com.rpsonline.app.data.model.Match
-import com.rpsonline.app.data.model.MatchMode
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.RoundResult
+import com.rpsonline.app.domain.MatchMode
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
