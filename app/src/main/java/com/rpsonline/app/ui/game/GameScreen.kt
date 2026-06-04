@@ -410,7 +410,20 @@ fun GameScreen(
             roundKey = dualRevealRoundKey,
             recapRevealStarted = recapRevealStarted,
         )
-        val showRecapRoundMoves = recapPhaseOpen && !recapDismissed
+        val holdMatchEndRecapGate = shouldHoldMatchEndRecapUntilPostMatch(
+            inMatchEndTransition = inMatchEndTransition,
+            recapRevealStarted = recapRevealStarted,
+            navigatedToPostMatch = navigatedToResult,
+        )
+        val showRecapRoundMoves = shouldShowRecapRoundMovesInPhase(
+            recapPhaseOpen = recapPhaseOpen,
+            recapDismissed = recapDismissed,
+            holdMatchEndRecapGate = holdMatchEndRecapGate,
+        )
+        val recapDismissedForUi = recapDismissedForUi(
+            recapDismissed = recapDismissed,
+            holdMatchEndRecapGate = holdMatchEndRecapGate,
+        )
         val inDualSelectionHold = showRecapRoundMoves && !dualRevealAllowed
         LaunchedEffect(inMatchEndTransition, recapRevealStarted, dualRevealRoundKey, userId, terminalMatch?.id) {
             if (!inMatchEndTransition || !recapRevealStarted || userId == null) return@LaunchedEffect
@@ -443,7 +456,7 @@ fun GameScreen(
             hasDrawReplay = drawReplay != null,
             roundRecapComplete = recapPhaseActive,
             inRecapDualHold = inRecapDualHold,
-            recapDismissed = recapDismissed,
+            recapDismissed = recapDismissedForUi,
         )
         val openRoundAwaitingPicks = isOpenRoundAwaitingPicks(
             openRound = openRound,
@@ -465,7 +478,7 @@ fun GameScreen(
         val allowRoundMovePicker = shouldAllowRoundMovePicker(
             showRecapRoundMoves = showRecapRoundMoves,
             holdForResolvedRound = holdForResolvedRound,
-            recapDismissed = recapDismissed,
+            recapDismissed = recapDismissedForUi,
             showOutcomeReveal = showOutcomeReveal,
             showDrawReveal = showDrawReveal,
         )
@@ -492,7 +505,7 @@ fun GameScreen(
                 opponentHasSubmitted = panelOpponentHasSubmitted,
             ) || (
                 awaitingNextRound &&
-                    recapDismissed &&
+                    recapDismissedForUi &&
                     openRoundAwaitingPicks
                 )
             ) && !preferResolvedRoundPanel && !showRecapRoundMoves

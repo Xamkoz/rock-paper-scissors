@@ -18,8 +18,8 @@ android {
         applicationId = "com.rpsonline.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 805
-        versionName = project.findProperty("versionName") as String? ?: "0.8.5"
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 806
+        versionName = project.findProperty("versionName") as String? ?: "0.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

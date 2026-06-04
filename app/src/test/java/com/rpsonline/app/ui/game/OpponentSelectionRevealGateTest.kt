@@ -493,6 +493,55 @@ class OpponentSelectionRevealGateTest {
     }
 
     @Test
+    fun shouldHoldMatchEndRecapUntilPostMatch_whileAwaitingNavigation() {
+        assertTrue(
+            shouldHoldMatchEndRecapUntilPostMatch(
+                inMatchEndTransition = true,
+                recapRevealStarted = true,
+                navigatedToPostMatch = false,
+            ),
+        )
+        assertFalse(
+            shouldHoldMatchEndRecapUntilPostMatch(
+                inMatchEndTransition = true,
+                recapRevealStarted = true,
+                navigatedToPostMatch = true,
+            ),
+        )
+        assertFalse(
+            shouldHoldMatchEndRecapUntilPostMatch(
+                inMatchEndTransition = false,
+                recapRevealStarted = true,
+                navigatedToPostMatch = false,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldShowRecapRoundMovesInPhase_holdsAfterTimedDismissDuringMatchEnd() {
+        assertTrue(
+            shouldShowRecapRoundMovesInPhase(
+                recapPhaseOpen = true,
+                recapDismissed = true,
+                holdMatchEndRecapGate = true,
+            ),
+        )
+        assertFalse(
+            shouldShowRecapRoundMovesInPhase(
+                recapPhaseOpen = true,
+                recapDismissed = true,
+                holdMatchEndRecapGate = false,
+            ),
+        )
+    }
+
+    @Test
+    fun recapDismissedForUi_falseWhileMatchEndGateHeld() {
+        assertFalse(recapDismissedForUi(recapDismissed = true, holdMatchEndRecapGate = true))
+        assertTrue(recapDismissedForUi(recapDismissed = true, holdMatchEndRecapGate = false))
+    }
+
+    @Test
     fun dualSelectionHold_fullDurationFromResolveTime() {
         val resolveAt = 5_000L
         assertEquals(
@@ -500,8 +549,8 @@ class OpponentSelectionRevealGateTest {
             dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt),
         )
         assertEquals(
-            DUAL_SELECTION_MIN_DISPLAY_MS - 300L,
-            dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt + 300L),
+            DUAL_SELECTION_MIN_DISPLAY_MS - 100L,
+            dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt + 100L),
         )
     }
 }

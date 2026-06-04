@@ -235,6 +235,25 @@ fun shouldShowRecapRoundMoves(
         !recapDismissed &&
         (recapPhaseActive || serverRoundSettled)
 
+/** Final-round recap stays visible until post-match navigation, not only the timed dismiss. */
+fun shouldHoldMatchEndRecapUntilPostMatch(
+    inMatchEndTransition: Boolean,
+    recapRevealStarted: Boolean,
+    navigatedToPostMatch: Boolean,
+): Boolean =
+    inMatchEndTransition && recapRevealStarted && !navigatedToPostMatch
+
+fun shouldShowRecapRoundMovesInPhase(
+    recapPhaseOpen: Boolean,
+    recapDismissed: Boolean,
+    holdMatchEndRecapGate: Boolean,
+): Boolean = recapPhaseOpen && (!recapDismissed || holdMatchEndRecapGate)
+
+fun recapDismissedForUi(
+    recapDismissed: Boolean,
+    holdMatchEndRecapGate: Boolean,
+): Boolean = recapDismissed && !holdMatchEndRecapGate
+
 /** Live panel must not flash resolved icons before the timed recap sequence. */
 fun shouldBlockLiveResolvedMoveReveal(
     serverRoundSettled: Boolean,
