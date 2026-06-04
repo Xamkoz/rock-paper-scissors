@@ -1,4 +1,5 @@
 import { getLlmConfig } from "./client.js";
+import { llmLogRequestsEnabled, llmLogResponsesEnabled } from "../logConfig.js";
 import { error, log, msSince } from "../log.js";
 import { MOVE_PICK_JSON_SHAPE, formatMovePickLogLine, parseMoveChoice, parseMovePick, type ParseMovePickOptions } from "./parse.js";
 
@@ -14,14 +15,6 @@ export const POST_START_WARMUP_USER =
 function truncateForLog(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n… (${text.length - maxChars} more chars)`;
-}
-
-function llmLogRequestsEnabled(): boolean {
-  return process.env.LLM_LOG_REQUESTS !== "false";
-}
-
-function llmLogResponsesEnabled(): boolean {
-  return process.env.LLM_LOG_RESPONSES !== "false";
 }
 
 function shouldLogRequests(options: { quiet?: boolean; logRequests?: boolean }): boolean {
@@ -79,8 +72,6 @@ function logLlmRequest(
   userPrompt: string,
   summary?: string,
 ): void {
-  if (process.env.LLM_LOG_REQUESTS === "false") return;
-
   const header = `[llm:${tag}:req] model=${model}${summary ? ` ${summary}` : ""}`;
   log(header);
 

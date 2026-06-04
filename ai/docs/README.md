@@ -72,10 +72,10 @@ On startup the bot probes `GET {LLM_BASE_URL}/models`, opens SQLite, **silently*
 | **Re-queue** | After a game ends, waits `BOT_REQUEUE_DELAY_MS` (default 60000 = 60s, **milliseconds**) then re-queues. Boot log shows `requeueDelay=…ms`. |
 | **Lobby** | `confirmMatchReady` when paired. |
 | **Moves** | JSON: `choice`, `reason`, `intelSource`, `intelSignal` (e.g. `h2h` + `transitions`). Prompt includes `intelCatalog` per source. Stored in `round_timings.pick_*`. |
-| **LLM speed** | Default `gemma3:4b`, `LLM_PICK_THINK_MULTIPLIER=1.2` (LLM time + 20% post-pick pause). Deterministic tactics (`LLM_TACTICS_USE_LLM=false` skips round-1 tactics LLM). Set `LLM_TACTICS_USE_LLM=true` for prose plans. |
+| **LLM speed** | Default `gemma3:4b`, move picks include `thoughtProcess` (2–4 sentences, `LLM_PICK_MAX_TOKENS=384`). Deterministic tactics (`LLM_TACTICS_USE_LLM=false` skips round-1 tactics LLM). Set `LLM_TACTICS_USE_LLM=true` for prose plans. |
 | **Database** | `MATCH_DB_PATH` (default `data/matches.db`) — SQLite `matches` + `match_descriptions` tables; indexed by player and activity time. |
 | **Description** | Short recap (~36 words, up to 2 sentences); stored in `match_descriptions`. Tune with `LLM_DESCRIBE_MAX_*`. |
-| **LLM logs** | `[llm:<tag>:req]` prompts (off if `LLM_LOG_REQUESTS=false` or quiet warmup); `[llm:<tag>:res]` raw reply + ms; `[move]` includes `llm=…` parsed JSON. Set `LLM_LOG_RESPONSES=false` to hide replies. Preview prompts with `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
+| **LLM logs** | Default: `[move:reason]` and `[thought-process]` only. Move/tactics LLM calls never dump prompts (use `[move:reason]` / `[thought-process]` instead). Other LLM calls: set `AI_LOG_VERBOSE=true` or `LLM_LOG_REQUESTS=true` / `LLM_LOG_RESPONSES=true` / `AI_LOG_GAMEPLAY=true`. Preview prompts with `LLM_LOG_PROMPT_PREVIEW=true`; cap with `LLM_LOG_MAX_CHARS`. |
 
 ## SQLite schema (`MATCH_DB_PATH`)
 

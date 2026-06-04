@@ -15,10 +15,10 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 
 /** Minimum time both moves stay hidden after round resolve before icons and outcome banner show. */
-const val DUAL_SELECTION_MIN_DISPLAY_MS = 1_000L
+const val DUAL_SELECTION_MIN_DISPLAY_MS = 200L
 
 /** Minimum time revealed recap (both icons + round banner) stays before next-round clocks. */
-const val ROUND_RECAP_REVEALED_MIN_DISPLAY_MS = 1_000L
+const val ROUND_RECAP_REVEALED_MIN_DISPLAY_MS = 1_800L
 
 @Deprecated("Use DUAL_SELECTION_MIN_DISPLAY_MS", ReplaceWith("DUAL_SELECTION_MIN_DISPLAY_MS"))
 const val OPPONENT_SELECTION_MIN_DISPLAY_MS = DUAL_SELECTION_MIN_DISPLAY_MS
@@ -258,6 +258,22 @@ fun recapRevealedRemainingMs(revealedAtMs: Long, nowMs: Long): Long =
 fun dualRevealHoldRoundKey(recapRound: RoundResult?): Int? =
     recapRound?.roundNumber?.let { it * 10_000 + 1 }
 
+/** True once a resolved recap round should own the panel (before timed dismiss). */
+fun isRecapPhaseOpen(
+    recapRound: RoundResult?,
+    recapPhaseActive: Boolean,
+    serverRoundSettled: Boolean,
+): Boolean =
+    recapRound != null && (recapPhaseActive || serverRoundSettled)
+
+/** @see isRecapPhaseOpen */
+fun shouldRequestDualRevealGate(
+    recapRound: RoundResult?,
+    recapPhaseActive: Boolean,
+    recapDismissed: Boolean,
+    serverRoundSettled: Boolean,
+): Boolean = isRecapPhaseOpen(recapRound, recapPhaseActive, serverRoundSettled)
+
 fun shouldHoldForResolvedRound(
     resolvedRound: RoundResult?,
     player1Choice: String?,
@@ -286,75 +302,71 @@ fun shouldDelayDualSelectionReveal(
 }
 
 /**
- * After a round resolves ([holdForResolvedRound]), keeps both moves on secret placeholders and
+ * After a round resolves ([gateActive]), keeps both moves on secret placeholders and
  * delays outcome banner for [DUAL_SELECTION_MIN_DISPLAY_MS] from that moment.
+ *
+ * Timing is keyed only by [roundKey] so a one-frame [gateActive] flicker does not skip the hold.
  */
 @Composable
 fun rememberDualSelectionRevealAllowed(
     roundKey: Int?,
-    holdForResolvedRound: Boolean,
+    gateActive: Boolean,
 ): Boolean {
-    var resolveHoldStartedAtMs by remember(roundKey, holdForResolvedRound) { mutableLongStateOf(0L) }
-    var revealAllowed by remember(roundKey, holdForResolvedRound) {
-        mutableStateOf(!holdForResolvedRound)
-    }
+    var resolveHoldStartedAtMs by remember(roundKey) { mutableLongStateOf(0L) }
+    var revealAllowed by remember(roundKey) { mutableStateOf(false) }
+    var holdCompleted by remember(roundKey) { mutableStateOf(false) }
 
     SideEffect {
-        if (holdForResolvedRound && resolveHoldStartedAtMs == 0L) {
+        if (gateActive && roundKey != null && !holdCompleted && resolveHoldStartedAtMs == 0L) {
             resolveHoldStartedAtMs = SystemClock.elapsedRealtime()
-            revealAllowed = false
         }
     }
 
-    LaunchedEffect(roundKey, holdForResolvedRound) {
-        if (!holdForResolvedRound) {
-            resolveHoldStartedAtMs = 0L
-            revealAllowed = true
-            return@LaunchedEffect
-        }
+    LaunchedEffect(roundKey, gateActive) {
+        if (roundKey == null || !gateActive || holdCompleted) return@LaunchedEffect
 
         if (resolveHoldStartedAtMs == 0L) {
             resolveHoldStartedAtMs = SystemClock.elapsedRealtime()
         }
-
         val nowMs = SystemClock.elapsedRealtime()
-        if (!shouldDelayDualSelectionReveal(resolveHoldStartedAtMs, nowMs, holdForResolvedRound = true)) {
-            revealAllowed = true
-            return@LaunchedEffect
-        }
-
+        val remaining = dualSelectionRevealHoldMs(resolveHoldStartedAtMs, nowMs)
         revealAllowed = false
-        delay(dualSelectionRevealHoldMs(resolveHoldStartedAtMs, nowMs))
+        if (remaining > 0L) {
+            delay(remaining)
+        }
         revealAllowed = true
+        holdCompleted = true
     }
 
-    if (!holdForResolvedRound) return true
-    if (resolveHoldStartedAtMs == 0L) return false
+    if (holdCompleted) return true
+    if (!gateActive || roundKey == null) return true
     return revealAllowed
 }
 
 /**
  * Keeps revealed recap (icons + banner) for [ROUND_RECAP_REVEALED_MIN_DISPLAY_MS]
- * before the UI may switch to next-round clock placeholders without a banner.
+ * after dual reveal completes — not from initial round resolve.
  */
 @Composable
 fun rememberRoundRecapDismissed(
     roundKey: Int?,
-    recapPhaseActive: Boolean,
+    recapRevealStarted: Boolean,
 ): Boolean {
-    var recapShownAtMs by remember(roundKey, recapPhaseActive) { mutableLongStateOf(0L) }
-    var dismissed by remember(roundKey, recapPhaseActive) { mutableStateOf(false) }
+    var recapShownAtMs by remember(roundKey) { mutableLongStateOf(0L) }
+    var dismissed by remember(roundKey) { mutableStateOf(false) }
 
     SideEffect {
-        if (recapPhaseActive && recapShownAtMs == 0L) {
+        if (recapRevealStarted && recapShownAtMs == 0L) {
             recapShownAtMs = SystemClock.elapsedRealtime()
         }
     }
 
-    LaunchedEffect(roundKey, recapPhaseActive) {
-        if (roundKey == null || !recapPhaseActive) {
-            recapShownAtMs = 0L
-            dismissed = false
+    LaunchedEffect(roundKey, recapRevealStarted) {
+        if (roundKey == null || !recapRevealStarted) {
+            if (!recapRevealStarted) {
+                recapShownAtMs = 0L
+                dismissed = false
+            }
             return@LaunchedEffect
         }
         if (recapShownAtMs == 0L) {
@@ -362,14 +374,14 @@ fun rememberRoundRecapDismissed(
         }
         val nowMs = SystemClock.elapsedRealtime()
         val remaining = recapRevealedRemainingMs(recapShownAtMs, nowMs)
+        dismissed = false
         if (remaining > 0L) {
-            dismissed = false
             delay(remaining)
         }
         dismissed = true
     }
 
-    if (!recapPhaseActive) return false
+    if (!recapRevealStarted) return false
     if (recapShownAtMs == 0L) return false
     return dismissed
 }

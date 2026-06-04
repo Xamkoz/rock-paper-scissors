@@ -28,20 +28,29 @@ class OpponentSelectionRevealGateTest {
 
     @Test
     fun canRevealDualSelection_requiresMinimumDisplayTime() {
-        assertFalse(canRevealDualSelection(holdStartedAtMs = 1_000L, nowMs = 1_500L))
-        assertTrue(canRevealDualSelection(holdStartedAtMs = 1_000L, nowMs = 2_000L))
+        val hold = 1_000L
+        assertFalse(canRevealDualSelection(holdStartedAtMs = hold, nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS - 1L))
+        assertTrue(canRevealDualSelection(holdStartedAtMs = hold, nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS))
         assertTrue(canRevealDualSelection(holdStartedAtMs = 0L, nowMs = 9_999L))
     }
 
     @Test
     fun dualSelectionRevealHoldMs_countsDownToZero() {
-        assertEquals(1_000L, dualSelectionRevealHoldMs(holdStartedAtMs = 0L, nowMs = 0L))
-        assertEquals(500L, dualSelectionRevealHoldMs(holdStartedAtMs = 1_000L, nowMs = 1_500L))
-        assertEquals(0L, dualSelectionRevealHoldMs(holdStartedAtMs = 1_000L, nowMs = 2_000L))
+        val hold = 1_000L
+        assertEquals(DUAL_SELECTION_MIN_DISPLAY_MS, dualSelectionRevealHoldMs(holdStartedAtMs = 0L, nowMs = 0L))
+        assertEquals(
+            DUAL_SELECTION_MIN_DISPLAY_MS / 2,
+            dualSelectionRevealHoldMs(holdStartedAtMs = hold, nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS / 2),
+        )
+        assertEquals(
+            0L,
+            dualSelectionRevealHoldMs(holdStartedAtMs = hold, nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS),
+        )
     }
 
     @Test
     fun shouldDelayDualSelectionReveal_trueUntilMinimumMet() {
+        val hold = 1_000L
         assertTrue(
             shouldDelayDualSelectionReveal(
                 holdStartedAtMs = 0L,
@@ -51,15 +60,15 @@ class OpponentSelectionRevealGateTest {
         )
         assertTrue(
             shouldDelayDualSelectionReveal(
-                holdStartedAtMs = 1_000L,
-                nowMs = 1_500L,
+                holdStartedAtMs = hold,
+                nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS - 1L,
                 holdForResolvedRound = true,
             ),
         )
         assertFalse(
             shouldDelayDualSelectionReveal(
-                holdStartedAtMs = 1_000L,
-                nowMs = 2_000L,
+                holdStartedAtMs = hold,
+                nowMs = hold + DUAL_SELECTION_MIN_DISPLAY_MS,
                 holdForResolvedRound = true,
             ),
         )
@@ -322,9 +331,16 @@ class OpponentSelectionRevealGateTest {
 
     @Test
     fun recapRevealedRemainingMs_countsDown() {
-        assertEquals(1_000L, recapRevealedRemainingMs(revealedAtMs = 0L, nowMs = 0L))
-        assertEquals(400L, recapRevealedRemainingMs(revealedAtMs = 1_000L, nowMs = 1_600L))
-        assertEquals(0L, recapRevealedRemainingMs(revealedAtMs = 1_000L, nowMs = 2_000L))
+        val revealedAt = 1_000L
+        assertEquals(ROUND_RECAP_REVEALED_MIN_DISPLAY_MS, recapRevealedRemainingMs(revealedAtMs = 0L, nowMs = 0L))
+        assertEquals(
+            ROUND_RECAP_REVEALED_MIN_DISPLAY_MS - 600L,
+            recapRevealedRemainingMs(revealedAtMs = revealedAt, nowMs = revealedAt + 600L),
+        )
+        assertEquals(
+            0L,
+            recapRevealedRemainingMs(revealedAtMs = revealedAt, nowMs = revealedAt + ROUND_RECAP_REVEALED_MIN_DISPLAY_MS),
+        )
     }
 
     @Test
@@ -378,15 +394,114 @@ class OpponentSelectionRevealGateTest {
     }
 
     @Test
-    fun dualSelectionHold_fullSecondFromResolveTime() {
+    fun isRecapPhaseOpen_whenServerSettledBeforeRecapPhase() {
+        val round = dummyRound()
+        assertTrue(
+            isRecapPhaseOpen(
+                recapRound = round,
+                recapPhaseActive = false,
+                serverRoundSettled = true,
+            ),
+        )
+        assertFalse(
+            isRecapPhaseOpen(
+                recapRound = null,
+                recapPhaseActive = true,
+                serverRoundSettled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun showRecapRoundMoves_staysThroughDualHoldThenRevealPeriod() {
+        val round = dummyRound()
+        assertTrue(
+            shouldShowRecapRoundMoves(
+                recapRound = round,
+                recapPhaseActive = false,
+                recapDismissed = false,
+                serverRoundSettled = true,
+            ),
+        )
+        assertFalse(
+            shouldShowRecapRoundMoves(
+                recapRound = round,
+                recapPhaseActive = true,
+                recapDismissed = true,
+                serverRoundSettled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldRequestDualRevealGate_whenServerSettledBeforeRecapPhase() {
+        val round = dummyRound()
+        assertTrue(
+            shouldRequestDualRevealGate(
+                recapRound = round,
+                recapPhaseActive = false,
+                recapDismissed = false,
+                serverRoundSettled = true,
+            ),
+        )
+        assertTrue(
+            shouldRequestDualRevealGate(
+                recapRound = round,
+                recapPhaseActive = false,
+                recapDismissed = true,
+                serverRoundSettled = true,
+            ),
+        )
+        assertFalse(
+            shouldRequestDualRevealGate(
+                recapRound = null,
+                recapPhaseActive = true,
+                recapDismissed = false,
+                serverRoundSettled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldRequestDualRevealGate_matchesRecapPhaseOpen() {
+        val round = dummyRound()
+        val cases = listOf(
+            Triple(true, true, true),
+            Triple(true, false, true),
+            Triple(false, true, true),
+            Triple(false, false, false),
+        )
+        for ((recapPhaseActive, serverRoundSettled, expected) in cases) {
+            val open = isRecapPhaseOpen(
+                recapRound = round,
+                recapPhaseActive = recapPhaseActive,
+                serverRoundSettled = serverRoundSettled,
+            )
+            val gate = shouldRequestDualRevealGate(
+                recapRound = round,
+                recapPhaseActive = recapPhaseActive,
+                recapDismissed = false,
+                serverRoundSettled = serverRoundSettled,
+            )
+            assertEquals(
+                "recapPhase=$recapPhaseActive settled=$serverRoundSettled",
+                expected,
+                open,
+            )
+            assertEquals(open, gate)
+        }
+    }
+
+    @Test
+    fun dualSelectionHold_fullDurationFromResolveTime() {
         val resolveAt = 5_000L
         assertEquals(
-            1_000L,
+            DUAL_SELECTION_MIN_DISPLAY_MS,
             dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt),
         )
         assertEquals(
-            400L,
-            dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt + 600L),
+            DUAL_SELECTION_MIN_DISPLAY_MS - 300L,
+            dualSelectionRevealHoldMs(holdStartedAtMs = resolveAt, nowMs = resolveAt + 300L),
         )
     }
 }

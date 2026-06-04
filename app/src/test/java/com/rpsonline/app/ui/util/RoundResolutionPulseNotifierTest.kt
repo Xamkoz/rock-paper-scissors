@@ -1,5 +1,7 @@
 package com.rpsonline.app.ui.util
 
+import com.rpsonline.app.data.model.Match
+import com.rpsonline.app.data.model.MatchMode
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.RoundResult
 import kotlinx.coroutines.runBlocking
@@ -8,6 +10,66 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoundResolutionPulseNotifierTest {
+
+    @Test
+    fun isMatchDecidingRound_trueWhenWinnerReachesSeriesTarget() {
+        val resolved = RoundResult(
+            roundNumber = 2,
+            player1Choice = "rock",
+            player2Choice = "scissors",
+            winner = "p1",
+            resolvedAt = 10L,
+        )
+        val match = Match(
+            id = "match-1",
+            player1 = "p1",
+            player2 = "p2",
+            matchMode = MatchMode.BO3,
+            status = MatchStatus.ACTIVE,
+            rounds = listOf(
+                RoundResult(
+                    roundNumber = 1,
+                    player1Choice = "paper",
+                    player2Choice = "rock",
+                    winner = "p1",
+                    resolvedAt = 1L,
+                ),
+                resolved,
+            ),
+        )
+        assertTrue(isMatchDecidingRound(match, resolved))
+    }
+
+    @Test
+    fun shouldDeferRoundResolutionFeedbackToMatchScreen_forCompletedAndDecidingActive() {
+        val resolved = RoundResult(
+            roundNumber = 2,
+            player1Choice = "rock",
+            player2Choice = "scissors",
+            winner = "p1",
+            resolvedAt = 10L,
+        )
+        val activeMatch = Match(
+            id = "match-1",
+            player1 = "p1",
+            player2 = "p2",
+            matchMode = MatchMode.BO3,
+            status = MatchStatus.ACTIVE,
+            rounds = listOf(resolved),
+        )
+        val completedMatch = activeMatch.copy(status = MatchStatus.COMPLETED)
+        assertTrue(shouldDeferRoundResolutionFeedbackToMatchScreen(completedMatch, resolved))
+        assertFalse(
+            shouldDeferRoundResolutionFeedbackToMatchScreen(
+                activeMatch.copy(
+                    rounds = listOf(
+                        resolved.copy(roundNumber = 1, winner = "p2"),
+                    ),
+                ),
+                resolved.copy(roundNumber = 1, winner = "p2"),
+            ),
+        )
+    }
 
     @Test
     fun suppressesClockUntilFeedbackMarkedComplete() {

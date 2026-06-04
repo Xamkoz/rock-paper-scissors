@@ -194,6 +194,7 @@ export function normalizeMovePick(
   return {
     choice,
     reason: nextReason,
+    thoughtProcess: parsed.thoughtProcess,
     intelSource: nextSource,
     intelSignal: nextSignal,
   };

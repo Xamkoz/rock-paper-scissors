@@ -184,6 +184,8 @@ export async function prepareTacticsForMatch(
         logLabel: `tactics ${match.id}`,
         logSummary: `match=${match.id} vs=${opponentName} read=${intel.primary?.dominant ?? "?"} open=${intel.primary?.openWith ?? "?"} src=${intel.primarySource}`,
         timeoutMs: tacticsBudgetMs(),
+        logRequests: false,
+        logResponse: false,
       },
     );
     text = result.text;

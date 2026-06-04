@@ -24,6 +24,7 @@ const INTEL_PICK_RULES = [
   "intelSource must be a catalog source (lifetime, h2h, recentVsOpponent, global, thisMatch) — never patternRead or preparedTactics as the source name.",
   "intelSource and intelSignal are separate JSON catalog keys (e.g. thisMatch + repeat) — not source/signal slash, not hint text.",
   "intelSource+intelSignal must match intelCatalog; reason must name that specific signal.",
+  "thoughtProcess last: 2–3 short sentences walking citeHints/patternRead/thisMatchRounds (optional if truncated).",
   "reason: one short sentence for THIS choice only — do not copy preparedTactics; choice must match any move named in reason.",
   "seriesScore in the JSON is context only — never cite matchScore or clinchPressure; cite throw/pattern intel from intelCatalog.",
 ];
@@ -43,7 +44,7 @@ export function buildMoveSystemPrompt(round: number, resolvedRoundsInMatch = 0):
       intelRules,
       "JSON: citeHints = suggested citations; patternRead = primary pattern read; intelCatalog = allowed pairs.",
       "Adapt to thisMatchRounds; avoid blindly repeating lastBotMove.",
-      `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence citing the intel read).`,
+      `Reply JSON only: choice, intelSource, intelSignal, reason first; thoughtProcess last (2-3 short sentences).`,
       `Example: ${example}`,
       "intelSource + intelSignal must match intelCatalog.",
     ].join(" ");
@@ -53,7 +54,7 @@ export function buildMoveSystemPrompt(round: number, resolvedRoundsInMatch = 0):
     "Rules: ROCK beats SCISSORS, PAPER beats ROCK, SCISSORS beats PAPER.",
     intelRules,
     "Use citeHints, patternRead, preparedTactics, and thisMatchRounds.",
-    `Reply JSON only: choice, intelSource, intelSignal, reason (one short sentence citing the intel read).`,
+    `Reply JSON only: choice, intelSource, intelSignal, reason first; thoughtProcess last (2-3 short sentences).`,
     `Example: ${example}`,
     "intelSource + intelSignal must match intelCatalog.",
   ].join(" ");

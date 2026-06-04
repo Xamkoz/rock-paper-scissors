@@ -42,12 +42,10 @@ describe("parseMovePick", () => {
     const pick = parseMovePick(
       '{"choice":"SCISSORS","reason":"h2h Rock lean — counter with Scissors.","intelSource":"h2h","intelSignal":"dominant"}',
     );
-    assert.deepEqual(pick, {
-      choice: "SCISSORS",
-      reason: "h2h Rock lean — counter with Scissors.",
-      intelSource: "h2h",
-      intelSignal: "dominant",
-    });
+    assert.equal(pick?.choice, "SCISSORS");
+    assert.equal(pick?.reason, "h2h Rock lean — counter with Scissors.");
+    assert.equal(pick?.intelSource, "h2h");
+    assert.equal(pick?.intelSignal, "dominant");
   });
 
   it("parses slash citation copied from citeHints", () => {
@@ -85,6 +83,26 @@ describe("parseMovePick", () => {
     assert.equal(pick?.intelSource, "h2h");
     assert.ok(pick?.intelSignal);
     assert.ok(pick!.reason.length > 0);
+  });
+
+  it("salvages truncated JSON when thoughtProcess is cut off last", () => {
+    const truncated =
+      '{"choice":"SCISSORS","intelSource":"h2h","intelSignal":"dominant","reason":"H2H Paper lean — counter with Scissors.","thoughtProcess":"PatternRead shows Paper lean. citeHints favor dominant, but repeat rate suggests a switch. The recent seq also fa';
+    const pick = parseMovePick(truncated);
+    assert.equal(pick?.choice, "SCISSORS");
+    assert.equal(pick?.intelSource, "h2h");
+    assert.equal(pick?.intelSignal, "dominant");
+    assert.ok(pick!.thoughtProcess?.includes("PatternRead"));
+  });
+
+  it("parses thoughtProcess with choice and citation", () => {
+    const pick = parseMovePick(
+      '{"choice":"PAPER","intelSource":"h2h","intelSignal":"dominant","reason":"H2H Rock lean — Paper beats Rock.","thoughtProcess":"H2H Rock lean. citeHints match dominant. Paper beats Rock."}',
+    );
+    assert.equal(pick?.choice, "PAPER");
+    assert.equal(pick?.thoughtProcess, "H2H Rock lean. citeHints match dominant. Paper beats Rock.");
+    assert.equal(pick?.intelSource, "h2h");
+    assert.equal(pick?.intelSignal, "dominant");
   });
 
   it("formats log line with source and signal", () => {

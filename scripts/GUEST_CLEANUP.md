@@ -43,6 +43,24 @@ Optional parameters:
 
 Completion is recorded at `maintenance/oneTimeGuestCleanup`.
 
+## Profile match stats backfill
+
+Recomputes `wins`, `losses`, `draws`, round W/L/D, throw counts, and move stats from **completed** match history. Does **not** change ELO.
+
+Dry run:
+
+```bash
+firebase functions:call backfillProfileMatchStats --data '{"secret":"YOUR_SECRET","dryRun":true}'
+```
+
+Apply:
+
+```bash
+firebase functions:call backfillProfileMatchStats --data '{"secret":"YOUR_SECRET","dryRun":false}'
+```
+
+Completion is recorded at `maintenance/profileMatchStatsBackfill`.
+
 ## After cleanup
 
 You can remove `cleanupZeroMatchGuests` from `functions/src/index.ts` on a later deploy if you no longer need it.

@@ -37,7 +37,22 @@ fun roundResolutionKey(resolved: RoundResult, matchId: String) =
 
     RoundResolutionKey(matchId, resolved.roundNumber)
 
+/** True when [resolved] is the series-winning round for [match]. */
+fun isMatchDecidingRound(match: Match, resolved: RoundResult): Boolean {
+    val winnerId = resolved.winner ?: return false
+    if (winnerId == "tie") return false
+    val winsToFinish = match.matchMode.winsToFinish
+    val winnerRoundWins = match.rounds.count {
+        it.resolvedAt != null && it.winner == winnerId
+    }
+    return winnerRoundWins >= winsToFinish
+}
 
+/** Match-ending rounds play from the game screen after dual reveal. */
+fun shouldDeferRoundResolutionFeedbackToMatchScreen(match: Match, resolved: RoundResult): Boolean =
+    match.status == MatchStatus.COMPLETED ||
+        match.status == MatchStatus.ABANDONED ||
+        (match.status == MatchStatus.ACTIVE && isMatchDecidingRound(match, resolved))
 
 /** Tracks round-resolution sound feedback and match-end navigation gating. */
 class RoundResolutionPulseNotifier {

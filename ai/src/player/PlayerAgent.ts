@@ -46,7 +46,7 @@ import {
 import { formatMovePickLogLine, pickMoveWithLlm } from "../llm/pickMove.js";
 import { pickMoveContextLimits } from "../llm/movePrompt.js";
 import { pickTimeBudgetMs } from "../llm/compactMatch.js";
-import { padPickThinkTime, pickMoveTimeoutCapMs, pickThinkMultiplier } from "../llm/timing.js";
+import { pickMoveTimeoutCapMs } from "../llm/timing.js";
 import { prepareTacticsForMatch } from "../llm/prepareTactics.js";
 import {
   formatTacticalIntelCompact,
@@ -69,6 +69,7 @@ import {
   formatIntelReasoningSentence,
 } from "../llm/describeMatch.js";
 import { error, log, msSince, warn } from "../log.js";
+import { gameplayDetailLogEnabled } from "../logConfig.js";
 import type { Match } from "../types.js";
 
 type AgentPhase = "idle" | "queued" | "lobby" | "active";
@@ -360,11 +361,13 @@ export class PlayerAgent {
         : getLlmConfig().model;
     setActiveLlmModel(model);
     this.matchLlmModelForId = matchId;
-    const hist = historical.find((h) => h.model === model);
-    log(
-      `[llm] match=${matchId} model=${model}` +
-        (hist ? ` (${hist.matches} archived matches)` : ""),
-    );
+    if (gameplayDetailLogEnabled()) {
+      const hist = historical.find((h) => h.model === model);
+      log(
+        `[llm] match=${matchId} model=${model}` +
+          (hist ? ` (${hist.matches} archived matches)` : ""),
+      );
+    }
     return model;
   }
 
@@ -472,28 +475,32 @@ export class PlayerAgent {
           this.matchTacticsFromFallback = fromFallback;
           this.db.saveTacticalIntelSnapshot(matchId, intel, fromFallback);
           dbCtx = { ...dbCtx, tactics, tacticalIntel: intel };
-          log(`[tactics:intel] ${formatTacticalIntelCompact(intel)}`);
-          log(
-            `[tactics] ${tacticsMs}ms${fromFallback ? (tacticsMs === 0 ? " deterministic" : " fallback") : ""} ${tactics}`,
-          );
+          log(`[thought-process] ${tactics}`);
+          if (gameplayDetailLogEnabled()) {
+            log(`[tactics:intel] ${formatTacticalIntelCompact(intel)}`);
+            log(
+              `[tactics] ${tacticsMs}ms${fromFallback ? (tacticsMs === 0 ? " deterministic" : " fallback") : ""} ${tactics}`,
+            );
+          }
         }
         const cap = pickMoveTimeoutCapMs();
         const budgetMs = pickTimeBudgetMs(match);
-        const mult = pickThinkMultiplier();
         const pickPhaseMs =
           budgetMs != null
             ? Math.min(cap, Math.max(3000, budgetMs - tacticsMs))
             : cap;
-        const pickBudgetMs = Math.max(3000, Math.floor(pickPhaseMs / mult));
-        const { choice, reason, intelSource, intelSignal, pickMs, llmModel, llmResponse } =
+        const pickBudgetMs = pickPhaseMs;
+        const { choice, reason, thoughtProcess, intelSource, intelSignal, pickMs, llmModel, llmResponse } =
           await pickMoveWithLlm(
           match,
           dbCtx,
           pickBudgetMs,
         );
+        if (thoughtProcess?.trim()) {
+          log(`[thought-process] ${thoughtProcess.trim()}`);
+        }
         const pickLog = formatMovePickLogLine({ choice, reason, intelSource, intelSignal });
         log(`[move:reason] r${roundNumber} ${choice} vs ${oppName} ${pickLog}`);
-        const thinkPadMs = await padPickThinkTime(pickMs, pickPhaseMs);
         const fresh = await getMatch(this.ctx.db, matchId);
         if (
           !fresh ||
@@ -534,18 +541,21 @@ export class PlayerAgent {
           ok,
         });
         if (ok) {
-          const intelLine = dbCtx.tacticalIntel
-            ? ` | ${formatTacticalIntelCompact(dbCtx.tacticalIntel)}`
-            : "";
-          const rawLlm =
-            process.env.LLM_LOG_RESPONSES === "false" ||
-            process.env.MOVE_LOG_RAW_LLM === "true";
-          const llmSuffix = rawLlm
-            ? ` llm=${llmResponse.replace(/\s+/g, " ").trim()}`
-            : "";
-          log(
-            `[move] r${roundNumber} ${choice} vs ${oppName} ${totalMs}ms (ctx=${contextMs} tactics=${tacticsMs} pick=${pickMs} thinkPad=${thinkPadMs} submit=${submitMs})${llmSuffix}${intelLine}`,
-          );
+          if (gameplayDetailLogEnabled()) {
+            const intelLine = dbCtx.tacticalIntel
+              ? ` | ${formatTacticalIntelCompact(dbCtx.tacticalIntel)}`
+              : "";
+            const rawLlm =
+              process.env.LLM_LOG_RESPONSES === "true" ||
+              process.env.AI_LOG_VERBOSE === "true" ||
+              process.env.MOVE_LOG_RAW_LLM === "true";
+            const llmSuffix = rawLlm
+              ? ` llm=${llmResponse.replace(/\s+/g, " ").trim()}`
+              : "";
+            log(
+              `[move] r${roundNumber} ${choice} vs ${oppName} ${totalMs}ms (ctx=${contextMs} tactics=${tacticsMs} pick=${pickMs} submit=${submitMs})${llmSuffix}${intelLine}`,
+            );
+          }
         } else {
           warn(
             `[move] r${roundNumber} ${choice} vs ${oppName} submit failed ${submitMs}ms (pick=${pickMs}ms)`,
@@ -620,9 +630,12 @@ export class PlayerAgent {
         this.matchTacticalIntel = intel;
         this.matchTacticsFromFallback = fromFallback;
         this.db.saveTacticalIntelSnapshot(matchId, intel, fromFallback);
-        log(
-          `[tactics] lobby prep ${durationMs}ms${fromFallback ? (durationMs === 0 ? " deterministic" : " fallback") : ""}`,
-        );
+        log(`[thought-process] ${tactics}`);
+        if (gameplayDetailLogEnabled()) {
+          log(
+            `[tactics] lobby prep ${durationMs}ms${fromFallback ? (durationMs === 0 ? " deterministic" : " fallback") : ""}`,
+          );
+        }
       } catch (err) {
         warn("[tactics] lobby prep failed:", err);
       } finally {

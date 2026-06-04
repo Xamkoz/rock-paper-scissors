@@ -60,6 +60,7 @@ function logFailedMovePickReason(
 export interface PickMoveResult {
   choice: Move;
   reason: string;
+  thoughtProcess?: string;
   intelSource: MoveIntelSource;
   intelSignal: MoveIntelSignal;
   pickMs: number;
@@ -100,6 +101,8 @@ export async function pickMoveWithLlm(
     logSummary: `match=${match.id} round=${match.currentRound} compact=${compact ? 1 : 0} h2h=${ctx.headToHead.length} histPairs=${histPairs} crossLen=${crossLen} tactics=${ctx.tactics ? 1 : 0} chars=${userPrompt.length}${budget ? ` budgetMs=${budget}` : ""}${intelLog ? ` intel=${intelLog}` : ""}`,
     timeoutMs: budget,
     parseMovePickOptions,
+    logRequests: false,
+    logResponse: false,
     },
   );
 
@@ -130,6 +133,7 @@ export async function pickMoveWithLlm(
   return {
     choice: normalized.choice,
     reason: normalized.reason,
+    thoughtProcess: normalized.thoughtProcess,
     intelSource: citation.source,
     intelSignal: citation.signal,
     pickMs: durationMs,

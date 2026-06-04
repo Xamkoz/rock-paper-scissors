@@ -30,6 +30,7 @@ import {
   formatIntelSourcesRankedLog,
   rankHistoricalIntelSourcesByEfficiency,
   rankIntelSourcesByEfficiency,
+  selectPrimarySourceForMatch,
   type IntelSourceEfficiency,
 } from "./tacticalIntelRanking.js";
 import type {
@@ -39,6 +40,7 @@ import type {
 import { resolve } from "node:path";
 import { packageRoot } from "../config.js";
 import { appendLogFile } from "../log.js";
+import { gameplayDetailLogEnabled } from "../logConfig.js";
 
 export interface TendencySlice extends OpponentTendency {
   label: "lifetime" | "h2h" | "recentVsOpponent" | "global";
@@ -512,13 +514,18 @@ export function attachIntelEfficiencyRankings(
   historicalLean: LeanAccuracyRow[],
   historicalPrimary: PrimarySourceLeaderboardRow[],
 ): TacticalIntel {
+  const sourcesByEfficiency = rankIntelSourcesByEfficiency(
+    intel,
+    historicalLean,
+    historicalPrimary,
+  );
+  const ranked = { ...intel, sourcesByEfficiency };
+  const explored = selectPrimarySourceForMatch(ranked, historicalPrimary);
+  if (!explored) return ranked;
   return {
-    ...intel,
-    sourcesByEfficiency: rankIntelSourcesByEfficiency(
-      intel,
-      historicalLean,
-      historicalPrimary,
-    ),
+    ...ranked,
+    primary: explored.primary,
+    primarySource: explored.primarySource,
   };
 }
 
@@ -612,9 +619,13 @@ export function logTacticalIntel(
       intel.sourcesByEfficiency,
       intel.primarySource,
     );
-    log(`[${tag}:efficiency] ${ranked}`);
+    if (gameplayDetailLogEnabled()) {
+      log(`[${tag}:efficiency] ${ranked}`);
+    }
     logIntelEfficiencyToFile(intel, meta);
   }
-  log(`[${tag}] ${formatTacticalIntelCompact(intel)}`);
-  log(`[${tag}:json] ${JSON.stringify(tacticalIntelToPayload(intel))}`);
+  if (gameplayDetailLogEnabled()) {
+    log(`[${tag}] ${formatTacticalIntelCompact(intel)}`);
+    log(`[${tag}:json] ${JSON.stringify(tacticalIntelToPayload(intel))}`);
+  }
 }

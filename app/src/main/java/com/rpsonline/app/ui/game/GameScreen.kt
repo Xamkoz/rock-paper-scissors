@@ -47,7 +47,9 @@ import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.ui.LocalSoundFeedbackMode
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.MATCH_END_NAVIGATION_DELAY_MS
+import com.rpsonline.app.ui.util.MoveSoundPlayer
 import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
+import com.rpsonline.app.ui.util.playLiveRoundResolutionFeedback
 import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 import com.rpsonline.app.viewmodel.GameTimerUiState
 import com.rpsonline.app.viewmodel.GameUiState
@@ -70,6 +72,7 @@ fun GameScreen(
     val context = LocalContext.current
     val pulseNotifier = LocalRoundResolutionPulse.current
     val soundFeedbackMode = LocalSoundFeedbackMode.current
+    val moveSoundPlayer = remember(context) { MoveSoundPlayer(context) }
     val terminalMatch = when {
         screenMatch?.status == MatchStatus.COMPLETED || screenMatch?.status == MatchStatus.ABANDONED -> screenMatch
         monitorMatch?.id == matchId &&
@@ -100,6 +103,7 @@ fun GameScreen(
         onDispose {
             MatchSessionMonitor.setVisibleMatchScreenId(null)
             pulseNotifier?.leaveLiveMatch(matchId)
+            moveSoundPlayer.release()
         }
     }
 
@@ -130,6 +134,11 @@ fun GameScreen(
             ?: return@LaunchedEffect
         when (current.status) {
             MatchStatus.COMPLETED -> {
+                val resolved = endTransition.finalResolvedRound
+                val needsDualReveal = resolved?.player1Choice != null && resolved.player2Choice != null
+                if (needsDualReveal) {
+                    delay(DUAL_SELECTION_MIN_DISPLAY_MS + ROUND_RECAP_REVEALED_MIN_DISPLAY_MS)
+                }
                 awaitMatchEndResolutionFeedback(
                     pulseNotifier = pulseNotifier,
                     match = current,
@@ -253,12 +262,18 @@ fun GameScreen(
                 serverRoundSettled = serverRoundSettled,
             ),
         )
-        val recapRound = resolveRecapRound(
-            resolvedRound = resolvedRound,
-            pendingOutcome = pendingOutcome,
-            lastResolved = layoutMatch.lastResolvedRound(),
-            openRound = openRound,
-        )
+        val recapRound = if (inMatchEndTransition) {
+            endTransition!!.finalResolvedRound?.takeIf {
+                it.player1Choice != null && it.player2Choice != null
+            }
+        } else {
+            resolveRecapRound(
+                resolvedRound = resolvedRound,
+                pendingOutcome = pendingOutcome,
+                lastResolved = layoutMatch.lastResolvedRound(),
+                openRound = openRound,
+            )
+        }
         val recapChoices = recapRound?.choicesFor(userId, layoutMatch)
         val (resolvedMyChoice, resolvedOpponentChoice) = when {
             inMatchEndTransition -> {
@@ -353,37 +368,73 @@ fun GameScreen(
             }
         }
         val openRoundResolving = !serverRoundSettled && isOpenRoundResolving(openRound)
-        val shouldHoldRecap = shouldHoldForResolvedRound(
-            resolvedRound = recapRound,
-            player1Choice = recapRound?.player1Choice,
-            player2Choice = recapRound?.player2Choice,
-            showOutcomeReveal = showOutcomeReveal,
-            showDrawReveal = showDrawReveal,
-            awaitingNextRound = awaitingNextRound,
-            betweenRoundsRecapRound = betweenRoundsRecapRound,
-        )
-        val recapPhaseActive = shouldActivateRoundRecapPhase(
-            shouldHoldForResolvedRound = shouldHoldRecap,
-            openRoundResolving = openRoundResolving,
-            serverRoundSettled = serverRoundSettled,
-        )
+        val shouldHoldRecap = if (inMatchEndTransition) {
+            recapRound != null
+        } else {
+            shouldHoldForResolvedRound(
+                resolvedRound = recapRound,
+                player1Choice = recapRound?.player1Choice,
+                player2Choice = recapRound?.player2Choice,
+                showOutcomeReveal = showOutcomeReveal,
+                showDrawReveal = showDrawReveal,
+                awaitingNextRound = awaitingNextRound,
+                betweenRoundsRecapRound = betweenRoundsRecapRound,
+            )
+        }
+        val recapPhaseActive = if (inMatchEndTransition) {
+            recapRound != null
+        } else {
+            shouldActivateRoundRecapPhase(
+                shouldHoldForResolvedRound = shouldHoldRecap,
+                openRoundResolving = openRoundResolving,
+                serverRoundSettled = serverRoundSettled,
+            )
+        }
         val holdForResolvedRound = recapPhaseActive
-        val recapRoundKey = when {
+        val dualRevealRoundKey = when {
             recapRound != null -> dualRevealHoldRoundKey(recapRound)
             inMatchEndTransition -> endTransition!!.roundKey
-            else -> openRound?.roundNumber
+            else -> null
         }
-        val roundRecapVisible = recapPhaseActive || (serverRoundSettled && recapRound != null)
-        val recapDismissed = rememberRoundRecapDismissed(
-            roundKey = recapRoundKey,
-            recapPhaseActive = roundRecapVisible,
+        val recapPhaseOpen = isRecapPhaseOpen(
+            recapRound = recapRound,
+            recapPhaseActive = recapPhaseActive,
+            serverRoundSettled = serverRoundSettled,
         )
-        val scoreGateRequested = shouldHoldRecap && recapRound != null && !inMatchEndTransition
+        val dualRevealAllowed = rememberDualSelectionRevealAllowed(
+            roundKey = dualRevealRoundKey,
+            gateActive = recapPhaseOpen,
+        )
+        val recapRevealStarted = recapPhaseOpen && dualRevealAllowed
+        val recapDismissed = rememberRoundRecapDismissed(
+            roundKey = dualRevealRoundKey,
+            recapRevealStarted = recapRevealStarted,
+        )
+        val showRecapRoundMoves = recapPhaseOpen && !recapDismissed
+        val inDualSelectionHold = showRecapRoundMoves && !dualRevealAllowed
+        LaunchedEffect(inMatchEndTransition, recapRevealStarted, dualRevealRoundKey, userId, terminalMatch?.id) {
+            if (!inMatchEndTransition || !recapRevealStarted || userId == null) return@LaunchedEffect
+            val terminal = terminalMatch ?: return@LaunchedEffect
+            val resolved = endTransition?.finalResolvedRound ?: return@LaunchedEffect
+            if (resolved.player1Choice == null || resolved.player2Choice == null) return@LaunchedEffect
+            val notifier = pulseNotifier ?: return@LaunchedEffect
+            playLiveRoundResolutionFeedback(
+                context = context,
+                match = terminal,
+                resolved = resolved,
+                userId = userId,
+                mode = soundFeedbackMode,
+                moveSoundPlayer = moveSoundPlayer,
+                pulseNotifier = notifier,
+            )
+        }
+        val scoreGateRequested = shouldHoldRecap && recapRound != null
         val scoreGateRoundKey = recapRound?.let { dualRevealHoldRoundKey(it) }
         val scoreGateOpen = rememberScoreGateOpen(
             roundKey = scoreGateRoundKey,
             gateRequested = scoreGateRequested,
         )
+        val inRecapDualHold = inDualSelectionHold
         val preferResolvedRoundPanel = preferResolvedRoundPanel(
             showOutcomeReveal = showOutcomeReveal,
             showDrawReveal = showDrawReveal,
@@ -391,7 +442,7 @@ fun GameScreen(
             showPendingRoundOutcome = showPendingRoundOutcome,
             hasDrawReplay = drawReplay != null,
             roundRecapComplete = recapPhaseActive,
-            inRecapDualHold = false,
+            inRecapDualHold = inRecapDualHold,
             recapDismissed = recapDismissed,
         )
         val openRoundAwaitingPicks = isOpenRoundAwaitingPicks(
@@ -402,18 +453,14 @@ fun GameScreen(
             player1 = layoutMatch.player1,
             userId = userId,
         )
-        val displayPanelOutcome = panelOutcome?.takeIf { roundRecapVisible && !recapDismissed }
+        val displayPanelOutcome = panelOutcome?.takeIf {
+            showRecapRoundMoves && dualRevealAllowed
+        }
         val blockLiveResolvedReveal = shouldBlockLiveResolvedMoveReveal(
             serverRoundSettled = serverRoundSettled,
             recapRound = recapRound,
             recapPhaseActive = recapPhaseActive,
             openRoundResolving = openRoundResolving,
-        )
-        val showRecapRoundMoves = shouldShowRecapRoundMoves(
-            recapRound = recapRound,
-            recapPhaseActive = recapPhaseActive,
-            recapDismissed = recapDismissed,
-            serverRoundSettled = serverRoundSettled,
         )
         val allowRoundMovePicker = shouldAllowRoundMovePicker(
             showRecapRoundMoves = showRecapRoundMoves,
@@ -472,8 +519,16 @@ fun GameScreen(
                 blockLiveResolvedReveal = blockLiveResolvedReveal,
             )
         }
-        val panelMyPresentationFinal = panelMyPresentationRaw
-        val panelOpponentPresentation = panelOpponentPresentationRaw
+        val panelMyPresentationFinal = if (inDualSelectionHold) {
+            holdMoveReveal(panelMyPresentationRaw, revealAllowed = false)
+        } else {
+            panelMyPresentationRaw
+        }
+        val panelOpponentPresentation = if (inDualSelectionHold) {
+            holdMoveReveal(panelOpponentPresentationRaw, revealAllowed = false)
+        } else {
+            panelOpponentPresentationRaw
+        }
         val targetMyWins = layoutMatch.myWins(userId)
         val targetOpponentWins = layoutMatch.opponentWins(userId)
         val (heldMyWins, heldOpponentWins) = scoresBeforeRecapRound(
@@ -523,7 +578,7 @@ fun GameScreen(
                 isResolvingTimeout = uiState.isResolvingTimeout,
                 hasOpenRound = openRound != null,
                 hasPanelOutcome = displayPanelOutcome != null,
-                roundRecapActive = roundRecapVisible && !recapDismissed,
+                roundRecapActive = showRecapRoundMoves,
                 awaitingServerRoundResolve = openRoundResolving,
                 opponentSubmittedOnServer = openRound?.opponentHasSubmittedFor(
                     userId,

@@ -49,6 +49,11 @@ import {
   markLeaderboardBackfillComplete,
   runLeaderboardVisibilityBackfill,
 } from "./leaderboardVisibility";
+import {
+  markProfileStatsBackfillComplete,
+  profileStatsBackfillAlreadyCompleted,
+  runProfileMatchStatsBackfill,
+} from "./profileStatsBackfill";
 import { findHighlightedMatchId } from "./highlightedMatch";
 
 admin.initializeApp();
@@ -602,74 +607,77 @@ async function finalizeMatch(
   winnerId: string,
   options?: { forfeit?: boolean; endReason?: MatchEndReason },
 ): Promise<void> {
-  const [p1Snap, p2Snap] = await Promise.all([
-    db.collection("users").doc(match.player1).get(),
-    db.collection("users").doc(match.player2).get(),
-  ]);
-
-  const profileP1Elo = (p1Snap.get("elo") as number) ?? 1000;
-  const profileP2Elo = (p2Snap.get("elo") as number) ?? 1000;
-  const p1Elo = match.player1Elo ?? profileP1Elo;
-  const p2Elo = match.player2Elo ?? profileP2Elo;
-  const p1Score = winnerId === match.player1 ? 1 : 0;
-
+  const endReason: MatchEndReason = options?.endReason ?? "normal";
   const player1Wins = countRoundWins(match.rounds, match.player1);
   const player2Wins = countRoundWins(match.rounds, match.player2);
+  const p1Score = winnerId === match.player1 ? 1 : 0;
 
-  const endReason: MatchEndReason = options?.endReason ?? "normal";
-  const elo = calculateMatchElo(p1Elo, p2Elo, p1Score, {
-    matchMode: parseMatchMode(match.matchMode),
-    endReason,
-    winnerId,
-    player1: match.player1,
-    player2: match.player2,
-    player1Wins,
-    player2Wins,
-  });
+  await db.runTransaction(async (tx) => {
+    const matchSnap = await tx.get(matchRef);
+    if (!matchSnap.exists) return;
+    const live = matchSnap.data() as MatchDoc;
+    if (live.status !== "active") return;
 
-  const batch = db.batch();
-  batch.update(matchRef, {
-    status: "completed",
-    winnerId,
-    endReason,
-    resolution: matchResolutionForWinner(match.player1, winnerId),
-    player1Wins,
-    player2Wins,
-    rounds: sanitizeRounds(match.rounds),
-    player1Elo: p1Elo,
-    player2Elo: p2Elo,
-    player1EloDelta: elo.deltaA,
-    player2EloDelta: elo.deltaB,
-    lastActivityAt: FieldValue.serverTimestamp(),
-  });
+    const p1Ref = db.collection("users").doc(match.player1);
+    const p2Ref = db.collection("users").doc(match.player2);
+    const [p1Snap, p2Snap] = await Promise.all([tx.get(p1Ref), tx.get(p2Ref)]);
 
-  batch.update(db.collection("users").doc(match.player1), {
-    elo: p1Elo + elo.deltaA,
-    wins: FieldValue.increment(winnerId === match.player1 ? 1 : 0),
-    losses: FieldValue.increment(winnerId === match.player1 ? 0 : 1),
-    activeMatchId: FieldValue.delete(),
-    lastSeen: FieldValue.serverTimestamp(),
-    leaderboardVisible: leaderboardVisibleAfterMatch(
-      p1Snap.data() as Record<string, unknown>,
-      winnerId === match.player1 ? 1 : 0,
-      winnerId === match.player1 ? 0 : 1,
-      0,
-    ),
+    const profileP1Elo = (p1Snap.get("elo") as number) ?? 1000;
+    const profileP2Elo = (p2Snap.get("elo") as number) ?? 1000;
+    const p1Elo = match.player1Elo ?? profileP1Elo;
+    const p2Elo = match.player2Elo ?? profileP2Elo;
+    const elo = calculateMatchElo(p1Elo, p2Elo, p1Score, {
+      matchMode: parseMatchMode(match.matchMode),
+      endReason,
+      winnerId,
+      player1: match.player1,
+      player2: match.player2,
+      player1Wins,
+      player2Wins,
+    });
+
+    tx.update(matchRef, {
+      status: "completed",
+      winnerId,
+      endReason,
+      resolution: matchResolutionForWinner(match.player1, winnerId),
+      player1Wins,
+      player2Wins,
+      rounds: sanitizeRounds(match.rounds),
+      player1Elo: p1Elo,
+      player2Elo: p2Elo,
+      player1EloDelta: elo.deltaA,
+      player2EloDelta: elo.deltaB,
+      lastActivityAt: FieldValue.serverTimestamp(),
+    });
+
+    tx.update(p1Ref, {
+      elo: p1Elo + elo.deltaA,
+      wins: FieldValue.increment(winnerId === match.player1 ? 1 : 0),
+      losses: FieldValue.increment(winnerId === match.player1 ? 0 : 1),
+      activeMatchId: FieldValue.delete(),
+      lastSeen: FieldValue.serverTimestamp(),
+      leaderboardVisible: leaderboardVisibleAfterMatch(
+        p1Snap.data() as Record<string, unknown>,
+        winnerId === match.player1 ? 1 : 0,
+        winnerId === match.player1 ? 0 : 1,
+        0,
+      ),
+    });
+    tx.update(p2Ref, {
+      elo: p2Elo + elo.deltaB,
+      wins: FieldValue.increment(winnerId === match.player2 ? 1 : 0),
+      losses: FieldValue.increment(winnerId === match.player2 ? 0 : 1),
+      activeMatchId: FieldValue.delete(),
+      lastSeen: FieldValue.serverTimestamp(),
+      leaderboardVisible: leaderboardVisibleAfterMatch(
+        p2Snap.data() as Record<string, unknown>,
+        winnerId === match.player2 ? 1 : 0,
+        winnerId === match.player2 ? 0 : 1,
+        0,
+      ),
+    });
   });
-  batch.update(db.collection("users").doc(match.player2), {
-    elo: p2Elo + elo.deltaB,
-    wins: FieldValue.increment(winnerId === match.player2 ? 1 : 0),
-    losses: FieldValue.increment(winnerId === match.player2 ? 0 : 1),
-    activeMatchId: FieldValue.delete(),
-    lastSeen: FieldValue.serverTimestamp(),
-    leaderboardVisible: leaderboardVisibleAfterMatch(
-      p2Snap.data() as Record<string, unknown>,
-      winnerId === match.player2 ? 1 : 0,
-      winnerId === match.player2 ? 0 : 1,
-      0,
-    ),
-  });
-  await batch.commit();
 }
 
 async function finalizeMatchDraw(
@@ -679,51 +687,56 @@ async function finalizeMatchDraw(
   player2Wins: number,
   rounds: RoundDoc[],
 ): Promise<void> {
-  const [p1Snap, p2Snap] = await Promise.all([
-    db.collection("users").doc(match.player1).get(),
-    db.collection("users").doc(match.player2).get(),
-  ]);
-  const p1Elo = match.player1Elo ?? (p1Snap.get("elo") as number) ?? 1000;
-  const p2Elo = match.player2Elo ?? (p2Snap.get("elo") as number) ?? 1000;
+  await db.runTransaction(async (tx) => {
+    const matchSnap = await tx.get(matchRef);
+    if (!matchSnap.exists) return;
+    const live = matchSnap.data() as MatchDoc;
+    if (live.status !== "active") return;
 
-  const batch = db.batch();
-  batch.update(matchRef, {
-    status: "completed",
-    winnerId: FieldValue.delete(),
-    endReason: PLAYED_ROUND_END_REASON,
-    resolution: "draw",
-    player1Wins,
-    player2Wins,
-    rounds: sanitizeRounds(rounds),
-    player1Elo: p1Elo,
-    player2Elo: p2Elo,
-    player1EloDelta: 0,
-    player2EloDelta: 0,
-    lastActivityAt: FieldValue.serverTimestamp(),
+    const p1Ref = db.collection("users").doc(match.player1);
+    const p2Ref = db.collection("users").doc(match.player2);
+    const [p1Snap, p2Snap] = await Promise.all([tx.get(p1Ref), tx.get(p2Ref)]);
+
+    const p1Elo = match.player1Elo ?? (p1Snap.get("elo") as number) ?? 1000;
+    const p2Elo = match.player2Elo ?? (p2Snap.get("elo") as number) ?? 1000;
+
+    tx.update(matchRef, {
+      status: "completed",
+      winnerId: FieldValue.delete(),
+      endReason: PLAYED_ROUND_END_REASON,
+      resolution: "draw",
+      player1Wins,
+      player2Wins,
+      rounds: sanitizeRounds(rounds),
+      player1Elo: p1Elo,
+      player2Elo: p2Elo,
+      player1EloDelta: 0,
+      player2EloDelta: 0,
+      lastActivityAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(p1Ref, {
+      draws: FieldValue.increment(1),
+      activeMatchId: FieldValue.delete(),
+      lastSeen: FieldValue.serverTimestamp(),
+      leaderboardVisible: leaderboardVisibleAfterMatch(
+        p1Snap.data() as Record<string, unknown>,
+        0,
+        0,
+        1,
+      ),
+    });
+    tx.update(p2Ref, {
+      draws: FieldValue.increment(1),
+      activeMatchId: FieldValue.delete(),
+      lastSeen: FieldValue.serverTimestamp(),
+      leaderboardVisible: leaderboardVisibleAfterMatch(
+        p2Snap.data() as Record<string, unknown>,
+        0,
+        0,
+        1,
+      ),
+    });
   });
-  batch.update(db.collection("users").doc(match.player1), {
-    draws: FieldValue.increment(1),
-    activeMatchId: FieldValue.delete(),
-    lastSeen: FieldValue.serverTimestamp(),
-    leaderboardVisible: leaderboardVisibleAfterMatch(
-      p1Snap.data() as Record<string, unknown>,
-      0,
-      0,
-      1,
-    ),
-  });
-  batch.update(db.collection("users").doc(match.player2), {
-    draws: FieldValue.increment(1),
-    activeMatchId: FieldValue.delete(),
-    lastSeen: FieldValue.serverTimestamp(),
-    leaderboardVisible: leaderboardVisibleAfterMatch(
-      p2Snap.data() as Record<string, unknown>,
-      0,
-      0,
-      1,
-    ),
-  });
-  await batch.commit();
 }
 
 async function applySeriesOutcome(
@@ -786,6 +799,11 @@ async function resolveRoundIfReady(
   match: MatchDoc,
   options?: { forceDeadline?: boolean },
 ): Promise<void> {
+  const liveSnap = await matchRef.get();
+  if (!liveSnap.exists) return;
+  match = liveSnap.data() as MatchDoc;
+  if (match.status !== "active") return;
+
   const round = getOpenRound(match);
   if (!round) return;
 
@@ -1671,6 +1689,38 @@ export const backfillLeaderboardVisibility = onCall(
     const summary = await runLeaderboardVisibilityBackfill(db, dryRun);
     if (!dryRun) {
       await markLeaderboardBackfillComplete(db, summary);
+    }
+    return summary;
+  },
+);
+
+/**
+ * One-time backfill: recompute wins/losses/draws and round stats from completed matches.
+ * Uses the same secret as cleanupZeroMatchGuests.
+ */
+export const backfillProfileMatchStats = onCall(
+  { timeoutSeconds: 540, memory: "512MiB", secrets: [guestCleanupSecret] },
+  async (request) => {
+    const configuredSecret = guestCleanupSecret.value()?.trim();
+    const providedSecret = typeof request.data?.secret === "string"
+      ? request.data.secret.trim()
+      : "";
+    if (!configuredSecret || providedSecret !== configuredSecret) {
+      throw new HttpsError("permission-denied", "Invalid cleanup secret.");
+    }
+
+    const dryRun = request.data?.dryRun !== false;
+    const force = request.data?.force === true;
+    if (!dryRun && !force && await profileStatsBackfillAlreadyCompleted(db)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Profile match stats backfill already completed. Pass force: true to run again.",
+      );
+    }
+
+    const summary = await runProfileMatchStatsBackfill(db, dryRun);
+    if (!dryRun) {
+      await markProfileStatsBackfillComplete(db, summary);
     }
     return summary;
   },

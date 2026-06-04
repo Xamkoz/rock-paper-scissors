@@ -44,6 +44,70 @@ function sliceFor(intel: TacticalIntel, source: IntelSourceKey): TendencySlice |
   return intel.recentVsOpponent;
 }
 
+const PRIMARY_MIN_THROWS: Record<IntelSourceKey, number> = {
+  lifetime: 1,
+  h2h: 6,
+  recentVsOpponent: 4,
+  global: 30,
+};
+
+function primaryMatchesFor(
+  source: IntelSourceKey,
+  historical: PrimarySourceLeaderboardRow[],
+): number {
+  return historical.find((r) => r.source === source)?.matches ?? 0;
+}
+
+/** Min concluded matches per primary source before defaulting to heuristic top pick. */
+export function intelSourceMinPrimaryMatches(
+  sourceCount: number,
+  historical: PrimarySourceLeaderboardRow[],
+): number {
+  const raw = process.env.INTEL_SOURCE_MIN_PRIMARY_MATCHES?.trim();
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  if (sourceCount <= 1) return 0;
+  const total = historical.reduce((sum, row) => sum + row.matches, 0);
+  return Math.max(5, Math.ceil(total / sourceCount));
+}
+
+/**
+ * Prefer under-sampled primary sources (e.g. lifetime) until fair share,
+ * then keep the heuristic pickPrimary result.
+ */
+export function selectPrimarySourceForMatch(
+  intel: TacticalIntel,
+  historicalPrimary: PrimarySourceLeaderboardRow[],
+): { primary: TendencySlice; primarySource: IntelSourceKey } | null {
+  const keys: IntelSourceKey[] = ["lifetime", "h2h", "recentVsOpponent", "global"];
+  const available = keys.filter((source) => {
+    const slice = sliceFor(intel, source);
+    return slice && slice.sampleThrows >= PRIMARY_MIN_THROWS[source];
+  });
+  if (available.length === 0) return null;
+
+  const minMatches = intelSourceMinPrimaryMatches(available.length, historicalPrimary);
+  const underSampled = available.filter(
+    (source) => primaryMatchesFor(source, historicalPrimary) < minMatches,
+  );
+  if (underSampled.length === 0) return null;
+
+  underSampled.sort((a, b) => {
+    const ma = primaryMatchesFor(a, historicalPrimary);
+    const mb = primaryMatchesFor(b, historicalPrimary);
+    if (ma !== mb) return ma - mb;
+    const ra = intel.sourcesByEfficiency.find((row) => row.source === a)?.rank ?? 99;
+    const rb = intel.sourcesByEfficiency.find((row) => row.source === b)?.rank ?? 99;
+    return ra - rb;
+  });
+
+  const chosen = underSampled[0]!;
+  const slice = sliceFor(intel, chosen)!;
+  return { primary: slice, primarySource: chosen };
+}
+
 /** Confidence ramps with tracked outcomes, not raw throw volume. */
 function historicalConfidence(roundsOrMatches: number, halfSaturation: number): number {
   if (roundsOrMatches <= 0) return 0;

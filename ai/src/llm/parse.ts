@@ -42,15 +42,16 @@ export type MoveIntelSignal =
 export interface MovePickParsed {
   choice: Move;
   reason: string;
+  thoughtProcess?: string;
   intelSource: MoveIntelSource;
   intelSignal: MoveIntelSignal;
 }
 
 export const MOVE_PICK_JSON_SHAPE =
-  '{"choice":"PAPER","intelSource":"h2h","intelSignal":"dominant","reason":"H2H Rock lean — Paper beats Rock."}';
+  '{"choice":"PAPER","intelSource":"h2h","intelSignal":"dominant","reason":"H2H Rock lean — Paper beats Rock.","thoughtProcess":"H2H Rock lean at 60%. citeHints favor dominant. Counter with Paper."}';
 
 export const MOVE_PICK_JSON_EXAMPLE_TRANSITIONS =
-  '{"choice":"SCISSORS","intelSource":"h2h","intelSignal":"transitions","reason":"After Paper they throw Rock — Scissors."}';
+  '{"choice":"SCISSORS","intelSource":"h2h","intelSignal":"transitions","reason":"After Paper they throw Rock — Scissors.","thoughtProcess":"After their Paper, transitions favor Rock. Scissors beats Rock."}';
 
 export function movePickJsonExample(round: number): string {
   return round % 2 === 0 ? MOVE_PICK_JSON_EXAMPLE_TRANSITIONS : MOVE_PICK_JSON_SHAPE;
@@ -361,6 +362,7 @@ function humanReasonFromCitation(
 type LoosePickJson = {
   choice?: string;
   reason?: string;
+  thoughtProcess?: string;
   intelSource?: string;
   intelSignal?: string;
   signal?: string;
@@ -420,14 +422,40 @@ function parseStrictMovePick(
   const reason = humanReasonFromCitation(intelSource, intelSignal, reasonRaw);
   if (!reason) return null;
 
-  return { choice, reason, intelSource, intelSignal };
+  const thoughtRaw = String(json.thoughtProcess ?? "").trim();
+  const thoughtProcess = thoughtRaw ? clampReason(thoughtRaw, REASON_LOG_MAX_CHARS) : undefined;
+
+  return { choice, reason, thoughtProcess, intelSource, intelSignal };
+}
+
+function extractJsonStringField(text: string, field: string): string {
+  const closed = text.match(new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`, "i"));
+  if (closed?.[1]) return closed[1].replace(/\\"/g, '"');
+  const open = text.match(new RegExp(`"${field}"\\s*:\\s*"([\\s\\S]*)$`, "i"));
+  return open?.[1]?.replace(/\\"/g, '"').trim() ?? "";
 }
 
 function extractReasonFromPartialJson(text: string): string {
-  const closed = text.match(/"reason"\s*:\s*"([^"]*)"/i);
-  if (closed?.[1]) return closed[1];
-  const open = text.match(/"reason"\s*:\s*"([\s\S]*)$/i);
-  return open?.[1]?.replace(/\\"/g, '"').trim() ?? "";
+  return extractJsonStringField(text, "reason");
+}
+
+function extractThoughtProcessFromPartialJson(text: string): string {
+  return extractJsonStringField(text, "thoughtProcess");
+}
+
+function loosePickFromPartialJson(
+  text: string,
+  choice: Move,
+  options?: ParseMovePickOptions,
+): MovePickParsed | null {
+  const json: LoosePickJson = {
+    choice,
+    intelSource: extractJsonStringField(text, "intelSource"),
+    intelSignal: extractJsonStringField(text, "intelSignal"),
+    reason: extractJsonStringField(text, "reason"),
+    thoughtProcess: extractJsonStringField(text, "thoughtProcess"),
+  };
+  return parseStrictMovePick(json, options);
 }
 
 function salvageFromText(text: string, options?: ParseMovePickOptions): MovePickParsed | null {
@@ -442,13 +470,15 @@ function salvageFromText(text: string, options?: ParseMovePickOptions): MovePick
     const fromFields = parseStrictMovePick(json, options);
     if (fromFields) return fromFields;
   } catch {
-    // fall through to prose inference
+    const fromPartial = loosePickFromPartialJson(text, choice, options);
+    if (fromPartial) return fromPartial;
   }
 
   const citation = inferCitationFromProse(text);
   if (!citation.intelSource || !citation.intelSignal) return null;
 
   const reasonRaw = extractReasonFromPartialJson(text);
+  const thoughtRaw = extractThoughtProcessFromPartialJson(text);
 
   return {
     choice,
@@ -457,6 +487,9 @@ function salvageFromText(text: string, options?: ParseMovePickOptions): MovePick
       citation.intelSignal,
       reasonRaw,
     ),
+    thoughtProcess: thoughtRaw
+      ? clampReason(thoughtRaw, REASON_LOG_MAX_CHARS)
+      : undefined,
     intelSource: citation.intelSource,
     intelSignal: citation.intelSignal,
   };
@@ -474,13 +507,7 @@ export function parseMovePick(text: string, options?: ParseMovePickOptions): Mov
     const parsed = parseStrictMovePick(JSON.parse(trimmed) as LoosePickJson, options);
     if (parsed) return parsed;
   } catch {
-    // not JSON — try salvage below
-  }
-
-  const choiceOnly = trimmed.match(/^\s*\{\s*"choice"\s*:\s*"(ROCK|PAPER|SCISSORS)"/i);
-  if (choiceOnly) {
-    const salvaged = salvageFromText(trimmed, options);
-    if (salvaged) return salvaged;
+    // not valid JSON — try salvage below
   }
 
   return salvageFromText(trimmed, options);

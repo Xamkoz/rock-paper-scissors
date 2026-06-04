@@ -1,9 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildTacticalIntel } from "./tacticalIntel.js";
+import { buildTacticalIntel, attachIntelEfficiencyRankings } from "./tacticalIntel.js";
 import type { MatchDbContext } from "./matchContext.js";
 import type { Match } from "../types.js";
-import { rankIntelSourcesByEfficiency, rankHistoricalIntelSourcesByEfficiency } from "./tacticalIntelRanking.js";
+import {
+  intelSourceMinPrimaryMatches,
+  rankIntelSourcesByEfficiency,
+  rankHistoricalIntelSourcesByEfficiency,
+  selectPrimarySourceForMatch,
+} from "./tacticalIntelRanking.js";
 
 const ctx = (): MatchDbContext => ({
   botUid: "bot",
@@ -77,6 +82,32 @@ describe("rankIntelSourcesByEfficiency", () => {
     );
     assert.equal(ranked[0]!.source, "h2h");
     assert.equal(ranked[0]!.rank, 1);
+  });
+});
+
+describe("selectPrimarySourceForMatch", () => {
+  it("prefers under-sampled lifetime over default h2h primary", () => {
+    const intel = buildTacticalIntel(match(), ctx());
+    assert.equal(intel.primarySource, "h2h");
+
+    const historicalPrimary = [
+      { source: "lifetime", matches: 2, wins: 2, winPct: 100 },
+      { source: "h2h", matches: 313, wins: 163, winPct: 52.1 },
+      { source: "recentVsOpponent", matches: 13, wins: 5, winPct: 38.5 },
+    ];
+    const ranked = attachIntelEfficiencyRankings(intel, [], historicalPrimary);
+    assert.equal(ranked.primarySource, "lifetime");
+
+    const explored = selectPrimarySourceForMatch(ranked, historicalPrimary);
+    assert.equal(explored?.primarySource, "lifetime");
+  });
+
+  it("fair share scales with archived primary history", () => {
+    const min = intelSourceMinPrimaryMatches(4, [
+      { source: "lifetime", matches: 2, wins: 2, winPct: 100 },
+      { source: "h2h", matches: 313, wins: 163, winPct: 52.1 },
+    ]);
+    assert.equal(min, Math.max(5, Math.ceil(315 / 4)));
   });
 });
 
