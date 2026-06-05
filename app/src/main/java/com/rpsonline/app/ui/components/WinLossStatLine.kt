@@ -25,9 +25,9 @@ fun WinLossStatLine(
     val winRate = winRatePercent(wins, losses, draws)
     val separatorColor = contentColors?.muted ?: scheme.onSurfaceVariant
     val winRateColor = when {
-        contentColors != null -> contentColors.statHighlight
-        winRate != null -> profileStatValueColor()
-        else -> scheme.onSurfaceVariant
+        winRate == null -> scheme.onSurfaceVariant
+        contentColors != null -> contentColors.accent(profileStatValueColor())
+        else -> profileStatValueColor()
     }
     val fontSize = textStyle.fontSize
     val fontFamily = textStyle.fontFamily
@@ -37,7 +37,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "W",
             value = wins.toString(),
-            color = contentColors?.winColor ?: scheme.primary,
+            color = contentColors?.accent(scheme.primary) ?: scheme.primary,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -55,7 +55,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "L",
             value = losses.toString(),
-            color = contentColors?.lossColor ?: scheme.error,
+            color = contentColors?.accent(scheme.error) ?: scheme.error,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -73,7 +73,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "D",
             value = draws.toString(),
-            color = contentColors?.drawColor ?: scheme.tertiary,
+            color = contentColors?.accent(scheme.tertiary) ?: scheme.tertiary,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -159,9 +159,9 @@ fun RoundWinRateLine(
     val valueText = roundWinRate?.let { "$it%" } ?: "-"
     val muted = contentColors?.muted ?: scheme.onSurfaceVariant
     val valueColor = when {
-        contentColors != null -> contentColors.statHighlight
-        roundWinRate != null -> profileStatValueColor()
-        else -> scheme.onSurfaceVariant
+        roundWinRate == null -> scheme.onSurfaceVariant
+        contentColors != null -> contentColors.accent(profileStatValueColor())
+        else -> profileStatValueColor()
     }
     Text(
         text = buildAnnotatedString {

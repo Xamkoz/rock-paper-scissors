@@ -22,7 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import com.rpsonline.app.ui.theme.contrastRatio
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -59,12 +59,6 @@ internal fun readableScoreAccent(
 ): Color {
     val candidates = listOf(accent, onAccentContainer, onAccent)
     return candidates.maxByOrNull { contrastRatio(it, background) } ?: accent
-}
-
-private fun contrastRatio(foreground: Color, background: Color): Float {
-    val fg = foreground.luminance() + 0.05f
-    val bg = background.luminance() + 0.05f
-    return maxOf(fg, bg) / minOf(fg, bg)
 }
 
 @Composable

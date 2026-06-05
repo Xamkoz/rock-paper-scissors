@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rpsonline.app.ui.theme.contrastAwareAccent
 import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 import com.rpsonline.app.data.repository.AuthRepository
@@ -49,15 +50,19 @@ private fun rememberDisplayOnlineUids(
     }
 }
 
-/** Text/stat colors for rows on [MaterialTheme.colorScheme.primaryContainer]. */
+/** Muted labels and contrast-aware accents for rows on [containerColor]. */
 data class OnlinePresenceContentColors(
+    val containerColor: Color,
     val muted: Color,
-    val statHighlight: Color,
-    val winColor: Color,
-    val lossColor: Color,
-    val drawColor: Color,
-    val eloRating: Color,
-)
+    val readableFallback: Color,
+) {
+    fun accent(semantic: Color): Color =
+        contrastAwareAccent(
+            semantic = semantic,
+            background = containerColor,
+            readableFallback = readableFallback,
+        )
+}
 
 data class OnlinePresenceRowStyle(
     val isOnline: Boolean,
@@ -70,16 +75,12 @@ data class OnlinePresenceRowStyle(
 )
 
 @Composable
-private fun onlinePresenceContentColors(): OnlinePresenceContentColors {
-    val scheme = MaterialTheme.colorScheme
-    val onContainer = scheme.onPrimaryContainer
+private fun onlinePresenceContentColors(containerColor: Color): OnlinePresenceContentColors {
+    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
     return OnlinePresenceContentColors(
+        containerColor = containerColor,
         muted = onContainer.copy(alpha = 0.76f),
-        statHighlight = onContainer,
-        winColor = onContainer,
-        lossColor = scheme.error,
-        drawColor = scheme.tertiary,
-        eloRating = onContainer,
+        readableFallback = onContainer,
     )
 }
 
@@ -243,7 +244,7 @@ fun onlinePresenceRowStyle(
             borderWidth = 2.dp,
             nameColor = scheme.onPrimaryContainer,
             accentStripeColor = scheme.primary,
-            contentColors = onlinePresenceContentColors(),
+            contentColors = onlinePresenceContentColors(onlineContainerColor),
         )
     }
     if (emphasized) {
@@ -273,7 +274,7 @@ fun onlinePresenceRowStyle(
         borderWidth = 2.dp,
         nameColor = scheme.onPrimaryContainer,
         accentStripeColor = scheme.primary,
-        contentColors = onlinePresenceContentColors(),
+        contentColors = onlinePresenceContentColors(onlineContainerColor),
     )
 }
 

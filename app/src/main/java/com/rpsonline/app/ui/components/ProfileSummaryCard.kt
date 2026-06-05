@@ -30,6 +30,7 @@ import com.rpsonline.app.R
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.domain.DisplayNames
 import com.rpsonline.app.ui.leaderboard.ThrowDistributionRadialChart
+import com.rpsonline.app.ui.leaderboard.eloRatingColor
 import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 
 private val SummaryRowHorizontalPadding = 10.dp
@@ -265,7 +266,7 @@ fun PlayerSummaryContent(
                     elo = elo,
                     style = MaterialTheme.typography.titleLarge,
                     textAlign = TextAlign.Center,
-                    color = contentColors?.eloRating,
+                    color = contentColors?.accent(eloRatingColor(elo)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .offset(y = (-1).dp),
