@@ -25,11 +25,15 @@ object MatchClockHaptics {
         val vibrator = vibrator ?: return
         if (!vibrator.hasVibrator()) return
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator.cancel()
+                vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.cancel()
                 vibrator.vibrate(
                     VibrationEffect.createOneShot(
                         TICK_PULSE_MS,
-                        VibrationEffect.DEFAULT_AMPLITUDE,
+                        TICK_AMPLITUDE,
                     ),
                 )
             } else {
@@ -40,5 +44,6 @@ object MatchClockHaptics {
         }
     }
 
-    private const val TICK_PULSE_MS = 18L
+    private const val TICK_PULSE_MS = 32L
+    private const val TICK_AMPLITUDE = 220
 }

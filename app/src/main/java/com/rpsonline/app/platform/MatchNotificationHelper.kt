@@ -16,10 +16,12 @@ import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.preferences.MatchmakingPreferences
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.ui.segment.SegmentedNotificationStatus
-import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
 import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
+import com.rpsonline.app.ui.segment.matchFoundSegmentedDisplay
+import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 import com.rpsonline.app.ui.util.MatchClockSoundController
+import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 
 object MatchNotificationHelper {
@@ -27,7 +29,7 @@ object MatchNotificationHelper {
     /** Silent channel — match-found audio uses in-game ticks, not the system default sound. */
     private const val MATCH_FOUND_CHANNEL_ID = "match_found_alert_v4"
     private const val MATCH_FOUND_FOREGROUND_CHANNEL_ID = "match_found_alert_foreground_v1"
-    private const val MATCH_FOUND_HEADS_UP_CHANNEL_ID = "match_found_heads_up_v1"
+    private const val MATCH_FOUND_HEADS_UP_CHANNEL_ID = "match_found_heads_up_v2"
     const val MATCH_FOUND_NOTIFICATION_ID = 2001
     private const val MATCH_FOUND_HEADS_UP_NOTIFICATION_ID = 2002
 
@@ -58,7 +60,7 @@ object MatchNotificationHelper {
         ).apply {
             description = context.getString(R.string.match_found_notification_channel_desc)
             setSound(null, null)
-            enableVibration(true)
+            enableVibration(false)
             enableLights(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
@@ -97,6 +99,10 @@ object MatchNotificationHelper {
         val playAlert = MatchFoundNotificationGate.tryNotify(matchId)
         if (!playAlert) {
             maintainJoinMatchNotification(context, match, uid)
+            if (PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(appContext)) {
+                MatchClockSoundController.initialize(appContext)
+                MatchClockSoundController.syncLobbyAlert(true)
+            }
             return false
         }
         val manager = NotificationManagerCompat.from(context)
@@ -126,7 +132,7 @@ object MatchNotificationHelper {
         }
 
         if (!fgsOwnsDisplay) {
-            if (!fgsRunning && MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()) {
+            if (!fgsRunning && MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp()) {
                 postMatchFoundHeadsUp(context, match, uid)
             } else {
                 manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
@@ -144,9 +150,9 @@ object MatchNotificationHelper {
         return true
     }
 
-    /** One-shot high-importance peek when backgrounded and FGS is not the live tile. */
+    /** High-importance peek while backgrounded; refreshed during the 20s alert window. */
     private fun postMatchFoundHeadsUp(context: Context, match: Match, uid: String) {
-        if (!MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()) return
+        if (!MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp()) return
         if (MatchmakingForegroundService.isRunning()) return
         ensureChannels(context)
         val manager = NotificationManagerCompat.from(context)
@@ -167,6 +173,14 @@ object MatchNotificationHelper {
                     return
                 }
                 val latest = JoinMatchNotificationState.lobbyMatch() ?: match
+                if (
+                    JoinMatchNotificationState.isWithinProminentAlertWindow() &&
+                    MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp() &&
+                    !MatchmakingForegroundService.isRunning() &&
+                    !MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext)
+                ) {
+                    postMatchFoundHeadsUp(appContext, latest, uid)
+                }
                 maintainJoinMatchNotification(appContext, latest, uid)
                 lobbyAlertHandler.postDelayed(this, 1_000L)
             }
@@ -188,7 +202,14 @@ object MatchNotificationHelper {
     /** Refreshes lobby match-found UI: FGS tile when running, otherwise notification 2001 (never both). */
     fun maintainJoinMatchNotification(context: Context, match: Match, uid: String) {
         if (suppressMatchFoundDuringActiveSession(context.applicationContext, uid)) return
-        if (match.status != MatchStatus.LOBBY || !match.isParticipant(uid)) return
+        if (!match.isParticipant(uid)) return
+        val inProminentWindow = JoinMatchNotificationState.isWithinProminentAlertWindow()
+        val maintainableStatus = when (match.status) {
+            MatchStatus.LOBBY -> true
+            MatchStatus.ACTIVE -> inProminentWindow
+            else -> false
+        }
+        if (!maintainableStatus) return
         JoinMatchNotificationState.bindLobby(match)
         MatchmakingForegroundService.applySessionMatchHint(match)
         val manager = NotificationManagerCompat.from(context)
@@ -240,21 +261,20 @@ object MatchNotificationHelper {
             context.getString(R.string.match_found_notification_body_vs, name)
         } ?: context.getString(R.string.match_found_notification_body)
         val now = System.currentTimeMillis()
-        val startedAtMs = match.createdAt.takeIf { it > 0L } ?: now
-        val elapsedSeconds = ((now - startedAtMs) / 1_000).coerceAtLeast(0L)
-        val segmentedDisplay = TopBarStatusRowSpec(
-            status = SegmentedNotificationStatus.MATCH_FOUND,
+        val startedAtMs = JoinMatchNotificationState.lobbyAlertStartedAtMs()?.takeIf { it > 0L }
+            ?: match.createdAt.takeIf { it > 0L }
+            ?: now
+        val segmentedDisplay = matchFoundSegmentedDisplay(
             onlineCount = SegmentedNotificationState.onlineCount,
-            showLiveTime = true,
-            elapsedSeconds = elapsedSeconds,
-            timerAnchorMs = startedAtMs,
-            spinnerStyle = SegmentedSpinnerStyle.QUEUE,
+            startedAtMs = startedAtMs,
+            nowMs = now,
         )
-        val highImportanceShade = MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()
-        val useHeadsUp = headsUpAlert && highImportanceShade
+        val highPriorityShade = MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade()
+        val inProminentWindow = JoinMatchNotificationState.isWithinProminentAlertWindow()
+        val useHeadsUp = headsUpAlert && MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp()
         val channelId = when {
             useHeadsUp -> MATCH_FOUND_HEADS_UP_CHANNEL_ID
-            highImportanceShade -> MATCH_FOUND_CHANNEL_ID
+            highPriorityShade -> MATCH_FOUND_CHANNEL_ID
             else -> MATCH_FOUND_FOREGROUND_CHANNEL_ID
         }
         val builder = NotificationCompat.Builder(context, channelId)
@@ -263,7 +283,7 @@ object MatchNotificationHelper {
             .setPriority(
                 when {
                     useHeadsUp -> NotificationCompat.PRIORITY_MAX
-                    highImportanceShade -> NotificationCompat.PRIORITY_HIGH
+                    highPriorityShade -> NotificationCompat.PRIORITY_HIGH
                     else -> NotificationCompat.PRIORITY_DEFAULT
                 },
             )
@@ -274,12 +294,13 @@ object MatchNotificationHelper {
                     NotificationCompat.CATEGORY_EVENT
                 },
             )
-            .setOngoing(!useHeadsUp)
-            .setOnlyAlertOnce(true)
+            .setOngoing(!useHeadsUp || inProminentWindow)
+            .setOnlyAlertOnce(!inProminentWindow)
         if (useHeadsUp) {
             builder
                 .setSilent(false)
                 .setDefaults(0)
+                .setVibrate(null)
         } else {
             builder.setSilent(true)
         }
@@ -369,8 +390,6 @@ object MatchNotificationHelper {
 
     /** Ongoing in-match shade until the game screen for this match is visible. */
     fun showInMatch(context: Context, match: Match, uid: String) {
-        cancelLobbyAlertTimers(context)
-        JoinMatchNotificationState.clear()
         syncInMatchSession(context, match, uid)
         if (deferInMatchShadeToForegroundService(context)) return
         if (!NotificationPermissionHelper.hasPostNotificationsPermission(context)) return

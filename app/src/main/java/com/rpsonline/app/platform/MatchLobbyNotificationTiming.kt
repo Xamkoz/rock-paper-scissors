@@ -1,6 +1,14 @@
-package com.rpsonline.app.platform
-
-/** Aligns with server [LOBBY_READY_MS] / pre-game ready deadline (20s). */
-internal object MatchLobbyNotificationTiming {
-    const val LOBBY_ALERT_MS = 20_000L
-}
+package com.rpsonline.app.platform
+
+import com.rpsonline.app.ui.segment.SegmentedLobbyAlertTiming
+
+/** Aligns with server lobby ready deadline (20s). */
+object MatchLobbyNotificationTiming {
+    const val LOBBY_ALERT_MS = SegmentedLobbyAlertTiming.ALERT_MS
+
+    fun isWithinAlertWindow(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        SegmentedLobbyAlertTiming.isWithinAlertWindow(startedAtMs, nowMs)
+
+    fun remainingAlertSeconds(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Long =
+        SegmentedLobbyAlertTiming.remainingSeconds(startedAtMs, nowMs)
+}

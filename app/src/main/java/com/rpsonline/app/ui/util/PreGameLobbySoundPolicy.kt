@@ -18,12 +18,18 @@ object PreGameLobbySoundPolicy {
         uid: String?,
         visibleMatchScreenId: String?,
     ): Boolean {
-        if (match == null || uid == null) return JoinMatchNotificationState.isLobbyAlertPhase()
-        if (match.status != MatchStatus.LOBBY || !match.isParticipant(uid)) {
-            return JoinMatchNotificationState.isLobbyAlertPhase()
+        if (uid == null) return false
+        val lobbyMatch = when {
+            match != null && match.isParticipant(uid) -> match
+            else -> JoinMatchNotificationState.lobbyMatch()
+        } ?: return false
+        if (!lobbyMatch.isParticipant(uid)) return false
+        if (visibleMatchScreenId == lobbyMatch.id) return false
+        return when (lobbyMatch.status) {
+            MatchStatus.LOBBY -> true
+            MatchStatus.ACTIVE -> lobbyMatch.isLiveForReconnect()
+            else -> false
         }
-        if (visibleMatchScreenId == match.id) return false
-        return true
     }
 
     fun shouldRunMatchFoundLobbyAlert(context: Context): Boolean {
@@ -40,7 +46,8 @@ object PreGameLobbySoundPolicy {
         val match = MatchSessionMonitor.activeMatch.value
             ?: JoinMatchNotificationState.lobbyMatch()
         return match != null &&
-            match.status == MatchStatus.LOBBY &&
-            match.isParticipant(uid)
+            match.isParticipant(uid) &&
+            (match.status == MatchStatus.LOBBY ||
+                (match.status == MatchStatus.ACTIVE && match.isLiveForReconnect()))
     }
 }

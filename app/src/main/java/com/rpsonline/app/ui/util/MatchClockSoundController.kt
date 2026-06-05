@@ -37,20 +37,6 @@ object MatchClockSoundController {
         player?.playReadyTick()
     }
 
-    /** Ready/opponent-ready burst during pre-game lobby (notification stream + volume). */
-    fun playLobbyReadyFeedback(context: Context) {
-        val ctx = context.applicationContext
-        initialize(ctx)
-        if (lobbyAlertSoundsAudible(ctx)) {
-            lobbyTickPlayer?.playReadyTick()
-        }
-        val mode = SoundPreferences(ctx).getMode()
-        if (lobbyAlertHapticsAllowed(ctx)) {
-            MatchClockHaptics.initialize(ctx)
-            MatchClockHaptics.pulseTick()
-        }
-    }
-
     private fun lobbyAlertSoundsAudible(ctx: Context): Boolean {
         val mode = SoundPreferences(ctx).getMode()
         if (AppForegroundTracker.isInForeground) {
@@ -116,7 +102,11 @@ object MatchClockSoundController {
         }
     }
 
-    /** Match-found alert: ready burst once, then notification-class ticks + haptics every 500ms. */
+    /**
+     * Match-found alert: notification-class tick + haptic on anchor-aligned 500ms beats.
+     * Uses [JoinMatchNotificationState.lobbyAlertStartedAtMs] so haptics stay in phase with the
+     * segmented notification timer (and are not drifted by coroutine work time).
+     */
     fun syncLobbyAlert(shouldRun: Boolean) {
         if (!shouldRun) {
             lobbyTickJob?.cancel()
@@ -130,17 +120,20 @@ object MatchClockSoundController {
         lobbyTickJob = scope.launch {
             try {
                 val ctx = appContext
-                if (ctx != null && lobbyAlertSoundsAudible(ctx)) {
-                    tickPlayer.playReadyTick()
-                }
+                val anchorMs = JoinMatchNotificationState.lobbyAlertStartedAtMs()
+                    ?: System.currentTimeMillis()
+                var beatIndex = currentLobbyAlertBeatIndex(anchorMs)
                 while (isActive) {
+                    val waitMs = delayMsUntilNextLobbyAlertBeat(anchorMs, beatIndex)
+                    if (waitMs > 0L) delay(waitMs)
+                    if (!isActive) break
                     if (ctx != null) {
                         if (lobbyAlertSoundsAudible(ctx)) {
                             tickPlayer.playTick()
                         }
                         pulseLobbyAlertHapticIfAllowed(ctx)
                     }
-                    delay(500)
+                    beatIndex++
                 }
             } finally {
                 tickPlayer.stop()

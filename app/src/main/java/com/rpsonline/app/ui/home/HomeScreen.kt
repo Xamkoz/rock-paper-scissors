@@ -195,14 +195,17 @@ fun HomeScreen(
         val selectedModes = uiState.selectedMatchModes
         val matchModesLocked = uiState.isJoiningQueue || uiState.isInQueue
         val scrollState = rememberScrollState()
-        val showMatchFoundPhase = activeMatch?.status == MatchStatus.ACTIVE &&
-            (
-                matchmakingInProgress ||
-                    (
-                        openingMatchId != null &&
-                            activeMatch?.id == openingMatchId
-                        )
-                )
+        val showMatchFoundPhase = when (val match = activeMatch) {
+            null -> false
+            else -> when (match.status) {
+                MatchStatus.LOBBY ->
+                    matchmakingInProgress || uiState.preGameSync != null
+                MatchStatus.ACTIVE ->
+                    matchmakingInProgress ||
+                        (openingMatchId != null && match.id == openingMatchId)
+                else -> false
+            }
+        }
 
         val showHighlightedMatch = !uiState.isHighlightedMatchDismissed && uiState.highlightedMatch != null
 
@@ -306,8 +309,13 @@ fun HomeScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
         } else if (
-            (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null || matchmakingInProgress) &&
-            uiState.activeMatchId == null
+            (
+                showMatchFoundPhase ||
+                    (
+                        (uiState.isJoiningQueue || uiState.isInQueue || openingMatchId != null || matchmakingInProgress) &&
+                            uiState.activeMatchId == null
+                        )
+                )
         ) {
             val liveQueueElapsed = rememberQueueElapsedSeconds(
                 anchorMs = queueAnchorMs?.takeIf {

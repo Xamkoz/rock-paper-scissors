@@ -72,4 +72,79 @@ class MatchReconnectNavigationPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun shouldAutoNavigateToLiveMatch_falseWhenBackgroundedWithoutExplicitLaunch() {
+        assertFalse(
+            shouldAutoNavigateToLiveMatch(
+                match = liveActiveMatch(),
+                userId = "p1",
+                fromCache = false,
+                matchmakingInProgress = true,
+                autoNavigationSuppressed = false,
+                resumingFromQueueOrJoin = true,
+                backgroundUsageEnabled = true,
+                appInForeground = false,
+                explicitLaunchMatchId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldAutoNavigateToLiveMatch_trueWhenBackgroundedWithNotificationTap() {
+        assertTrue(
+            shouldAutoNavigateToLiveMatch(
+                match = liveActiveMatch(),
+                userId = "p1",
+                fromCache = false,
+                matchmakingInProgress = true,
+                autoNavigationSuppressed = false,
+                resumingFromQueueOrJoin = true,
+                backgroundUsageEnabled = true,
+                appInForeground = false,
+                explicitLaunchMatchId = "m1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldAutoNavigateToLiveMatch_trueWhenForegroundRestoredDuringMatchmaking() {
+        assertTrue(
+            shouldAutoNavigateToLiveMatch(
+                match = liveActiveMatch(),
+                userId = "p1",
+                fromCache = false,
+                matchmakingInProgress = true,
+                autoNavigationSuppressed = false,
+                resumingFromQueueOrJoin = true,
+                backgroundUsageEnabled = true,
+                appInForeground = true,
+                explicitLaunchMatchId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldAllowPassiveMatchJoin_falseWhenBackgroundedWithoutExplicitLaunch() {
+        assertFalse(
+            shouldAllowPassiveMatchJoinWhenBackgrounded(
+                backgroundUsageEnabled = true,
+                appInForeground = false,
+                explicitLaunchMatchId = null,
+                matchId = "m1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldAllowPassiveMatchJoin_trueWhenBackgroundedWithNotificationTap() {
+        assertTrue(
+            shouldAllowPassiveMatchJoinWhenBackgrounded(
+                backgroundUsageEnabled = true,
+                appInForeground = false,
+                explicitLaunchMatchId = "m1",
+                matchId = "m1",
+            ),
+        )
+    }
 }

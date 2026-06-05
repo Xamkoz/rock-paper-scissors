@@ -19,9 +19,10 @@ internal object MatchFoundFeedbackGate {
 }
 
 /**
- * One-shot match-found burst (ready tick). Repeating lobby ticks use [MatchClockSoundController.syncLobbyAlert].
+ * One-shot match-found burst when opening the game screen.
+ * Repeating lobby ticks use [MatchClockSoundController.syncLobbyAlert].
  *
- * @param playReadyBurst false when [syncLobbyAlert] already started (avoids double ready tick).
+ * @param playReadyBurst false when [syncLobbyAlert] already drives tick/haptic feedback.
  */
 fun triggerMatchFoundFeedback(
     context: Context,
@@ -29,10 +30,11 @@ fun triggerMatchFoundFeedback(
     playReadyBurst: Boolean = true,
 ) {
     if (!MatchFoundFeedbackGate.tryAcknowledge(matchId)) return
+    if (!playReadyBurst) return
     val appContext = context.applicationContext
     MatchClockSoundController.initialize(appContext)
     val mode = SoundPreferences(appContext).getMode()
-    if (playReadyBurst && mode.allowsSound()) {
+    if (mode.allowsSound()) {
         MatchClockSoundController.playReadyBurst()
     }
     if (mode.allowsHaptic() && NotificationAlertSoundPolicy.notificationHapticsAllowed(appContext)) {

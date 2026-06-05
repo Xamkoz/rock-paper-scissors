@@ -147,7 +147,13 @@ object SevenSegmentPainter {
         gap()
 
         val timerDigits = if (spec.showLiveTime) {
-            SevenSegmentTimerDigits.formatMmSsChars(spec.elapsedSeconds)
+            val displaySeconds = resolveSegmentedTimerSeconds(
+                elapsedSeconds = spec.elapsedSeconds,
+                timerMode = spec.timerMode,
+                timerAnchorMs = spec.timerAnchorMs,
+                nowMs = timeMs,
+            )
+            SevenSegmentTimerDigits.formatMmSsChars(displaySeconds)
         } else {
             "0000".toList()
         }

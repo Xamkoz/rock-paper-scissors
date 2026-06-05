@@ -17,22 +17,46 @@ internal object JoinMatchNotificationState {
     @Volatile
     private var lobbyAlertMatchId: String? = null
 
+    @Volatile
+    private var lobbyAlertStartedAtMs: Long = 0L
+
     fun beginLobbyAlertPhase(match: Match) {
         lobbyAlertPhase = true
         lobbyAlertMatchId = match.id
+        lobbyAlertStartedAtMs = System.currentTimeMillis()
         bindLobby(match)
     }
 
     fun endLobbyAlertPhase() {
         lobbyAlertPhase = false
         lobbyAlertMatchId = null
+        lobbyAlertStartedAtMs = 0L
     }
 
     fun isLobbyAlertPhase(): Boolean = lobbyAlertPhase
 
+    /** True for [MatchLobbyNotificationTiming.LOBBY_ALERT_MS] after match-found is posted. */
+    fun isWithinProminentAlertWindow(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!lobbyAlertPhase) return false
+        return MatchLobbyNotificationTiming.isWithinAlertWindow(lobbyAlertStartedAtMs, nowMs)
+    }
+
+    fun lobbyAlertStartedAtMs(): Long? = lobbyAlertStartedAtMs.takeIf { it > 0L }
+
     fun bindLobby(match: Match) {
-        if (match.status == MatchStatus.LOBBY) {
-            lobbyMatch = match
+        when (match.status) {
+            MatchStatus.LOBBY -> lobbyMatch = match
+            MatchStatus.ACTIVE -> {
+                if (lobbyMatch?.id == match.id || lobbyAlertMatchId == match.id) {
+                    lobbyMatch = match
+                }
+            }
+            else -> {
+                if (lobbyMatch?.id == match.id || lobbyAlertMatchId == match.id) {
+                    lobbyMatch = null
+                    endLobbyAlertPhase()
+                }
+            }
         }
     }
 

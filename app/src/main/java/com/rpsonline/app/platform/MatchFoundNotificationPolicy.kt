@@ -9,6 +9,20 @@ internal object MatchFoundNotificationPolicy {
     fun shouldUseHighImportanceMatchFoundShade(): Boolean =
         !AppForegroundTracker.isInForeground
 
+    /** Ongoing match-found tile uses HIGH importance while alerting (foreground shade + background). */
+    fun shouldUsePersistentHighPriorityMatchFoundShade(): Boolean =
+        JoinMatchNotificationState.isLobbyAlertPhase() ||
+            shouldUseHighImportanceMatchFoundShade()
+
+    /** Full-screen launch alerts forcibly foreground the app; disabled for background matchmaking. */
+    fun shouldUseFullScreenMatchLaunchAlert(backgroundUsageEnabled: Boolean): Boolean =
+        !backgroundUsageEnabled
+
+    /** Heads-up / high-importance match-found alert for the first 20s after posting. */
+    fun shouldUseProminentMatchFoundHeadsUp(): Boolean =
+        shouldUseHighImportanceMatchFoundShade() &&
+            JoinMatchNotificationState.isWithinProminentAlertWindow()
+
     /**
      * While in an active match with background usage on, match-found heads-up / high-importance
      * alerts must not compete with the in-match FGS tile.

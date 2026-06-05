@@ -33,7 +33,9 @@ import com.rpsonline.app.data.monitoring.NetworkDataActivityKind
 import com.rpsonline.app.ui.segment.SegmentLayout
 import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.segment.SegmentedSpinnerSteps
+import com.rpsonline.app.ui.segment.SegmentedTimerMode
 import com.rpsonline.app.ui.segment.SevenSegmentColonLayout
+import com.rpsonline.app.ui.segment.resolveSegmentedTimerSeconds
 import com.rpsonline.app.ui.util.LocalTopBarSegmentedFrameTimeMs
 import com.rpsonline.app.ui.util.TOP_BAR_SEGMENTED_UPDATE_INTERVAL_MS
 import com.rpsonline.app.ui.util.TopBarSegmentedFrameTimeProvider
@@ -511,7 +513,13 @@ fun TopBarSegmentedStatusRow(
     val offColor = sevenSegmentGhostColor()
     val showLiveTime = inQueue || inMatch || inLobby
     val animateSpinner = inQueue || inLobby || (inMatch && !playerClockStopped)
+    val resolvedTimerMode = if (inLobby) {
+        SegmentedTimerMode.LOBBY_ALERT_COUNTDOWN
+    } else {
+        SegmentedTimerMode.ELAPSED
+    }
     val spinnerStyle = when {
+        inLobby -> SegmentedSpinnerStyle.MATCH
         !inMatch -> SegmentedSpinnerStyle.QUEUE
         playerClockStopped -> SegmentedSpinnerStyle.MATCH_CLOCK_STOPPED
         else -> SegmentedSpinnerStyle.MATCH
@@ -525,6 +533,7 @@ fun TopBarSegmentedStatusRow(
             spinnerStyle = spinnerStyle,
             elapsedSeconds = elapsedSeconds,
             timerAnchorMs = timerAnchorMs,
+            timerMode = resolvedTimerMode,
             offColor = offColor,
             digitWidth = digitWidth,
             digitHeight = digitHeight,
@@ -541,6 +550,7 @@ private fun TopBarSegmentedStatusRowContent(
     spinnerStyle: SegmentedSpinnerStyle,
     elapsedSeconds: Long,
     timerAnchorMs: Long?,
+    timerMode: SegmentedTimerMode,
     offColor: Color,
     digitWidth: Dp,
     digitHeight: Dp,
@@ -605,6 +615,7 @@ private fun TopBarSegmentedStatusRowContent(
             elapsedSeconds = elapsedSeconds,
             showLiveTime = showLiveTime,
             timerAnchorMs = timerAnchorMs,
+            timerMode = timerMode,
             digitWidth = digitWidth,
             digitHeight = digitHeight,
             baseSlotIndex = TopBarTimerDigitsSlotStart,
@@ -618,6 +629,7 @@ private fun QueueTimerDigitsSegmentedDisplay(
     elapsedSeconds: Long,
     showLiveTime: Boolean,
     timerAnchorMs: Long? = null,
+    timerMode: SegmentedTimerMode = SegmentedTimerMode.ELAPSED,
     digitWidth: Dp,
     digitHeight: Dp,
     baseSlotIndex: Int = -1,
@@ -626,7 +638,13 @@ private fun QueueTimerDigitsSegmentedDisplay(
     offColor: Color = sevenSegmentGhostColor(),
 ) {
     val colonLit = rememberColonBlinkLit(showLiveTime, timerAnchorMs)
-    val totalSeconds = elapsedSeconds.coerceAtLeast(0)
+    val frameTimeMs = LocalTopBarSegmentedFrameTimeMs.current ?: System.currentTimeMillis()
+    val totalSeconds = resolveSegmentedTimerSeconds(
+        elapsedSeconds = elapsedSeconds,
+        timerMode = timerMode,
+        timerAnchorMs = timerAnchorMs,
+        nowMs = frameTimeMs,
+    ).coerceAtLeast(0)
     val minutes = (totalSeconds / 60).coerceAtMost(99)
     val seconds = (totalSeconds % 60).coerceAtMost(59)
     val digits = "%02d%02d".format(minutes, seconds).toList()

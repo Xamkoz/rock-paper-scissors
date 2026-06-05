@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppForegroundTracker.setInForeground(true)
+        MatchSessionMonitor.nudgeMatchLaunchUi()
         val lobbyHold = MatchSessionMonitor.activeMatch.value?.status == MatchStatus.LOBBY ||
             JoinMatchNotificationState.lobbyMatch()?.status == MatchStatus.LOBBY
         if (!lobbyHold) {

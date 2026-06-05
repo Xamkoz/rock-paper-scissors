@@ -14,6 +14,8 @@ import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.domain.MatchMode
+import com.rpsonline.app.data.preferences.MatchmakingPreferences
+import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.computeShouldSyncFromServerOnResume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +78,10 @@ object MatchSessionMonitor {
     private val _visibleMatchScreenId = MutableStateFlow<String?>(null)
     val visibleMatchScreenId: StateFlow<String?> = _visibleMatchScreenId.asStateFlow()
 
-    private var pendingLaunchMatchId: String? = null
+    /** Set only from notification tap / explicit launch intent. */
+    private var userLaunchMatchId: String? = null
+    /** Poll target for [enqueueGameNavigationWhenReady]; not an explicit user launch. */
+    private var pendingReadyNavigationMatchId: String? = null
     private var enqueueNavigationJob: Job? = null
     private var autoGameNavigationSuppressedMatchId: String? = null
 
@@ -172,16 +177,35 @@ object MatchSessionMonitor {
 
     fun requestGameNavigation(matchId: String) {
         if (isAutoGameNavigationSuppressed(matchId)) return
+        if (!shouldAllowPassiveGameJoin(matchId)) return
         _pendingGameNavigationMatchId.value = matchId
+    }
+
+    fun shouldAllowPassiveGameJoin(matchId: String): Boolean {
+        val appContext = runCatching { FirebaseApp.getInstance().applicationContext }.getOrNull()
+        val backgroundUsageEnabled = appContext
+            ?.let { MatchmakingPreferences(it).isBackgroundUsageEnabled() }
+            ?: false
+        return shouldAllowPassiveMatchJoinWhenBackgrounded(
+            backgroundUsageEnabled = backgroundUsageEnabled,
+            appInForeground = AppForegroundTracker.isInForeground,
+            explicitLaunchMatchId = userLaunchMatchId,
+            matchId = matchId,
+        )
     }
 
     fun isAutoGameNavigationSuppressed(matchId: String): Boolean =
         autoGameNavigationSuppressedMatchId == matchId
 
-    /** Match id from a notification or background launch intent, if navigation is still allowed. */
+    /** Match id from a notification tap or launch intent; not set by passive session updates. */
+    fun explicitLaunchMatchId(): String? = userLaunchMatchId
+
+    /** Pending navigation target when allowed; blocked in background without explicit launch. */
     fun pendingGameLaunchMatchId(): String? {
-        val matchId = _pendingGameNavigationMatchId.value ?: pendingLaunchMatchId ?: return null
-        return matchId.takeUnless { isAutoGameNavigationSuppressed(it) }
+        val matchId = _pendingGameNavigationMatchId.value ?: userLaunchMatchId ?: return null
+        if (isAutoGameNavigationSuppressed(matchId)) return null
+        if (!shouldAllowPassiveGameJoin(matchId)) return null
+        return matchId
     }
 
     fun clearAutoGameNavigationSuppression(matchId: String) {
@@ -193,7 +217,8 @@ object MatchSessionMonitor {
     /** User left an active game via back; stay on home until they tap reconnect. */
     fun suppressAutoGameNavigation(matchId: String) {
         autoGameNavigationSuppressedMatchId = matchId
-        pendingLaunchMatchId = null
+        userLaunchMatchId = null
+        pendingReadyNavigationMatchId = null
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = null
         setMatchmakingInProgress(false)
@@ -206,13 +231,13 @@ object MatchSessionMonitor {
             return
         }
         autoGameNavigationSuppressedMatchId = null
-        pendingLaunchMatchId = matchId
+        userLaunchMatchId = matchId
         _matchLaunchUiNudge.value += 1
     }
 
     fun enqueueGameNavigationWhenReady(matchId: String) {
         if (isAutoGameNavigationSuppressed(matchId)) return
-        pendingLaunchMatchId = matchId
+        pendingReadyNavigationMatchId = matchId
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = sessionScope.launch {
             repeat(40) {
@@ -234,7 +259,9 @@ object MatchSessionMonitor {
                 }
                 delay(250)
             }
-            if (pendingLaunchMatchId == matchId || _pendingGameNavigationMatchId.value == matchId) {
+            if (pendingReadyNavigationMatchId == matchId ||
+                _pendingGameNavigationMatchId.value == matchId
+            ) {
                 consumeGameNavigation()
             }
         }
@@ -242,14 +269,16 @@ object MatchSessionMonitor {
 
     fun consumeGameNavigation() {
         _pendingGameNavigationMatchId.value = null
-        pendingLaunchMatchId = null
+        userLaunchMatchId = null
+        pendingReadyNavigationMatchId = null
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = null
     }
 
     /** Match ended; clear notification-launch navigation so back from result stays on home. */
     fun onMatchFinished(matchId: String) {
-        pendingLaunchMatchId = null
+        userLaunchMatchId = null
+        pendingReadyNavigationMatchId = null
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = null
         consumeGameNavigation()
@@ -361,7 +390,8 @@ object MatchSessionMonitor {
         _hasQueueEntry.value = false
         _matchmakingInProgress.value = false
         _pendingGameNavigationMatchId.value = null
-        pendingLaunchMatchId = null
+        userLaunchMatchId = null
+        pendingReadyNavigationMatchId = null
         autoGameNavigationSuppressedMatchId = null
         enqueueNavigationJob?.cancel()
         enqueueNavigationJob = null
@@ -699,6 +729,10 @@ object MatchSessionMonitor {
                 }
             }
         }
+        val appContext = runCatching { FirebaseApp.getInstance().applicationContext }.getOrNull()
+        val backgroundUsageEnabled = appContext
+            ?.let { MatchmakingPreferences(it).isBackgroundUsageEnabled() }
+            ?: false
         if (
             shouldAutoNavigateToLiveMatch(
                 match = match,
@@ -707,14 +741,18 @@ object MatchSessionMonitor {
                 matchmakingInProgress = _matchmakingInProgress.value,
                 autoNavigationSuppressed = isAutoGameNavigationSuppressed(match.id),
                 resumingFromQueueOrJoin = _hasQueueEntry.value,
+                backgroundUsageEnabled = backgroundUsageEnabled,
+                appInForeground = AppForegroundTracker.isInForeground,
+                explicitLaunchMatchId = userLaunchMatchId,
             )
         ) {
             requestGameNavigation(match.id)
-            pendingLaunchMatchId = null
+            userLaunchMatchId = null
+            pendingReadyNavigationMatchId = null
         } else if (
             match.isParticipant(uid) &&
             (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) &&
-            (pendingLaunchMatchId == match.id || _pendingGameNavigationMatchId.value == match.id)
+            (userLaunchMatchId == match.id || _pendingGameNavigationMatchId.value == match.id)
         ) {
             onMatchFinished(match.id)
         }

@@ -164,6 +164,20 @@ data class Match(
         return last > 0 && nowMs - last <= ACTIVE_RECONNECT_GRACE_MS
     }
 
+    /** Match-found segmented row (countdown + match spinner), not in-match elapsed time. */
+    fun isPreGameSegmentedDisplayPhase(userId: String? = null): Boolean {
+        if (status == MatchStatus.LOBBY) return true
+        if (status != MatchStatus.ACTIVE) return false
+        if (userId != null && (!isPlayerReady(userId) || !isOpponentReady(userId))) {
+            return true
+        }
+        return !hasGameplayStarted()
+    }
+
+    /** True once the server has started a live round (not the lobby placeholder slot). */
+    fun hasGameplayStarted(): Boolean =
+        rounds.any { it.resolvedAt != null || it.startedAt != null }
+
     fun isPlayerReady(userId: String): Boolean =
         if (userId == player1) player1Ready else player2Ready
 

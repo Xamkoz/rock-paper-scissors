@@ -1,22 +1,16 @@
 package com.rpsonline.app.platform
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import com.google.firebase.auth.FirebaseAuth
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.preferences.MatchmakingPreferences
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 
-/**
- * When background matchmaking is running and a match enters LOBBY or ACTIVE, bring the app
- * to the foreground so the user sees pre-game sync (home) or the game screen (ACTIVE).
- */
+/** Posts match-found / in-match notifications; does not auto-launch the app from the background. */
 object MatchForegroundLaunchCoordinator {
     private var lastLaunchKey: String? = null
     private var lastNotifiedMatchId: String? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun onMatchSessionChanged(context: Context, match: Match?) {
         val appContext = context.applicationContext
@@ -71,20 +65,6 @@ object MatchForegroundLaunchCoordinator {
             }
         }
 
-        if (AppForegroundTracker.isInForeground) {
-            return
-        }
-        val sessionMatch = match ?: return
-        if (uid == null || !sessionMatch.isParticipant(uid)) return
-        if (!MatchmakingPreferences(appContext).isBackgroundUsageEnabled()) {
-            return
-        }
-
-        when (sessionMatch.status) {
-            MatchStatus.LOBBY -> Unit
-            MatchStatus.ACTIVE -> handleBackgroundAutoLaunch(appContext, sessionMatch)
-            else -> Unit
-        }
     }
 
     fun activeJoinMatchNotificationId(): String? = lastNotifiedMatchId
@@ -122,18 +102,6 @@ object MatchForegroundLaunchCoordinator {
             JoinMatchNotificationState.activeMatchId() == match.id
         ) {
             MatchNotificationHelper.maintainJoinMatchNotification(appContext, match, uid)
-        }
-    }
-
-    private fun handleBackgroundAutoLaunch(appContext: Context, sessionMatch: Match) {
-        val launchKey = "${sessionMatch.id}:${sessionMatch.status}"
-        if (launchKey == lastLaunchKey) return
-        lastLaunchKey = launchKey
-
-        MatchSessionMonitor.noteMatchLaunchIntent(sessionMatch.id)
-        MatchSessionMonitor.requestGameNavigation(sessionMatch.id)
-        mainHandler.post {
-            MatchLaunchHelper.launchMatch(appContext, sessionMatch.id)
         }
     }
 

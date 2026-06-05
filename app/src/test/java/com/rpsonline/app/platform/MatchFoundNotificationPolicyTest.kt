@@ -12,6 +12,31 @@ class MatchFoundNotificationPolicyTest {
     @After
     fun tearDown() {
         AppForegroundTracker.setInForeground(true)
+        JoinMatchNotificationState.clear()
+    }
+
+    @Test
+    fun shouldUseProminentMatchFoundHeadsUp_trueDuringTwentySecondWindow() {
+        AppForegroundTracker.setInForeground(false)
+        JoinMatchNotificationState.beginLobbyAlertPhase(lobbyMatch)
+        assertTrue(MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp())
+    }
+
+    @Test
+    fun shouldUsePersistentHighPriorityMatchFoundShade_trueDuringLobbyAlertInForeground() {
+        AppForegroundTracker.setInForeground(true)
+        JoinMatchNotificationState.beginLobbyAlertPhase(lobbyMatch)
+        try {
+            assertTrue(MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade())
+        } finally {
+            JoinMatchNotificationState.clear()
+        }
+    }
+
+    @Test
+    fun shouldUsePersistentHighPriorityMatchFoundShade_falseWhenIdleInForeground() {
+        AppForegroundTracker.setInForeground(true)
+        assertFalse(MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade())
     }
 
     @Test
@@ -24,6 +49,16 @@ class MatchFoundNotificationPolicyTest {
     fun shouldUseHighImportanceMatchFoundShade_trueWhenAppBackgrounded() {
         AppForegroundTracker.setInForeground(false)
         assertTrue(MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade())
+    }
+
+    @Test
+    fun shouldUseFullScreenMatchLaunchAlert_falseWhenBackgroundUsageEnabled() {
+        assertFalse(MatchFoundNotificationPolicy.shouldUseFullScreenMatchLaunchAlert(true))
+    }
+
+    @Test
+    fun shouldUseFullScreenMatchLaunchAlert_trueWhenBackgroundUsageDisabled() {
+        assertTrue(MatchFoundNotificationPolicy.shouldUseFullScreenMatchLaunchAlert(false))
     }
 
     private val lobbyMatch = Match(

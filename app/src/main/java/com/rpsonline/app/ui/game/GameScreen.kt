@@ -49,6 +49,7 @@ import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.ui.LocalSoundFeedbackMode
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
+import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.ui.util.MATCH_END_NAVIGATION_DELAY_MS
 import com.rpsonline.app.ui.util.MoveSoundPlayer
 import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
@@ -127,8 +128,13 @@ fun GameScreen(
         viewModel.refreshOnResume()
     }
 
-    LaunchedEffect(uiState.lobbyWaitFailed) {
+    LaunchedEffect(uiState.lobbyWaitFailed, matchId, userId) {
         if (!uiState.lobbyWaitFailed) return@LaunchedEffect
+        MatchNotificationHelper.dismissMatchFound(
+            context,
+            screenMatch ?: monitorMatch?.takeIf { it.id == matchId },
+            userId,
+        )
         delay(1_200)
         onLobbyWaitExited()
     }

@@ -447,17 +447,24 @@ fun RpsApp() {
         val match = activeMatch
         val uid = user?.uid
         MatchClockSoundController.initialize(context)
-        if (
-            match != null &&
-            uid != null &&
-            match.status == MatchStatus.LOBBY &&
-            match.isParticipant(uid)
-        ) {
+        if (match != null && uid != null && match.isParticipant(uid)) {
             JoinMatchNotificationState.bindLobby(match)
         }
-        MatchClockSoundController.syncLobbyAlert(
-            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(match, uid, visibleMatchScreenId),
+        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
+            match,
+            uid,
+            visibleMatchScreenId,
         )
+        MatchClockSoundController.syncLobbyAlert(shouldRunLobbyAlert)
+        if (
+            !shouldRunLobbyAlert &&
+            uid != null &&
+            match != null &&
+            match.isParticipant(uid) &&
+            match.status != MatchStatus.LOBBY
+        ) {
+            MatchNotificationHelper.dismissMatchFound(context, match, uid)
+        }
     }
 
     LaunchedEffect(
@@ -598,8 +605,13 @@ fun RpsApp() {
                                     (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) &&
                                         roundResolutionPulseNotifier.isLiveMatch(match.id)
                                 } == true
-                                val inLobby = activeMatch?.status == MatchStatus.LOBBY
-                                val inMatch = activeMatch?.status == MatchStatus.ACTIVE || matchEndTransitionActive
+                                val inMatchFoundDisplay = activeMatch
+                                    ?.isPreGameSegmentedDisplayPhase(user?.uid) == true
+                                val inLobby = inMatchFoundDisplay
+                                val inMatch = (
+                                    activeMatch?.status == MatchStatus.ACTIVE ||
+                                        matchEndTransitionActive
+                                    ) && !inMatchFoundDisplay
                                 val inQueue = queueJoinedAtMs != null &&
                                     matchmakingInProgress &&
                                     !inMatch &&
@@ -609,8 +621,10 @@ fun RpsApp() {
                                     else -> queueElapsedSeconds
                                 }
                                 val sessionTimerAnchorMs = when {
-                                    inMatch || inLobby ->
-                                        activeMatch?.createdAt?.takeIf { it > 0L }
+                                    inLobby ->
+                                        JoinMatchNotificationState.lobbyAlertStartedAtMs()
+                                            ?: activeMatch?.createdAt?.takeIf { it > 0L }
+                                    inMatch -> activeMatch?.createdAt?.takeIf { it > 0L }
                                     else -> queueAnchorMs?.takeIf { matchmakingInProgress }
                                 }
                                 val playerClockStopped = inMatch &&

@@ -234,6 +234,36 @@ object SevenSegmentColonLayout {
     fun widthDp(digitWidthDp: Float): Float = digitWidthDp * WIDTH_RATIO
 }
 
+/** Pre-game match-found alert window (aligns with server lobby ready deadline). */
+object SegmentedLobbyAlertTiming {
+    const val ALERT_MS = 20_000L
+
+    fun isWithinAlertWindow(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        startedAtMs > 0L && nowMs - startedAtMs < ALERT_MS
+
+    fun remainingSeconds(startedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Long {
+        if (startedAtMs <= 0L) return 0L
+        val remainingMs = (ALERT_MS - (nowMs - startedAtMs).coerceAtLeast(0L)).coerceAtLeast(0L)
+        return remainingMs / 1_000
+    }
+}
+
+enum class SegmentedTimerMode {
+    ELAPSED,
+    LOBBY_ALERT_COUNTDOWN,
+}
+
+fun resolveSegmentedTimerSeconds(
+    elapsedSeconds: Long,
+    timerMode: SegmentedTimerMode,
+    timerAnchorMs: Long?,
+    nowMs: Long = System.currentTimeMillis(),
+): Long = when (timerMode) {
+    SegmentedTimerMode.ELAPSED -> elapsedSeconds
+    SegmentedTimerMode.LOBBY_ALERT_COUNTDOWN ->
+        SegmentedLobbyAlertTiming.remainingSeconds(timerAnchorMs ?: nowMs, nowMs)
+}
+
 enum class SegmentedNotificationStatus {
     IN_QUEUE,
     MATCH_FOUND,
@@ -249,10 +279,32 @@ data class TopBarStatusRowSpec(
     val animateSpinner: Boolean = true,
     /** Anchor for MM:SS second ticks and colon blink phase (e.g. queue joinedAt, match createdAt). */
     val timerAnchorMs: Long? = null,
+    val timerMode: SegmentedTimerMode = SegmentedTimerMode.ELAPSED,
 )
 
 /** @see TopBarStatusRowSpec */
 typealias CompactQueueStatusSpec = TopBarStatusRowSpec
+
+fun matchFoundSegmentedDisplay(
+    onlineCount: Int?,
+    startedAtMs: Long,
+    nowMs: Long = System.currentTimeMillis(),
+): TopBarStatusRowSpec {
+    return TopBarStatusRowSpec(
+        status = SegmentedNotificationStatus.MATCH_FOUND,
+        onlineCount = onlineCount,
+        showLiveTime = true,
+        elapsedSeconds = resolveSegmentedTimerSeconds(
+            elapsedSeconds = 0L,
+            timerMode = SegmentedTimerMode.LOBBY_ALERT_COUNTDOWN,
+            timerAnchorMs = startedAtMs,
+            nowMs = nowMs,
+        ),
+        timerAnchorMs = startedAtMs,
+        spinnerStyle = SegmentedSpinnerStyle.MATCH,
+        timerMode = SegmentedTimerMode.LOBBY_ALERT_COUNTDOWN,
+    )
+}
 
 object TopBarSegmentDimensions {
     const val DIGIT_WIDTH_DP = 10f

@@ -10,6 +10,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.rpsonline.app.R
+import com.rpsonline.app.ui.segment.SegmentedLobbyAlertTiming
 import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 
 /** How the top-bar online player count digits should render. */
@@ -30,14 +31,19 @@ fun TopBarSegmentedQueueIndicator(
     timerAnchorMs: Long? = null,
     modifier: Modifier = Modifier,
 ) {
+    val displayTimerSeconds = if (inLobby) {
+        SegmentedLobbyAlertTiming.remainingSeconds(timerAnchorMs ?: System.currentTimeMillis())
+    } else {
+        elapsedSeconds
+    }
     val timerDescription = when {
         inMatch -> stringResource(
             R.string.in_match_with_time,
-            formatQueueTimeMmSs(elapsedSeconds),
+            formatQueueTimeMmSs(displayTimerSeconds),
         )
         inLobby -> stringResource(
             R.string.match_found_with_time,
-            formatQueueTimeMmSs(elapsedSeconds),
+            formatQueueTimeMmSs(displayTimerSeconds),
         )
         inQueue -> stringResource(
             R.string.in_queue_with_time,

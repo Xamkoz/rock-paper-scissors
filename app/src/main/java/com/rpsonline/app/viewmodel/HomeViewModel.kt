@@ -10,6 +10,7 @@ import com.rpsonline.app.data.model.UserProfile
 import com.rpsonline.app.data.preferences.HighlightedMatchCache
 import com.rpsonline.app.data.preferences.HighlightedMatchSession
 import com.rpsonline.app.data.preferences.MatchModePreferences
+import com.rpsonline.app.data.preferences.MatchmakingPreferences
 import com.rpsonline.app.data.preferences.SoundPreferences
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.HighlightedMatchFunctions
@@ -23,7 +24,9 @@ import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.data.repository.shouldAutoNavigateToLiveMatch
 import com.rpsonline.app.data.repository.shouldClearStaleQueueUiOnResume
 import com.rpsonline.app.data.repository.shouldReconcileQueueSessionOnResume
+import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
+import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.data.repository.MatchmakingFunctions
 import com.rpsonline.app.data.repository.PresenceRepository
 import com.rpsonline.app.data.repository.UserProfileSync
@@ -33,7 +36,6 @@ import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
 import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
 import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
-import com.rpsonline.app.ui.util.MatchClockSoundController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -105,9 +107,6 @@ class HomeViewModel(
     private var highlightedMatchJob: Job? = null
     private var lastProfileStatsFingerprint: Int? = null
     private var appContext: Context? = null
-    private var preGameReadyFeedbackMatchId: String? = null
-    private var lastPreGameMyReady = false
-    private var lastPreGameOpponentReady = false
 
     companion object {
         private const val MATCH_ASSIGNMENT_GRACE_MS = 30_000L
@@ -119,7 +118,6 @@ class HomeViewModel(
         private const val PROFILE_READY_TIMEOUT_MS = 6_000L
         private const val PRE_GAME_READY_TIMEOUT_MESSAGE =
             "Opponent did not ready in time. Tap Find Match to try again."
-        private const val PRE_GAME_READY_TICK_GAP_MS = 120L
     }
 
     val navigateToGameMatchId: StateFlow<String?> = MatchSessionMonitor.pendingGameNavigationMatchId
@@ -587,19 +585,14 @@ class HomeViewModel(
                         val shouldSync = inMatchmakingFlow ||
                             _uiState.value.preGameSync?.matchId == match.id
                         if (!shouldSync) {
-                            val lobbyUid = authRepository.currentUserId
                             val resumingQueueOrJoin = _uiState.value.isInQueue ||
                                 _uiState.value.isJoiningQueue ||
                                 MatchSessionMonitor.hasQueueEntry.value
                             if (
-                                lobbyUid != null &&
-                                shouldAutoNavigateToLiveMatch(
+                                shouldAutoNavigateToLiveMatchNow(
                                     match = match,
-                                    userId = lobbyUid,
                                     fromCache = false,
                                     matchmakingInProgress = inMatchmakingFlow,
-                                    autoNavigationSuppressed =
-                                        MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id),
                                     resumingFromQueueOrJoin = resumingQueueOrJoin,
                                 )
                             ) {
@@ -638,24 +631,18 @@ class HomeViewModel(
                                 preGameSync = preGameSync,
                             )
                         }
-                        playPreGameReadyFeedbackIfNeeded(preGameSync)
                         ensurePreGameReadyLoop(match.id)
                     }
                     MatchStatus.ACTIVE -> {
-                        val uid = authRepository.currentUserId
                         val resumingQueueOrJoin = _uiState.value.isInQueue ||
                             _uiState.value.isJoiningQueue ||
                             MatchSessionMonitor.hasQueueEntry.value
-                        val shouldAutoNavigate = uid != null &&
-                            shouldAutoNavigateToLiveMatch(
-                                match = match,
-                                userId = uid,
-                                fromCache = false,
-                                matchmakingInProgress = inMatchmakingFlow,
-                                autoNavigationSuppressed =
-                                    MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id),
-                                resumingFromQueueOrJoin = resumingQueueOrJoin,
-                            )
+                        val shouldAutoNavigate = shouldAutoNavigateToLiveMatchNow(
+                            match = match,
+                            fromCache = false,
+                            matchmakingInProgress = inMatchmakingFlow,
+                            resumingFromQueueOrJoin = resumingQueueOrJoin,
+                        )
                         if (shouldAutoNavigate) {
                             beginAutoGameNavigation(match.id)
                             return@collect
@@ -693,6 +680,11 @@ class HomeViewModel(
                 val uid = authRepository.currentUserId ?: break
                 val sync = _uiState.value.preGameSync
                 if (sync == null || sync.matchId != matchId) break
+
+                if (!MatchSessionMonitor.shouldAllowPassiveGameJoin(matchId)) {
+                    delay(1_000)
+                    continue
+                }
 
                 if (sync.isReadyDeadlineExpired()) {
                     runCatching { matchRepository.confirmMatchReady(matchId) }
@@ -746,9 +738,19 @@ class HomeViewModel(
                             },
                         )
                     }
-                    playPreGameReadyFeedbackIfNeeded(updatedSync)
                     if (serverMatch.status == MatchStatus.ACTIVE) {
-                        beginAutoGameNavigation(matchId)
+                        if (
+                            shouldAutoNavigateToLiveMatchNow(
+                                match = serverMatch,
+                                fromCache = false,
+                                matchmakingInProgress = true,
+                                resumingFromQueueOrJoin = false,
+                            )
+                        ) {
+                            beginAutoGameNavigation(matchId)
+                        } else {
+                            _uiState.update { it.copy(preGameSync = null, activeMatchId = matchId) }
+                        }
                         break
                     }
                     if (serverMatch.isReadyDeadlineExpired() && !serverMatch.isOpponentReady(uid)) {
@@ -795,9 +797,40 @@ class HomeViewModel(
                 runCatching { MatchSessionMonitor.refreshOnResume(forceServerSync = true) }
             }
         }
+        appContext?.let { ctx ->
+            MatchNotificationHelper.dismissMatchFound(
+                ctx,
+                MatchSessionMonitor.activeMatch.value,
+                authRepository.currentUserId,
+            )
+        }
+    }
+
+    private fun shouldAutoNavigateToLiveMatchNow(
+        match: com.rpsonline.app.data.model.Match,
+        fromCache: Boolean,
+        matchmakingInProgress: Boolean,
+        resumingFromQueueOrJoin: Boolean,
+    ): Boolean {
+        val uid = authRepository.currentUserId ?: return false
+        val backgroundUsageEnabled = appContext
+            ?.let { MatchmakingPreferences(it).isBackgroundUsageEnabled() }
+            ?: false
+        return shouldAutoNavigateToLiveMatch(
+            match = match,
+            userId = uid,
+            fromCache = fromCache,
+            matchmakingInProgress = matchmakingInProgress,
+            autoNavigationSuppressed = MatchSessionMonitor.isAutoGameNavigationSuppressed(match.id),
+            resumingFromQueueOrJoin = resumingFromQueueOrJoin,
+            backgroundUsageEnabled = backgroundUsageEnabled,
+            appInForeground = AppForegroundTracker.isInForeground,
+            explicitLaunchMatchId = MatchSessionMonitor.explicitLaunchMatchId(),
+        )
     }
 
     private fun beginAutoGameNavigation(matchId: String) {
+        if (!MatchSessionMonitor.shouldAllowPassiveGameJoin(matchId)) return
         MatchSessionMonitor.clearAutoGameNavigationSuppression(matchId)
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
         stopPreGameReadyLoop()
@@ -827,6 +860,7 @@ class HomeViewModel(
      */
     private suspend fun confirmActiveMatchOnServer(matchId: String) {
         if (MatchSessionMonitor.isAutoGameNavigationSuppressed(matchId)) return
+        if (!MatchSessionMonitor.shouldAllowPassiveGameJoin(matchId)) return
         val uid = authRepository.currentUserId ?: run {
             abortFalseMatchFoundAssignment()
             return
@@ -888,40 +922,6 @@ class HomeViewModel(
         preGameReadyJob?.cancel()
         preGameReadyJob = null
         preGameReadyMatchId = null
-        clearPreGameReadyFeedbackTracking()
-    }
-
-    private fun clearPreGameReadyFeedbackTracking() {
-        preGameReadyFeedbackMatchId = null
-        lastPreGameMyReady = false
-        lastPreGameOpponentReady = false
-    }
-
-    private fun playPreGameReadyFeedbackIfNeeded(sync: PreGameSyncUiState) {
-        val context = appContext ?: return
-        if (sync.matchId != preGameReadyFeedbackMatchId) {
-            preGameReadyFeedbackMatchId = sync.matchId
-            lastPreGameMyReady = false
-            lastPreGameOpponentReady = false
-        }
-        val myBecameReady = !lastPreGameMyReady && sync.myReady
-        val opponentBecameReady = !lastPreGameOpponentReady && sync.opponentReady
-        if (!myBecameReady && !opponentBecameReady) {
-            lastPreGameMyReady = sync.myReady
-            lastPreGameOpponentReady = sync.opponentReady
-            return
-        }
-        lastPreGameMyReady = sync.myReady
-        lastPreGameOpponentReady = sync.opponentReady
-        if (myBecameReady) {
-            MatchClockSoundController.playLobbyReadyFeedback(context)
-        }
-        if (opponentBecameReady) {
-            viewModelScope.launch {
-                if (myBecameReady) delay(PRE_GAME_READY_TICK_GAP_MS)
-                MatchClockSoundController.playLobbyReadyFeedback(context)
-            }
-        }
     }
 
     fun dismissHighlightedMatch() {
@@ -1021,6 +1021,7 @@ class HomeViewModel(
                 val forceServerSync = reconcilingQueue && !MatchSessionMonitor.hasQueueEntry.value
                 MatchSessionMonitor.refreshOnResume(forceServerSync = forceServerSync)
             }
+            MatchSessionMonitor.nudgeMatchLaunchUi()
             val uid = authRepository.currentUserId ?: return@launch
             if (_uiState.value.profile == null) {
                 userRepository.getUserProfile(uid)?.let { profile ->
