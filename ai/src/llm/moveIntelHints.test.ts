@@ -86,6 +86,58 @@ describe("buildIntelCitationHints", () => {
     assert.notDeepEqual(r1, r2);
   });
 
+  it("surfaces never-cited meta signals in citeHints when stats omit them", () => {
+    const withMeta: MatchDbContext = {
+      ...ctx(),
+      opponentProfile: {
+        uid: "opp",
+        displayName: "Opp",
+        elo: 1520,
+        throwsRock: 40,
+        throwsPaper: 55,
+        throwsScissors: 25,
+      },
+      headToHead: [
+        {
+          id: "g1",
+          opponentUid: "opp",
+          opponentName: "Opp",
+          matchMode: "BO3",
+          botWins: 2,
+          opponentWins: 1,
+          rounds: [
+            {
+              roundNumber: 1,
+              botMove: "PAPER",
+              opponentMove: "ROCK",
+            },
+          ],
+        },
+      ],
+      signalPickStats: [
+        {
+          source: "h2h",
+          signal: "dominant",
+          picks: 500,
+          roundWins: 200,
+          roundWinPct: 40,
+        },
+      ],
+      tacticalIntel: {
+        ...intel(),
+        crossPatterns: { opponent: h2hPatterns, bot: null, pairCount: 12 },
+      },
+    };
+    const { catalog } = buildMoveIntelCatalog(withMeta);
+    const hints = buildIntelCitationHints(withMeta, 1, [], catalog);
+    const signals = hints.map((h) => h.signal);
+    assert.ok(
+      signals.includes("crossOpponent") ||
+        signals.includes("opponentLifetime") ||
+        signals.includes("priorMatches"),
+    );
+  });
+
   it("pins thisMatch citeHints first when match has history", () => {
     const { catalog } = buildMoveIntelCatalog(ctx());
     const hints = buildIntelCitationHints(

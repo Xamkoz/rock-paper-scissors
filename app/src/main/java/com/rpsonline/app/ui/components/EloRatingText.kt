@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -37,12 +38,13 @@ fun EloRatingText(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.headlineMedium,
     textAlign: TextAlign? = null,
+    color: Color? = null,
 ) {
     Text(
         text = "$elo",
         modifier = modifier,
         style = style,
-        color = eloRatingColor(elo),
+        color = color ?: eloRatingColor(elo),
         textAlign = textAlign,
     )
 }

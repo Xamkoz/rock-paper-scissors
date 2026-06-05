@@ -48,7 +48,9 @@ import com.rpsonline.app.data.preferences.ThemePreferences
 import com.rpsonline.app.platform.AppForegroundTracker
 import com.rpsonline.app.platform.SegmentedNotificationState
 import com.rpsonline.app.platform.BatteryOptimizationHelper
+import com.rpsonline.app.platform.JoinMatchNotificationState
 import com.rpsonline.app.platform.MatchFoundNotificationPolicy
+import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchNotificationHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.platform.PresenceEngagementTracker
@@ -71,6 +73,7 @@ import com.rpsonline.app.ui.util.applyImmersiveFullscreen
 import com.rpsonline.app.ui.util.findActivity
 import com.rpsonline.app.ui.theme.RpsTheme
 import com.rpsonline.app.ui.util.MatchClockSoundController
+import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 import com.rpsonline.app.ui.util.LocalRoundResolutionPulse
 import com.rpsonline.app.ui.util.RoundResolutionFeedbackEffect
 import com.rpsonline.app.ui.util.RoundResolutionPulseNotifier
@@ -97,7 +100,6 @@ fun RpsApp() {
                 NotificationPermissionHelper.hasPostNotificationsPermission(context),
         )
     }
-    var lastNotifiedMatchId by remember { mutableStateOf<String?>(null) }
     var appInForeground by remember { mutableStateOf(true) }
     DisposableEffect(Unit) {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
@@ -441,34 +443,99 @@ fun RpsApp() {
         onPauseOrDispose { }
     }
 
+    LaunchedEffect(activeMatch?.id, activeMatch?.status, user?.uid, visibleMatchScreenId) {
+        val match = activeMatch
+        val uid = user?.uid
+        MatchClockSoundController.initialize(context)
+        if (
+            match != null &&
+            uid != null &&
+            match.status == MatchStatus.LOBBY &&
+            match.isParticipant(uid)
+        ) {
+            JoinMatchNotificationState.bindLobby(match)
+        }
+        MatchClockSoundController.syncLobbyAlert(
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(match, uid, visibleMatchScreenId),
+        )
+    }
+
     LaunchedEffect(
         activeMatch?.id,
         activeMatch?.status,
-        matchFoundNotificationsEnabled,
-        backgroundUsageEnabled,
+        activeMatch?.createdAt,
         user?.uid,
-        appInForeground,
+        visibleMatchScreenId,
+        backgroundUsageEnabled,
+        matchFoundNotificationsEnabled,
     ) {
         val match = activeMatch
-        val uid = user?.uid ?: return@LaunchedEffect
+        val uid = user?.uid
         if (
-            !MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
-                appInForeground = appInForeground,
-                matchStatus = match?.status,
+            MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
+                match,
+                uid,
+                visibleMatchScreenId,
+                activeJoinMatchNotificationId =
+                    MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId()
+                        ?: JoinMatchNotificationState.activeMatchId(),
+            )
+        ) {
+            MatchNotificationHelper.dismissMatchFound(context, match, uid)
+            return@LaunchedEffect
+        }
+        if (match == null || uid == null) return@LaunchedEffect
+        val fgsOwnsDisplay = MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(
+            context,
+        )
+        if (
+            match.status == MatchStatus.LOBBY &&
+            (
+                fgsOwnsDisplay ||
+                    MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
+                        appInForeground = AppForegroundTracker.isInForeground,
+                        matchStatus = match.status,
+                        matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
+                        backgroundUsageEnabled = backgroundUsageEnabled,
+                        hasPostNotificationsPermission =
+                            NotificationPermissionHelper.hasPostNotificationsPermission(context),
+                        lastNotifiedMatchId =
+                            MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId(),
+                        matchId = match.id,
+                        foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                        liveSessionMatch = match,
+                        uid = uid,
+                    )
+                )
+        ) {
+            MatchForegroundLaunchCoordinator.postLobbyMatchFoundIfNeeded(context, match)
+        }
+        if (
+            match.status == MatchStatus.LOBBY &&
+            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
+                appInForeground = AppForegroundTracker.isInForeground,
+                match = match,
+                uid = uid,
+                visibleMatchScreenId = visibleMatchScreenId,
                 matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
                 backgroundUsageEnabled = backgroundUsageEnabled,
                 hasPostNotificationsPermission =
                     NotificationPermissionHelper.hasPostNotificationsPermission(context),
-                lastNotifiedMatchId = lastNotifiedMatchId,
-                matchId = match?.id.orEmpty(),
-                foregroundServiceRunning = MatchmakingForegroundService.isRunning(),
+                foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                liveSessionMatch = match,
+            ) &&
+            !MatchmakingForegroundService.isRunning()
+        ) {
+            MatchNotificationHelper.maintainJoinMatchNotification(context, match, uid)
+        } else if (
+            MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
+                match,
+                uid,
+                visibleMatchScreenId,
             )
         ) {
-            return@LaunchedEffect
+            MatchNotificationHelper.showInMatch(context, match, uid)
         }
-        val opponentName = match!!.opponentName(uid)
-        MatchNotificationHelper.showMatchFound(context, match.id, opponentName)
-        lastNotifiedMatchId = match.id
     }
 
     LifecycleResumeEffect(hasQueueEntry, queueJoinedAtMs, matchmakingInProgress, backgroundUsageEnabled) {

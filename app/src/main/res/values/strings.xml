@@ -94,6 +94,7 @@
     <string name="player_ready">Ready</string>
     <string name="player_not_ready">Not ready</string>
     <string name="waiting_for_opponent">Waiting for opponent</string>
+    <string name="lobby_opponent_wait_countdown">%1$ds left</string>
     <string name="pre_game_vs">vs</string>
     <string name="pre_game_ready_countdown">Ready in %1$ds</string>
     <string name="round_label">Round</string>

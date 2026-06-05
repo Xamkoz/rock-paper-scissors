@@ -52,6 +52,19 @@ object MatchmakingBackgroundCoordinator {
                         serviceRunning = snapshot.shouldRun
                         MatchmakingForegroundService.sync(appContext, snapshot.shouldRun)
                     }
+                    val match = MatchSessionMonitor.activeMatch.value
+                    val uid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (
+                        match != null &&
+                        uid != null &&
+                        MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
+                            match = match,
+                            uid = uid,
+                            visibleMatchScreenId = MatchSessionMonitor.visibleMatchScreenId.value,
+                        )
+                    ) {
+                        MatchNotificationHelper.showInMatch(appContext, match, uid)
+                    }
                 }
         }
     }
@@ -94,6 +107,10 @@ object MatchmakingBackgroundCoordinator {
         if (!MatchmakingPreferences(context).isBackgroundUsageEnabled()) return false
         return sessionNeedsBackgroundService()
     }
+
+    /** Match-found shade (2001/2002) must not post while FGS is starting or running. */
+    fun foregroundServiceOwnsMatchFoundDisplay(context: Context): Boolean =
+        shouldRunService(context)
 
     /**
      * When true, [MatchmakingForegroundService] runs queue and presence heartbeats;

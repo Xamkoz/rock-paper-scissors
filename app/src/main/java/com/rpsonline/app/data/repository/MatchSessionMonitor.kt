@@ -672,7 +672,8 @@ object MatchSessionMonitor {
         if (match.isParticipant(uid)) {
             when (match.status) {
                 MatchStatus.LOBBY, MatchStatus.ACTIVE -> {
-                    clearQueueState(endMatchmaking = true)
+                    clearQueueState(endMatchmaking = false)
+                    setMatchmakingInProgress(true)
                     sessionScope.launch {
                         matchRepository.leaveQueueBestEffort(uid)
                     }

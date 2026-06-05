@@ -19,10 +19,16 @@ fun WinLossStatLine(
     draws: Int = 0,
     modifier: Modifier = Modifier,
     textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    contentColors: OnlinePresenceContentColors? = null,
 ) {
+    val scheme = MaterialTheme.colorScheme
     val winRate = winRatePercent(wins, losses, draws)
-    val separatorColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val winRateColor = winRate?.let { profileStatValueColor() } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val separatorColor = contentColors?.muted ?: scheme.onSurfaceVariant
+    val winRateColor = when {
+        winRate == null -> scheme.onSurfaceVariant
+        contentColors != null -> contentColors.accent(profileStatValueColor())
+        else -> profileStatValueColor()
+    }
     val fontSize = textStyle.fontSize
     val fontFamily = textStyle.fontFamily
     val letterSpacing = textStyle.letterSpacing
@@ -31,7 +37,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "W",
             value = wins.toString(),
-            color = MaterialTheme.colorScheme.primary,
+            color = contentColors?.accent(scheme.primary) ?: scheme.primary,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -49,7 +55,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "L",
             value = losses.toString(),
-            color = MaterialTheme.colorScheme.error,
+            color = contentColors?.accent(scheme.error) ?: scheme.error,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -67,7 +73,7 @@ fun WinLossStatLine(
         appendStatToken(
             label = "D",
             value = draws.toString(),
-            color = MaterialTheme.colorScheme.tertiary,
+            color = contentColors?.accent(scheme.tertiary) ?: scheme.tertiary,
             fontSize = fontSize,
             fontFamily = fontFamily,
             letterSpacing = letterSpacing,
@@ -146,18 +152,25 @@ fun RoundWinRateLine(
     modifier: Modifier = Modifier,
     textStyle: TextStyle = MaterialTheme.typography.bodySmall,
     label: String = "Round WR: ",
+    contentColors: OnlinePresenceContentColors? = null,
 ) {
+    val scheme = MaterialTheme.colorScheme
     val roundWinRate = winRatePercent(wins = wins, losses = losses, draws = draws)
     val valueText = roundWinRate?.let { "$it%" } ?: "-"
+    val muted = contentColors?.muted ?: scheme.onSurfaceVariant
+    val valueColor = when {
+        roundWinRate == null -> scheme.onSurfaceVariant
+        contentColors != null -> contentColors.accent(profileStatValueColor())
+        else -> profileStatValueColor()
+    }
     Text(
         text = buildAnnotatedString {
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
+            withStyle(SpanStyle(color = muted)) {
                 append(label)
             }
             withStyle(
                 SpanStyle(
-                    color = roundWinRate?.let { profileStatValueColor() }
-                        ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = valueColor,
                     fontWeight = FontWeight.Bold,
                 ),
             ) {

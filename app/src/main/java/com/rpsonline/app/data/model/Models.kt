@@ -170,16 +170,20 @@ data class Match(
     fun isOpponentReady(userId: String): Boolean =
         if (userId == player1) player2Ready else player1Ready
 
-    /** Lobby ready window; falls back to createdAt + grace when field is missing (older matches). */
+    /** Lobby ready window; never shorter than [LOBBY_READY_MS] from [createdAt]. */
     fun effectiveReadyDeadlineAtMs(nowMs: Long = System.currentTimeMillis()): Long {
-        if (readyDeadlineAt > 0L) return readyDeadlineAt
-        if (createdAt > 0L) return createdAt + LOBBY_READY_MS
-        return nowMs + LOBBY_READY_MS
+        val fromCreated = if (createdAt > 0L) createdAt + LOBBY_READY_MS else 0L
+        return when {
+            readyDeadlineAt > 0L && fromCreated > 0L -> maxOf(readyDeadlineAt, fromCreated)
+            readyDeadlineAt > 0L -> readyDeadlineAt
+            fromCreated > 0L -> fromCreated
+            else -> nowMs + LOBBY_READY_MS
+        }
     }
 
     fun readySecondsRemaining(nowMs: Long = System.currentTimeMillis()): Int {
         val deadlineMs = effectiveReadyDeadlineAtMs(nowMs)
-        return ((deadlineMs - nowMs) / 1_000L).toInt().coerceAtLeast(0)
+        return ((deadlineMs - nowMs + 999) / 1_000L).toInt().coerceAtLeast(0)
     }
 
     fun isReadyDeadlineExpired(nowMs: Long = System.currentTimeMillis()): Boolean =
@@ -312,7 +316,7 @@ data class Match(
 
     companion object {
         private const val LOBBY_RECONNECT_GRACE_MS = 20_000L
-        const val LOBBY_READY_MS = 15_000L
+        const val LOBBY_READY_MS = 20_000L
         private const val ACTIVE_RECONNECT_GRACE_MS = 90_000L
     }
 }

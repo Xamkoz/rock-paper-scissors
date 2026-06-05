@@ -649,7 +649,7 @@ private fun rememberPreGameReadySecondsRemaining(deadlineAtMs: Long): Int {
 
 private fun preGameReadySecondsRemaining(deadlineAtMs: Long): Int {
     if (deadlineAtMs <= 0L) return 0
-    return ((deadlineAtMs - System.currentTimeMillis()) / 1_000L).toInt().coerceAtLeast(0)
+    return ((deadlineAtMs - System.currentTimeMillis() + 999) / 1_000L).toInt().coerceAtLeast(0)
 }
 
 /**

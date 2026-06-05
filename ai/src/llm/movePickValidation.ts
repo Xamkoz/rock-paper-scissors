@@ -292,6 +292,29 @@ function nudgeCitationToThisMatchHistory(
   const lastThrow = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
   const liveRepeat = thisMatchRepeatFromCtx(ctx);
 
+  if (
+    parsed.intelSignal === "thisMatchRounds" &&
+    !lastThrow &&
+    !liveRepeat
+  ) {
+    if (isSignalValidForSource(catalog, "thisMatch", "preparedTactics") && ctx.tactics?.trim()) {
+      return {
+        ...parsed,
+        intelSignal: "preparedTactics",
+        reason: buildShortMoveReason(parsed.choice, "thisMatch", "preparedTactics", ctx),
+      };
+    }
+    const src = primarySource(ctx);
+    if (isSignalValidForSource(catalog, src, "openWith")) {
+      return {
+        ...parsed,
+        intelSource: src,
+        intelSignal: "openWith",
+        reason: buildShortMoveReason(parsed.choice, src, "openWith", ctx),
+      };
+    }
+  }
+
   if (parsed.intelSource === "thisMatch" && parsed.intelSignal === "repeat") {
     if (!liveRepeat) {
       if (isSignalValidForSource(catalog, "thisMatch", "preparedTactics") && ctx.tactics?.trim()) {
@@ -412,6 +435,75 @@ export function buildShortMoveReason(
   }
 }
 
+/** Drop hallucinated beat rules and align prose with the submitted choice. */
+export function sanitizeThoughtProcess(
+  parsed: MovePickParsed,
+  final: MovePickParsed,
+  ctx: MatchDbContext,
+): string | undefined {
+  const raw = parsed.thoughtProcess?.trim();
+  if (!raw) return undefined;
+  if (
+    reasonClaimsInvalidBeat(raw) ||
+    !reasonPrimaryMoveMatchesChoice(raw, final.choice)
+  ) {
+    return buildShortMoveReason(final.choice, final.intelSource, final.intelSignal, ctx);
+  }
+  return raw;
+}
+
+/** Deterministic pick when the move LLM times out (uses live throws, then pre-match open). */
+export function buildDeterministicMovePick(
+  ctx: MatchDbContext,
+  catalog: IntelCatalogEntry[],
+  thisMatchRepeat?: { move: RpsMove; streak: number },
+): MovePickParsed {
+  const liveRepeat = thisMatchRepeatFromCtx(ctx) ?? thisMatchRepeat;
+  const lastThrow = lastOpponentThrowFromMatch(ctx.currentMatch, ctx.botUid);
+  const src = primarySource(ctx);
+  const intel = ctx.tacticalIntel;
+
+  let choice: Move = intel?.primary?.openWith ?? "ROCK";
+  let source: MoveIntelSource = "thisMatch";
+  let signal: MoveIntelSignal = "openWith";
+
+  if (
+    liveRepeat &&
+    liveRepeat.streak >= 2 &&
+    isSignalValidForSource(catalog, "thisMatch", "repeat")
+  ) {
+    choice = counterToOpponentThrow(liveRepeat.move);
+    source = "thisMatch";
+    signal = "repeat";
+  } else if (
+    lastThrow &&
+    isSignalValidForSource(catalog, "thisMatch", "thisMatchRounds")
+  ) {
+    choice = counterToOpponentThrow(lastThrow);
+    source = "thisMatch";
+    signal = "thisMatchRounds";
+  } else if (
+    intel?.primary?.openWith &&
+    isSignalValidForSource(catalog, src, "openWith")
+  ) {
+    choice = intel.primary.openWith;
+    source = src;
+    signal = "openWith";
+  } else if (intel?.primary?.dominant && isSignalValidForSource(catalog, src, "dominant")) {
+    choice = counterToOpponentThrow(intel.primary.dominant);
+    source = src;
+    signal = "dominant";
+  }
+
+  const draft: MovePickParsed = {
+    choice,
+    reason: buildShortMoveReason(choice, source, signal, ctx),
+    intelSource: source,
+    intelSignal: signal,
+  };
+  return normalizeMovePick(draft, ctx, catalog);
+}
+
 /** Fix tactics dump, wrong citation, or choice/reason mismatch from small models. */
 export function normalizeMovePick(
   parsed: MovePickParsed,
@@ -457,5 +549,7 @@ export function normalizeMovePick(
     catalog,
   );
 
-  return ensureCounterMatchesOpponentThrow(nudged, ctx);
+  const countered = ensureCounterMatchesOpponentThrow(nudged, ctx);
+  const thoughtProcess = sanitizeThoughtProcess(parsed, countered, ctx);
+  return thoughtProcess ? { ...countered, thoughtProcess } : countered;
 }

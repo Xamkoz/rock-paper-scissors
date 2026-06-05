@@ -20,6 +20,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rpsonline.app.ui.theme.contrastAwareAccent
+import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.ui.theme.themedPrimaryLabelColor
 import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.PresenceRepository
@@ -48,6 +50,20 @@ private fun rememberDisplayOnlineUids(
     }
 }
 
+/** Muted labels and contrast-aware accents for rows on [containerColor]. */
+data class OnlinePresenceContentColors(
+    val containerColor: Color,
+    val muted: Color,
+    val readableFallback: Color,
+) {
+    fun accent(semantic: Color): Color =
+        contrastAwareAccent(
+            semantic = semantic,
+            background = containerColor,
+            readableFallback = readableFallback,
+        )
+}
+
 data class OnlinePresenceRowStyle(
     val isOnline: Boolean,
     val containerColor: Color,
@@ -55,7 +71,18 @@ data class OnlinePresenceRowStyle(
     val borderWidth: Dp,
     val nameColor: Color,
     val accentStripeColor: Color?,
+    val contentColors: OnlinePresenceContentColors? = null,
 )
+
+@Composable
+private fun onlinePresenceContentColors(containerColor: Color): OnlinePresenceContentColors {
+    val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+    return OnlinePresenceContentColors(
+        containerColor = containerColor,
+        muted = onContainer.copy(alpha = 0.76f),
+        readableFallback = onContainer,
+    )
+}
 
 @Composable
 fun rememberOnlineUids(uids: Collection<String>): Set<String> {
@@ -201,26 +228,33 @@ fun onlinePresenceRowStyle(
     defaultNameColor: Color? = null,
 ): OnlinePresenceRowStyle {
     val scheme = MaterialTheme.colorScheme
+    val darkTheme = isRpsDarkTheme()
     val offlineNameColor = defaultNameColor ?: themedPrimaryLabelColor()
+    val onlineContainerColor = if (darkTheme) {
+        scheme.primaryContainer
+    } else {
+        scheme.primaryContainer.copy(alpha = 0.88f)
+    }
     val online = uid?.isNotBlank() == true && isPlayerUidOnline(uid)
     if (online) {
         return OnlinePresenceRowStyle(
             isOnline = true,
-            containerColor = scheme.primaryContainer.copy(alpha = 0.88f),
-            borderColor = scheme.primary.copy(alpha = 0.78f),
+            containerColor = onlineContainerColor,
+            borderColor = scheme.primary,
             borderWidth = 2.dp,
-            nameColor = scheme.primary,
-            accentStripeColor = scheme.primary.copy(alpha = 0.92f),
+            nameColor = scheme.onPrimaryContainer,
+            accentStripeColor = scheme.primary,
+            contentColors = onlinePresenceContentColors(onlineContainerColor),
         )
     }
     if (emphasized) {
         return OnlinePresenceRowStyle(
             isOnline = false,
             containerColor = defaultContainerColor,
-            borderColor = scheme.primary.copy(alpha = 0.82f),
+            borderColor = scheme.primary.copy(alpha = if (darkTheme) 0.9f else 0.82f),
             borderWidth = 2.dp,
-            nameColor = scheme.primary,
-            accentStripeColor = scheme.primary.copy(alpha = 0.92f),
+            nameColor = if (darkTheme) scheme.onSurface else scheme.primary,
+            accentStripeColor = scheme.primary,
         )
     }
     if (!isPlayerUidOnline(uid)) {
@@ -235,11 +269,12 @@ fun onlinePresenceRowStyle(
     }
     return OnlinePresenceRowStyle(
         isOnline = true,
-        containerColor = scheme.primaryContainer.copy(alpha = 0.88f),
-        borderColor = scheme.primary.copy(alpha = 0.78f),
+        containerColor = onlineContainerColor,
+        borderColor = scheme.primary,
         borderWidth = 2.dp,
-        nameColor = scheme.primary,
-        accentStripeColor = scheme.primary.copy(alpha = 0.92f),
+        nameColor = scheme.onPrimaryContainer,
+        accentStripeColor = scheme.primary,
+        contentColors = onlinePresenceContentColors(onlineContainerColor),
     )
 }
 

@@ -32,10 +32,8 @@ import com.rpsonline.app.domain.MatchMode
 import com.rpsonline.app.domain.enrichMatchHistoryWithOpponentElos
 import com.rpsonline.app.domain.weeklyChartWindowStartMs
 import com.rpsonline.app.ui.segment.SevenSegmentColonBlink
-import com.rpsonline.app.ui.util.ClockTickPlayer
-import com.rpsonline.app.ui.util.playReadyFeedback
 import com.rpsonline.app.ui.util.queueElapsedSecondsFromAnchor
-import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
+import com.rpsonline.app.ui.util.MatchClockSoundController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -640,7 +638,6 @@ class HomeViewModel(
                                 preGameSync = preGameSync,
                             )
                         }
-                        appContext?.let { triggerMatchFoundFeedback(it, match.id) }
                         playPreGameReadyFeedbackIfNeeded(preGameSync)
                         ensurePreGameReadyLoop(match.id)
                     }
@@ -841,12 +838,16 @@ class HomeViewModel(
         }
         MatchSessionMonitor.ingestAuthoritativeMatch(serverMatch)
         when (serverMatch.status) {
-            MatchStatus.ACTIVE, MatchStatus.LOBBY ->
+            MatchStatus.ACTIVE ->
                 if (serverMatch.isLiveForReconnect()) {
                     MatchSessionMonitor.requestGameNavigation(matchId)
                 } else {
                     abortFalseMatchFoundAssignment()
                 }
+            MatchStatus.LOBBY -> {
+                runCatching { matchRepository.confirmMatchReady(matchId) }
+                MatchSessionMonitor.setMatchmakingInProgress(true)
+            }
             else -> abortFalseMatchFoundAssignment()
         }
     }
@@ -912,19 +913,13 @@ class HomeViewModel(
         }
         lastPreGameMyReady = sync.myReady
         lastPreGameOpponentReady = sync.opponentReady
-        val mode = SoundPreferences(context).getMode()
-        viewModelScope.launch {
-            val tickPlayer = ClockTickPlayer(context)
-            try {
-                if (myBecameReady) {
-                    playReadyFeedback(context, tickPlayer, mode)
-                }
-                if (opponentBecameReady) {
-                    if (myBecameReady) delay(PRE_GAME_READY_TICK_GAP_MS)
-                    playReadyFeedback(context, tickPlayer, mode)
-                }
-            } finally {
-                tickPlayer.release()
+        if (myBecameReady) {
+            MatchClockSoundController.playLobbyReadyFeedback(context)
+        }
+        if (opponentBecameReady) {
+            viewModelScope.launch {
+                if (myBecameReady) delay(PRE_GAME_READY_TICK_GAP_MS)
+                MatchClockSoundController.playLobbyReadyFeedback(context)
             }
         }
     }

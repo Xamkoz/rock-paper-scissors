@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -87,11 +88,12 @@ fun ThrowDistributionRadialChart(
     scissors: Int,
     modifier: Modifier = Modifier,
     size: Dp = 64.dp,
+    mutedColor: Color? = null,
 ) {
     val counts = intArrayOf(rock, paper, scissors)
     val totalThrows = counts.sum()
     val maxCount = max(counts.max(), 1)
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val onSurfaceVariant = mutedColor ?: MaterialTheme.colorScheme.onSurfaceVariant
     val gridColor = remember(onSurfaceVariant) { onSurfaceVariant.copy(alpha = 0.18f) }
     val triangleFill = remember(onSurfaceVariant) { onSurfaceVariant.copy(alpha = 0.14f) }
     val triangleStroke = remember(onSurfaceVariant) { onSurfaceVariant.copy(alpha = 0.45f) }

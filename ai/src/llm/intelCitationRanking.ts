@@ -127,20 +127,43 @@ export function pickExplorationSignals(
   if (pool.length === 0) return pickRotatingFromList(round, count, fallbackSignals);
 
   const minPicks = intelSignalMinPicksExploration(pool.length, bySignal);
-  const underSampled = pool.filter((s) => signalSampleCount(bySignal.get(s)) < minPicks);
-  if (underSampled.length > 0) {
-    underSampled.sort(
-      (a, b) => signalSampleCount(bySignal.get(a)) - signalSampleCount(bySignal.get(b)),
-    );
-    return pickRotatingFromList(round, count, underSampled);
+  const neverCited = pool.filter((s) => signalSampleCount(bySignal.get(s)) === 0);
+  const underSampled = pool.filter((s) => {
+    const samples = signalSampleCount(bySignal.get(s));
+    return samples > 0 && samples < minPicks;
+  });
+  underSampled.sort(
+    (a, b) => signalSampleCount(bySignal.get(a)) - signalSampleCount(bySignal.get(b)),
+  );
+
+  const neverSlots = Math.min(
+    neverCited.length > 0 ? Math.max(1, Math.ceil(count / 2)) : 0,
+    neverCited.length,
+    count,
+  );
+  const restSlots = count - neverSlots;
+  const out: MoveIntelSignal[] = [];
+
+  if (neverSlots > 0) {
+    out.push(...pickRotatingFromList(round, neverSlots, neverCited));
+  }
+  if (restSlots > 0) {
+    if (underSampled.length > 0) {
+      out.push(
+        ...pickRotatingFromList(round + neverSlots, restSlots, underSampled),
+      );
+    } else {
+      const ranked = rankIntelSignalsByPickEfficiency(pickStats ?? []);
+      const withData = ranked.filter((r) => r.picks > 0).map((r) => r.signal);
+      if (withData.length > 0) {
+        out.push(...pickRotatingFromList(round + neverSlots, restSlots, withData));
+      } else {
+        out.push(...pickRotatingFromList(round + neverSlots, restSlots, fallbackSignals));
+      }
+    }
   }
 
-  const ranked = rankIntelSignalsByPickEfficiency(pickStats ?? []);
-  const withData = ranked.filter((r) => r.picks > 0).map((r) => r.signal);
-  if (withData.length > 0) {
-    return pickRotatingFromList(round, count, withData);
-  }
-  return pickRotatingFromList(round, count, fallbackSignals);
+  return [...new Set(out)];
 }
 
 function pickRotatingFromList(

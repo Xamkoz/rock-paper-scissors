@@ -13,6 +13,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.platform.AppForegroundTracker
+import com.rpsonline.app.platform.JoinMatchNotificationState
 import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchLaunchHelper
 import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
@@ -104,7 +105,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppForegroundTracker.setInForeground(true)
-        MatchmakingForegroundService.clearLaunchAlert()
+        val lobbyHold = MatchSessionMonitor.activeMatch.value?.status == MatchStatus.LOBBY ||
+            JoinMatchNotificationState.lobbyMatch()?.status == MatchStatus.LOBBY
+        if (!lobbyHold) {
+            MatchmakingForegroundService.clearLaunchAlert()
+        }
         MatchmakingForegroundService.retryPendingStart(this)
         MatchmakingBackgroundCoordinator.sync(this)
         PresenceEngagementTracker.syncScreenInteractive(this)

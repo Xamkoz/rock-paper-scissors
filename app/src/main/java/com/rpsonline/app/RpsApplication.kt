@@ -5,8 +5,10 @@ import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.rpsonline.app.data.model.Match
+import com.rpsonline.app.data.model.MatchStatus
 import com.rpsonline.app.data.repository.MatchSessionMonitor
 import com.rpsonline.app.platform.AppForegroundTracker
+import com.rpsonline.app.platform.JoinMatchNotificationState
 import com.rpsonline.app.platform.MatchFoundNotificationPolicy
 import com.rpsonline.app.platform.MatchForegroundLaunchCoordinator
 import com.rpsonline.app.platform.MatchNotificationHelper
@@ -35,8 +37,10 @@ class RpsApplication : Application() {
     }
 
     private fun handleSessionStateChanged() {
-        syncJoinMatchNotification()
         MatchmakingBackgroundCoordinator.sync(this)
+        val match = MatchSessionMonitor.activeMatch.value
+        MatchForegroundLaunchCoordinator.onMatchSessionChanged(this, match)
+        syncJoinMatchNotification()
     }
 
     private fun syncJoinMatchNotification() {
@@ -47,9 +51,12 @@ class RpsApplication : Application() {
                 match,
                 uid,
                 MatchSessionMonitor.visibleMatchScreenId.value,
+                activeJoinMatchNotificationId =
+                    MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId()
+                        ?: JoinMatchNotificationState.activeMatchId(),
             )
         ) {
-            MatchNotificationHelper.dismissMatchFound(this)
+            MatchNotificationHelper.dismissMatchFound(this, match, uid)
         }
     }
 

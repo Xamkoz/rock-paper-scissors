@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.rpsonline.app.R
 import com.rpsonline.app.ui.components.RpsCard
+import com.rpsonline.app.ui.theme.isRpsDarkTheme
 import com.rpsonline.app.ui.util.formatQueueTime
 
 private val HomeMatchmakingCardVerticalPadding = 16.dp
@@ -126,21 +127,40 @@ fun HomeMatchmakingStatusCard(
     enabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val darkTheme = isRpsDarkTheme()
     val metrics = rememberHomeMatchmakingCardMetrics()
     val contentAlpha = if (enabled) 1f else 0.38f
     val brightAction =
         enabled && primaryStyle == HomeMatchmakingPrimaryStyle.ActionTitle
     val containerColor = if (brightAction) {
-        scheme.primary.copy(alpha = 0.92f)
+        scheme.primary
+    } else if (darkTheme) {
+        scheme.primaryContainer
     } else {
         scheme.primaryContainer.copy(alpha = 0.94f)
     }
     val borderColor = if (brightAction) {
         scheme.primary
+    } else if (darkTheme) {
+        scheme.primary.copy(alpha = 0.72f)
     } else {
         scheme.primary.copy(alpha = 0.55f)
     }
     val primaryContentColor = if (brightAction) scheme.onPrimary else scheme.onPrimaryContainer
+    val secondaryContentColor = if (brightAction) {
+        scheme.onPrimary.copy(alpha = 0.88f)
+    } else if (darkTheme) {
+        scheme.onPrimaryContainer.copy(alpha = 0.88f)
+    } else {
+        scheme.onPrimaryContainer.copy(alpha = 0.85f)
+    }
+    val tertiaryContentColor = if (brightAction) {
+        scheme.onPrimary.copy(alpha = 0.78f)
+    } else if (darkTheme) {
+        scheme.onPrimaryContainer.copy(alpha = 0.78f)
+    } else {
+        scheme.onPrimaryContainer.copy(alpha = 0.75f)
+    }
     RpsCard(
         modifier = modifier
             .fillMaxWidth()
@@ -163,7 +183,7 @@ fun HomeMatchmakingStatusCard(
             HomeMatchmakingStatusTextSlot(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
-                color = scheme.onPrimaryContainer.copy(alpha = 0.85f),
+                color = secondaryContentColor,
                 slotHeight = metrics.labelSlotHeight,
                 maxLines = 1,
             )
@@ -176,7 +196,7 @@ fun HomeMatchmakingStatusCard(
             HomeMatchmakingStatusTextSlot(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
+                color = tertiaryContentColor,
                 slotHeight = metrics.subtitleSlotHeight,
                 maxLines = 1,
             )
@@ -287,10 +307,15 @@ internal fun HomeMatchmakingStatusSubtitleSlot(
 ) {
     val metrics = rememberHomeMatchmakingCardMetrics()
     val scheme = MaterialTheme.colorScheme
+    val subtitleColor = if (isRpsDarkTheme()) {
+        scheme.onPrimaryContainer.copy(alpha = 0.78f)
+    } else {
+        scheme.onPrimaryContainer.copy(alpha = 0.75f)
+    }
     HomeMatchmakingStatusTextSlot(
         text = text,
         style = MaterialTheme.typography.bodySmall,
-        color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
+        color = subtitleColor,
         slotHeight = metrics.subtitleSlotHeight,
         maxLines = 1,
         modifier = modifier,

@@ -17,6 +17,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,11 +59,13 @@ import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
 import com.rpsonline.app.viewmodel.shouldShowWaitingForOpponentMessage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun GameScreen(
     matchId: String,
     onMatchComplete: (String) -> Unit,
+    onLobbyWaitExited: () -> Unit = {},
     onOpponentProfile: (String) -> Unit = {},
     viewModel: GameViewModel = viewModel(factory = GameViewModel.factory(matchId)),
 ) {
@@ -124,6 +127,12 @@ fun GameScreen(
         viewModel.refreshOnResume()
     }
 
+    LaunchedEffect(uiState.lobbyWaitFailed) {
+        if (!uiState.lobbyWaitFailed) return@LaunchedEffect
+        delay(1_200)
+        onLobbyWaitExited()
+    }
+
     LaunchedEffect(endTransition?.roundKey, matchId) {
         if (navigatedToResult) return@LaunchedEffect
         if (endTransition == null) return@LaunchedEffect
@@ -169,9 +178,19 @@ fun GameScreen(
         if (screenMatch == null || userId == null) {
             RpsLoadingColumn(modifier = Modifier.weight(1f))
         } else if (screenMatch.status == MatchStatus.LOBBY) {
+            val readySecondsRemaining = rememberLobbyReadySecondsRemaining(screenMatch)
             RpsLoadingColumn(
                 modifier = Modifier.weight(1f),
-                message = stringResource(R.string.waiting_for_opponent),
+                message = if (uiState.lobbyWaitFailed) {
+                    uiState.error ?: stringResource(R.string.waiting_for_opponent)
+                } else {
+                    stringResource(R.string.waiting_for_opponent)
+                },
+                subtitle = if (!uiState.lobbyWaitFailed && readySecondsRemaining > 0) {
+                    stringResource(R.string.lobby_opponent_wait_countdown, readySecondsRemaining)
+                } else {
+                    null
+                },
             )
         } else {
         val opponentUid = screenMatch.opponentId(userId)
@@ -679,10 +698,18 @@ fun GameScreen(
                 tightLayout = tightLayout,
             )
 
+            val mySubmittedOnOpenRound = openRound?.hasSubmittedFor(userId, layoutMatch.player1) == true
+            val ownMoveTapRevealable = !showRecapRoundMoves &&
+                !inDualSelectionHold &&
+                layoutMatch.status == MatchStatus.ACTIVE &&
+                openRound != null &&
+                panelMyPresentationFinal.move != null &&
+                (panelHasSubmittedMove || mySubmittedOnOpenRound)
             MatchRoundMovesPanel(
                 opponentLabel = opponentScoreLabel,
                 opponentMove = panelOpponentPresentation,
                 myMove = panelMyPresentationFinal,
+                ownMoveTapRevealable = ownMoveTapRevealable,
                 myWins = displayMyWins,
                 myScoreScoringActive = animatedScores.myScoringActive,
                 myWinMoves = displayMyWinMoves,
@@ -1073,5 +1100,21 @@ private fun clockSecondsFromMatch(
 ): Int {
     val ms = if (myPlayer) match.myClockMs(userId) else match.opponentClockMs(userId)
     return ((ms + 999) / 1_000).toInt().coerceIn(0, maxClockSeconds)
+}
+
+@Composable
+private fun rememberLobbyReadySecondsRemaining(match: Match): Int {
+    val deadlineAtMs = match.effectiveReadyDeadlineAtMs()
+    var remaining by remember(match.id, deadlineAtMs) {
+        mutableIntStateOf(match.readySecondsRemaining())
+    }
+    LaunchedEffect(match.id, deadlineAtMs) {
+        while (isActive) {
+            remaining = match.readySecondsRemaining()
+            if (remaining <= 0) break
+            delay(1_000)
+        }
+    }
+    return remaining
 }
 

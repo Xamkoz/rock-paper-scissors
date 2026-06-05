@@ -43,7 +43,12 @@ import {
   getLlmModelRankings,
   selectLlmModelForMatch,
 } from "../llm/llmModelRanking.js";
-import { formatMovePickLogLine, pickMoveWithLlm } from "../llm/pickMove.js";
+import {
+  formatMovePickLogLine,
+  isLlmPickTimeoutError,
+  pickMoveDeterministic,
+  pickMoveWithLlm,
+} from "../llm/pickMove.js";
 import { pickMoveContextLimits } from "../llm/movePrompt.js";
 import { pickTimeBudgetMs } from "../llm/compactMatch.js";
 import { pickMoveTimeoutCapMs } from "../llm/timing.js";
@@ -433,6 +438,7 @@ export class PlayerAgent {
       this.pickInProgress = true;
       const moveStartedAt = Date.now();
       let resumeAfterPick = false;
+      let dbCtx: Awaited<ReturnType<typeof buildMatchDbContext>> | undefined;
       try {
         const oppName =
           match.player1 === opp ? match.player1Name : match.player2Name;
@@ -441,7 +447,7 @@ export class PlayerAgent {
         }
         const profile = await getUserProfile(this.ctx.db, opp);
         const contextStartedAt = Date.now();
-        let dbCtx = await buildMatchDbContext(
+        dbCtx = await buildMatchDbContext(
           this.db,
           uid,
           opp,
@@ -564,17 +570,73 @@ export class PlayerAgent {
         }
       } catch (err) {
         const totalMs = msSince(moveStartedAt);
+        const oppName =
+          match.player1 === opp ? match.player1Name : match.player2Name;
+        let ok = false;
+        let pickMs = 0;
+        let submitMs = 0;
+        let llmModel = getLlmConfig().model;
+        if (dbCtx && isLlmPickTimeoutError(err)) {
+          try {
+            const fallback = pickMoveDeterministic(match, dbCtx);
+            pickMs = fallback.pickMs;
+            llmModel = fallback.llmModel;
+            if (fallback.thoughtProcess?.trim()) {
+              log(`[thought-process] ${fallback.thoughtProcess.trim()}`);
+            }
+            log(
+              `[move:reason] r${roundNumber} ${fallback.choice} vs ${oppName} ${formatMovePickLogLine(fallback)} (timeout-fallback)`,
+            );
+            const fresh = await getMatch(this.ctx.db, matchId);
+            if (
+              fresh &&
+              fresh.status === "active" &&
+              fresh.currentRound === roundNumber &&
+              !selfSubmitted(fresh, uid)
+            ) {
+              const submitStartedAt = Date.now();
+              ok = await submitRoundMove(
+                this.ctx.db,
+                this.ctx.functions,
+                fresh,
+                uid,
+                fallback.choice,
+              );
+              submitMs = msSince(submitStartedAt);
+              if (ok) {
+                log(
+                  `[move] r${roundNumber} ${fallback.choice} vs ${oppName} ${totalMs}ms (timeout-fallback submit=${submitMs}ms)`,
+                );
+                resumeAfterPick = Boolean(
+                  fresh.currentRound != null && fresh.currentRound > roundNumber,
+                );
+              } else {
+                warn(
+                  `[move] r${roundNumber} ${fallback.choice} vs ${oppName} timeout-fallback submit failed ${submitMs}ms`,
+                );
+              }
+            } else {
+              warn(
+                `[move] round ${roundNumber} stale after timeout-fallback — skip submit (now r${fresh?.currentRound ?? "?"})`,
+              );
+            }
+          } catch (fallbackErr) {
+            warn(`[move] round ${roundNumber} timeout-fallback failed:`, fallbackErr);
+          }
+        }
         this.db.recordRoundTiming({
           matchId,
           roundNumber,
-          llmModel: getLlmConfig().model,
+          llmModel,
           contextMs: 0,
-          pickMs: 0,
-          submitMs: 0,
+          pickMs,
+          submitMs,
           totalMs,
-          ok: false,
+          ok,
         });
-        warn(`[move] round ${roundNumber} failed ${totalMs}ms:`, err);
+        if (!ok) {
+          warn(`[move] round ${roundNumber} failed ${totalMs}ms:`, err);
+        }
       } finally {
         this.pickInProgress = false;
         const deferred = this.pickDeferredMatchId === matchId;

@@ -85,7 +85,7 @@ On **Home**, select **at least two** of BO3, BO5, and BO10 (selection is saved l
 After pairing, both players enter a **lobby** before the first round:
 
 - Each player must tap **Ready**.
-- There is a **15 second** ready deadline from when the match is created.
+- There is a **20 second** ready deadline from when the match is created.
 - If the deadline passes before both players are ready, the match is **abandoned** (no ELO change).
 - When both are ready, the match becomes **active** and round 1 starts.
 

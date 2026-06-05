@@ -25,17 +25,13 @@ object SevenSegmentThemeColors {
         val scheme = colorSchemeFor(context, style)
         val isDark = style.isDark
         val ghost = if (isDark) {
-            lerp(
-                lerp(scheme.surfaceContainerLow, scheme.surface, 0.38f),
-                scheme.outlineVariant,
-                0.06f,
-            )
+            lerp(scheme.outlineVariant, scheme.surfaceContainerHighest, 0.42f)
         } else {
             lerp(scheme.surfaceContainerHigh, scheme.outlineVariant, 0.36f)
                 .copy(alpha = 0.87f)
         }
         val lit = if (isDark) {
-            lerp(scheme.primary, scheme.onPrimaryContainer, 0.48f)
+            scheme.primary
         } else {
             lerp(scheme.primary, scheme.onPrimaryContainer, 0.12f)
         }

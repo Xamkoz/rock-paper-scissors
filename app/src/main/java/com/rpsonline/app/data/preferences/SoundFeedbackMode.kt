@@ -10,6 +10,9 @@ enum class SoundFeedbackMode {
 
     fun allowsHaptic(): Boolean = this != OFF
 
+    /** Match-found lobby clock ticks (including [HAPTIC_ONLY]); in-match clock still uses [allowsSound]. */
+    fun allowsLobbyAlertTickSounds(): Boolean = this != OFF
+
     fun next(): SoundFeedbackMode = when (this) {
         SOUND_AND_HAPTIC -> HAPTIC_ONLY
         HAPTIC_ONLY -> OFF

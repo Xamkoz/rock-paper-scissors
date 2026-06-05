@@ -95,7 +95,7 @@ const PLAYED_ROUND_END_REASON: RoundEndReason = "normal";
 const ROUND_TIMEOUT_END_REASON: RoundEndReason = "round_timeout";
 const CLOCK_TIMEOUT_END_REASON: RoundEndReason = "clock_timeout";
 const CANCELLED_ROUND_END_REASON: RoundEndReason = "cancelled";
-const LOBBY_READY_MS = 15_000;
+const LOBBY_READY_MS = 20_000;
 
 interface MatchDoc {
   player1: string;
@@ -559,9 +559,35 @@ async function abandonLobbyMatch(
   await batch.commit();
 }
 
+function lobbyReadyDeadlineMs(match: MatchDoc): number {
+  const createdMs = match.createdAt?.toMillis() ?? 0;
+  const storedMs = match.readyDeadlineAt?.toMillis() ?? 0;
+  if (createdMs > 0) {
+    const minDeadline = createdMs + LOBBY_READY_MS;
+    if (storedMs <= 0) return minDeadline;
+    return Math.max(storedMs, minDeadline);
+  }
+  return storedMs;
+}
+
 function isLobbyReadyExpired(match: MatchDoc, nowMs: number = Date.now()): boolean {
-  const deadlineMs = match.readyDeadlineAt?.toMillis() ?? 0;
+  const deadlineMs = lobbyReadyDeadlineMs(match);
   return deadlineMs > 0 && nowMs > deadlineMs;
+}
+
+/** Extends legacy 15s lobby deadlines to the current [LOBBY_READY_MS] window. */
+async function ensureLobbyReadyDeadline(
+  matchRef: FirebaseFirestore.DocumentReference,
+  match: MatchDoc,
+): Promise<MatchDoc> {
+  const createdMs = match.createdAt?.toMillis() ?? 0;
+  if (createdMs <= 0) return match;
+  const targetMs = createdMs + LOBBY_READY_MS;
+  const storedMs = match.readyDeadlineAt?.toMillis() ?? 0;
+  if (storedMs >= targetMs - 500) return match;
+  const readyDeadlineAt = Timestamp.fromMillis(targetMs);
+  await matchRef.update({ readyDeadlineAt });
+  return { ...match, readyDeadlineAt };
 }
 
 async function abandonLobbyIfExpired(matchId: string): Promise<"ok" | "abandoned" | "missing"> {
@@ -1420,7 +1446,7 @@ export const confirmMatchReady = onCall(async (request) => {
   if (!preSnap.exists) {
     throw new HttpsError("not-found", "Match not found.");
   }
-  const preMatch = preSnap.data() as MatchDoc;
+  let preMatch = preSnap.data() as MatchDoc;
   if (preMatch.status === "active") {
     return { ok: true, started: true };
   }
@@ -1430,6 +1456,8 @@ export const confirmMatchReady = onCall(async (request) => {
   if (uid !== preMatch.player1 && uid !== preMatch.player2) {
     throw new HttpsError("permission-denied", "Not a participant.");
   }
+
+  preMatch = await ensureLobbyReadyDeadline(matchRef, preMatch);
 
   const expired = await abandonLobbyIfExpired(matchId);
   if (expired === "abandoned" || expired === "missing") {
