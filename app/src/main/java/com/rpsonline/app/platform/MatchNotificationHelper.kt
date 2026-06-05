@@ -20,13 +20,13 @@ import com.rpsonline.app.ui.util.formatQueueTimeMmSs
 import com.rpsonline.app.ui.segment.SegmentedSpinnerStyle
 import com.rpsonline.app.ui.segment.TopBarStatusRowSpec
 import com.rpsonline.app.ui.util.MatchClockSoundController
-import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 
 object MatchNotificationHelper {
     /** v3 channel: fresh HIGH importance for heads-up / launcher visibility on upgraded installs. */
     /** Silent channel — match-found audio uses in-game ticks, not the system default sound. */
     private const val MATCH_FOUND_CHANNEL_ID = "match_found_alert_v4"
+    private const val MATCH_FOUND_FOREGROUND_CHANNEL_ID = "match_found_alert_foreground_v1"
     private const val MATCH_FOUND_HEADS_UP_CHANNEL_ID = "match_found_heads_up_v1"
     const val MATCH_FOUND_NOTIFICATION_ID = 2001
     private const val MATCH_FOUND_HEADS_UP_NOTIFICATION_ID = 2002
@@ -62,7 +62,19 @@ object MatchNotificationHelper {
             enableLights(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
+        val foregroundChannel = NotificationChannel(
+            MATCH_FOUND_FOREGROUND_CHANNEL_ID,
+            context.getString(R.string.match_found_notification_channel),
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = context.getString(R.string.match_found_notification_channel_desc)
+            setSound(null, null)
+            enableVibration(false)
+            enableLights(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
         manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(foregroundChannel)
         manager.createNotificationChannel(headsUpChannel)
     }
 
@@ -114,7 +126,7 @@ object MatchNotificationHelper {
         }
 
         if (!fgsOwnsDisplay) {
-            if (!fgsRunning) {
+            if (!fgsRunning && MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()) {
                 postMatchFoundHeadsUp(context, match, uid)
             } else {
                 manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
@@ -132,8 +144,9 @@ object MatchNotificationHelper {
         return true
     }
 
-    /** One-shot high-importance peek when FGS is not the live tile (no 2001/1001 duplicate). */
+    /** One-shot high-importance peek when backgrounded and FGS is not the live tile. */
     private fun postMatchFoundHeadsUp(context: Context, match: Match, uid: String) {
+        if (!MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()) return
         if (MatchmakingForegroundService.isRunning()) return
         ensureChannels(context)
         val manager = NotificationManagerCompat.from(context)
@@ -167,11 +180,9 @@ object MatchNotificationHelper {
         lobbyAlertRefreshRunnable = null
     }
 
-    private fun cancelLobbyAlertTimers(context: Context) {
+    private fun cancelLobbyAlertTimers(@Suppress("UNUSED_PARAMETER") context: Context) {
         stopLobbyAlertRefresh()
-        if (!PreGameLobbySoundPolicy.isUserInPreGameLobby(context)) {
-            MatchClockSoundController.syncLobbyAlert(false)
-        }
+        MatchClockSoundController.syncLobbyAlert(false)
     }
 
     /** Refreshes lobby match-found UI: FGS tile when running, otherwise notification 2001 (never both). */
@@ -239,31 +250,33 @@ object MatchNotificationHelper {
             timerAnchorMs = startedAtMs,
             spinnerStyle = SegmentedSpinnerStyle.QUEUE,
         )
-        val channelId = if (headsUpAlert) {
-            MATCH_FOUND_HEADS_UP_CHANNEL_ID
-        } else {
-            MATCH_FOUND_CHANNEL_ID
+        val highImportanceShade = MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()
+        val useHeadsUp = headsUpAlert && highImportanceShade
+        val channelId = when {
+            useHeadsUp -> MATCH_FOUND_HEADS_UP_CHANNEL_ID
+            highImportanceShade -> MATCH_FOUND_CHANNEL_ID
+            else -> MATCH_FOUND_FOREGROUND_CHANNEL_ID
         }
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(RpsStatusBarNotification.smallIconRes)
-            .setSortKey(if (headsUpAlert) "match_found_heads_up" else "match_found")
+            .setSortKey(if (useHeadsUp) "match_found_heads_up" else "match_found")
             .setPriority(
-                if (headsUpAlert) {
-                    NotificationCompat.PRIORITY_MAX
-                } else {
-                    NotificationCompat.PRIORITY_HIGH
+                when {
+                    useHeadsUp -> NotificationCompat.PRIORITY_MAX
+                    highImportanceShade -> NotificationCompat.PRIORITY_HIGH
+                    else -> NotificationCompat.PRIORITY_DEFAULT
                 },
             )
             .setCategory(
-                if (headsUpAlert) {
+                if (useHeadsUp) {
                     NotificationCompat.CATEGORY_ALARM
                 } else {
                     NotificationCompat.CATEGORY_EVENT
                 },
             )
-            .setOngoing(!headsUpAlert)
+            .setOngoing(!useHeadsUp)
             .setOnlyAlertOnce(true)
-        if (headsUpAlert) {
+        if (useHeadsUp) {
             builder
                 .setSilent(false)
                 .setDefaults(0)

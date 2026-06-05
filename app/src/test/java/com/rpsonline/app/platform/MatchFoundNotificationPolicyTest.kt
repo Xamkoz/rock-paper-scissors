@@ -2,11 +2,29 @@ package com.rpsonline.app.platform
 
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MatchFoundNotificationPolicyTest {
+
+    @After
+    fun tearDown() {
+        AppForegroundTracker.setInForeground(true)
+    }
+
+    @Test
+    fun shouldUseHighImportanceMatchFoundShade_falseWhenAppForeground() {
+        AppForegroundTracker.setInForeground(true)
+        assertFalse(MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade())
+    }
+
+    @Test
+    fun shouldUseHighImportanceMatchFoundShade_trueWhenAppBackgrounded() {
+        AppForegroundTracker.setInForeground(false)
+        assertTrue(MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade())
+    }
 
     private val lobbyMatch = Match(
         id = "m1",

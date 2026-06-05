@@ -443,7 +443,7 @@ fun RpsApp() {
         onPauseOrDispose { }
     }
 
-    LaunchedEffect(activeMatch?.id, activeMatch?.status, user?.uid) {
+    LaunchedEffect(activeMatch?.id, activeMatch?.status, user?.uid, visibleMatchScreenId) {
         val match = activeMatch
         val uid = user?.uid
         MatchClockSoundController.initialize(context)
@@ -454,10 +454,10 @@ fun RpsApp() {
             match.isParticipant(uid)
         ) {
             JoinMatchNotificationState.bindLobby(match)
-            MatchClockSoundController.syncLobbyAlert(true)
-        } else if (!PreGameLobbySoundPolicy.isUserInPreGameLobby(context)) {
-            MatchClockSoundController.syncLobbyAlert(false)
         }
+        MatchClockSoundController.syncLobbyAlert(
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(match, uid, visibleMatchScreenId),
+        )
     }
 
     LaunchedEffect(

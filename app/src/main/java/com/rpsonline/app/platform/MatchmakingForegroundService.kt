@@ -497,8 +497,7 @@ class MatchmakingForegroundService : Service() {
         if (display.status == SegmentedNotificationStatus.IN_MATCH) return false
         if (display.status != SegmentedNotificationStatus.MATCH_FOUND) return false
         if (System.currentTimeMillis() >= launchAlertUntilMs) return false
-        if (!AppForegroundTracker.isInForeground) return true
-        return MatchmakingPreferences(this).isMatchFoundNotificationsEnabled()
+        return MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()
     }
 
     private fun usesPersistentSessionChannel(display: TopBarStatusRowSpec): Boolean =
@@ -535,10 +534,14 @@ class MatchmakingForegroundService : Service() {
         val accessibilityTime = formatQueueTimeMmSs(display.elapsedSeconds)
         val needsLaunchAlert = shouldUseLaunchAlert(display)
         val persistentSession = usesPersistentSessionChannel(display)
-        val channelId = if (needsLaunchAlert || persistentSession) {
-            FOREGROUND_ALERT_CHANNEL_ID
-        } else {
-            FOREGROUND_CHANNEL_ID
+        val lowImportanceMatchFound = persistentSession &&
+            display.status == SegmentedNotificationStatus.MATCH_FOUND &&
+            !MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()
+        val channelId = when {
+            needsLaunchAlert -> FOREGROUND_ALERT_CHANNEL_ID
+            lowImportanceMatchFound -> FOREGROUND_CHANNEL_ID
+            persistentSession -> FOREGROUND_ALERT_CHANNEL_ID
+            else -> FOREGROUND_CHANNEL_ID
         }
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(RpsStatusBarNotification.smallIconRes)
@@ -560,11 +563,19 @@ class MatchmakingForegroundService : Service() {
                 builder.setFullScreenIntent(pendingIntent, true)
             }
         } else if (persistentSession) {
-            builder
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setOnlyAlertOnce(true)
-                .setSilent(true)
+            if (lowImportanceMatchFound) {
+                builder
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
+            } else {
+                builder
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
+            }
         } else {
             builder
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)

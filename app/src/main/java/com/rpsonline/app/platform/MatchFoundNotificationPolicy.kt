@@ -5,6 +5,10 @@ import com.rpsonline.app.data.model.MatchStatus
 
 /** When to post or clear session shade notifications (match found / in match). */
 internal object MatchFoundNotificationPolicy {
+    /** Heads-up / IMPORTANCE_HIGH match-found shade only when the app is not in the foreground. */
+    fun shouldUseHighImportanceMatchFoundShade(): Boolean =
+        !AppForegroundTracker.isInForeground
+
     /**
      * While in an active match with background usage on, match-found heads-up / high-importance
      * alerts must not compete with the in-match FGS tile.

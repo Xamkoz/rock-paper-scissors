@@ -116,7 +116,7 @@ object MatchClockSoundController {
         }
     }
 
-    /** Pre-game lobby waiting: ready burst once, then notification-class ticks until lobby ends. */
+    /** Match-found alert: ready burst once, then notification-class ticks + haptics every 500ms. */
     fun syncLobbyAlert(shouldRun: Boolean) {
         if (!shouldRun) {
             lobbyTickJob?.cancel()
@@ -151,7 +151,7 @@ object MatchClockSoundController {
     /** Keeps lobby/match clock feedback while backgrounded; Compose stops receiving match updates there. */
     fun syncFromSessionWhenBackground(context: Context) {
         initialize(context)
-        if (PreGameLobbySoundPolicy.isUserInPreGameLobby(context)) {
+        if (PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(context)) {
             syncLobbyAlert(true)
             return
         }
