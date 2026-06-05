@@ -45,7 +45,7 @@ object MatchClockSoundController {
             lobbyTickPlayer?.playReadyTick()
         }
         val mode = SoundPreferences(ctx).getMode()
-        if (mode.allowsHaptic()) {
+        if (lobbyAlertHapticsAllowed(ctx)) {
             MatchClockHaptics.initialize(ctx)
             MatchClockHaptics.pulseTick()
         }
@@ -58,6 +58,18 @@ object MatchClockSoundController {
         }
         if (!mode.allowsLobbyAlertTickSounds()) return false
         return NotificationAlertSoundPolicy.notificationSoundsAudible(ctx)
+    }
+
+    private fun lobbyAlertHapticsAllowed(ctx: Context): Boolean {
+        val mode = SoundPreferences(ctx).getMode()
+        if (!mode.allowsHaptic()) return false
+        return NotificationAlertSoundPolicy.notificationHapticsAllowed(ctx)
+    }
+
+    private fun pulseLobbyAlertHapticIfAllowed(ctx: Context) {
+        if (!lobbyAlertHapticsAllowed(ctx)) return
+        MatchClockHaptics.initialize(ctx)
+        MatchClockHaptics.pulseTick()
     }
 
     private fun lobbyTicksActive(): Boolean = lobbyTickJob?.isActive == true
@@ -122,8 +134,11 @@ object MatchClockSoundController {
                     tickPlayer.playReadyTick()
                 }
                 while (isActive) {
-                    if (ctx != null && lobbyAlertSoundsAudible(ctx)) {
-                        tickPlayer.playTick()
+                    if (ctx != null) {
+                        if (lobbyAlertSoundsAudible(ctx)) {
+                            tickPlayer.playTick()
+                        }
+                        pulseLobbyAlertHapticIfAllowed(ctx)
                     }
                     delay(500)
                 }

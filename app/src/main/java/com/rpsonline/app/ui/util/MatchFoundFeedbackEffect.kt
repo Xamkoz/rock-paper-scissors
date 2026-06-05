@@ -35,7 +35,7 @@ fun triggerMatchFoundFeedback(
     if (playReadyBurst && mode.allowsSound()) {
         MatchClockSoundController.playReadyBurst()
     }
-    if (mode.allowsHaptic()) {
+    if (mode.allowsHaptic() && NotificationAlertSoundPolicy.notificationHapticsAllowed(appContext)) {
         MatchClockHaptics.initialize(appContext)
         MatchClockHaptics.pulseTick()
     }

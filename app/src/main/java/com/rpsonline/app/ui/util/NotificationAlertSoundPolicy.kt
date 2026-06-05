@@ -15,4 +15,10 @@ object NotificationAlertSoundPolicy {
         }
         return am.getStreamVolume(AudioManager.STREAM_NOTIFICATION) > 0
     }
+
+    /** False when the device ringer is fully silent (system blocks vibration alerts). */
+    fun notificationHapticsAllowed(context: Context): Boolean {
+        val am = context.applicationContext.getSystemService(AudioManager::class.java) ?: return true
+        return am.ringerMode != AudioManager.RINGER_MODE_SILENT
+    }
 }

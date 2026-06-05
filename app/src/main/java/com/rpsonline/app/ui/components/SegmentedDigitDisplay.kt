@@ -228,11 +228,7 @@ private fun WithOptionalPulseSlotIndex(
 private fun sevenSegmentGhostColor(): Color {
     val scheme = MaterialTheme.colorScheme
     return if (isRpsDarkTheme()) {
-        lerp(
-            lerp(scheme.surfaceContainerLow, scheme.surface, 0.38f),
-            scheme.outlineVariant,
-            0.06f,
-        )
+        lerp(scheme.outlineVariant, scheme.surfaceContainerHighest, 0.42f)
     } else {
         lerp(scheme.surfaceContainerHigh, scheme.outlineVariant, 0.36f)
             .copy(alpha = 0.87f)
@@ -243,7 +239,7 @@ private fun sevenSegmentGhostColor(): Color {
 private fun sevenSegmentLitColor(): Color {
     val scheme = MaterialTheme.colorScheme
     return if (isRpsDarkTheme()) {
-        lerp(scheme.primary, scheme.onPrimaryContainer, 0.48f)
+        scheme.primary
     } else {
         lerp(scheme.primary, scheme.onPrimaryContainer, 0.12f)
     }

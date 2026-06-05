@@ -141,6 +141,7 @@ fun ProfileSummaryCard(
                 throwsPaper = profile?.throwsPaper ?: 0,
                 throwsScissors = profile?.throwsScissors ?: 0,
                 elo = eloOverride ?: profile?.elo ?: 1000,
+                contentColors = rowStyle.contentColors,
             )
         }
     }
@@ -199,6 +200,7 @@ fun PlayerSummaryContent(
     modifier: Modifier = Modifier,
     nameTextStyle: TextStyle = MaterialTheme.typography.titleMedium,
     statTextStyle: TextStyle = MaterialTheme.typography.bodySmall,
+    contentColors: OnlinePresenceContentColors? = null,
 ) {
     Row(
         modifier = modifier
@@ -229,6 +231,7 @@ fun PlayerSummaryContent(
                 losses = losses,
                 draws = draws,
                 textStyle = statTextStyle,
+                contentColors = contentColors,
             )
             Spacer(modifier = Modifier.height(SummaryStatsLinesGap))
             RoundWinRateLine(
@@ -236,6 +239,7 @@ fun PlayerSummaryContent(
                 losses = roundsLost,
                 draws = roundsDraw,
                 textStyle = statTextStyle,
+                contentColors = contentColors,
             )
         }
         val eloColumnWidth = rememberFourDigitEloColumnWidth(
@@ -250,6 +254,7 @@ fun PlayerSummaryContent(
                 paper = throwsPaper,
                 scissors = throwsScissors,
                 size = 56.dp,
+                mutedColor = contentColors?.muted,
             )
             Column(
                 modifier = Modifier.width(eloColumnWidth),
@@ -260,6 +265,7 @@ fun PlayerSummaryContent(
                     elo = elo,
                     style = MaterialTheme.typography.titleLarge,
                     textAlign = TextAlign.Center,
+                    color = contentColors?.eloRating,
                     modifier = Modifier
                         .fillMaxWidth()
                         .offset(y = (-1).dp),
@@ -267,7 +273,7 @@ fun PlayerSummaryContent(
                 Text(
                     text = "ELO",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = contentColors?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
