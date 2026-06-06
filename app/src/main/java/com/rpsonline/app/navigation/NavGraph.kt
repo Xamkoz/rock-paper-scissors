@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -247,6 +248,14 @@ fun RpsNavGraph() {
             arguments = listOf(navArgument("matchId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val matchId = backStackEntry.arguments?.getString("matchId") ?: return@composable
+            DisposableEffect(matchId) {
+                MatchSessionMonitor.setVisibleMatchScreenId(matchId)
+                onDispose {
+                    if (MatchSessionMonitor.visibleMatchScreenId.value == matchId) {
+                        MatchSessionMonitor.setVisibleMatchScreenId(null)
+                    }
+                }
+            }
             BackHandler {
                 MatchSessionMonitor.suppressAutoGameNavigation(matchId)
                 if (!navController.popBackStack()) {

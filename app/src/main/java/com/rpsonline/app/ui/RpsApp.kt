@@ -474,8 +474,7 @@ fun RpsApp() {
             !shouldRunLobbyAlert &&
             uid != null &&
             match != null &&
-            match.isParticipant(uid) &&
-            match.status != MatchStatus.LOBBY
+            match.isParticipant(uid)
         ) {
             MatchNotificationHelper.dismissMatchFound(context, match, uid)
         }

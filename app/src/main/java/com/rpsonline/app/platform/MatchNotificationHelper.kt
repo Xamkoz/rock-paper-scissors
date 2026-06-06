@@ -168,6 +168,10 @@ object MatchNotificationHelper {
         val appContext = context.applicationContext
         val tick = object : Runnable {
             override fun run() {
+                if (MatchSessionMonitor.visibleMatchScreenId.value == match.id) {
+                    stopLobbyAlertRefresh()
+                    return
+                }
                 if (!JoinMatchNotificationState.isLobbyAlertPhase()) {
                     lobbyAlertRefreshRunnable = null
                     return
@@ -201,6 +205,7 @@ object MatchNotificationHelper {
 
     /** Refreshes lobby match-found UI: FGS tile when running, otherwise notification 2001 (never both). */
     fun maintainJoinMatchNotification(context: Context, match: Match, uid: String) {
+        if (MatchSessionMonitor.visibleMatchScreenId.value == match.id) return
         if (suppressMatchFoundDuringActiveSession(context.applicationContext, uid)) return
         if (!match.isParticipant(uid)) return
         val inProminentWindow = JoinMatchNotificationState.isWithinProminentAlertWindow()

@@ -146,9 +146,7 @@ object MatchClockSoundController {
         initialize(context)
         if (PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(context)) {
             syncLobbyAlert(true)
-            return
-        }
-        if (!lobbyTicksActive()) {
+        } else {
             syncLobbyAlert(false)
         }
         if (AppForegroundTracker.isInForeground) return

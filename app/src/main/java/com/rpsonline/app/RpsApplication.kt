@@ -16,6 +16,7 @@ import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.ui.util.GameAudioContext
 import com.rpsonline.app.ui.util.MatchClockHaptics
 import com.rpsonline.app.ui.util.MatchClockSoundController
+import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 
 class RpsApplication : Application() {
     override fun attachBaseContext(base: Context) {
@@ -46,6 +47,7 @@ class RpsApplication : Application() {
     private fun syncJoinMatchNotification() {
         val match = MatchSessionMonitor.activeMatch.value
         val uid = FirebaseAuth.getInstance().currentUser?.uid
+        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)
         if (
             MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
                 match,
@@ -58,6 +60,7 @@ class RpsApplication : Application() {
         ) {
             MatchNotificationHelper.dismissMatchFound(this, match, uid)
         }
+        MatchClockSoundController.syncLobbyAlert(shouldRunLobbyAlert)
     }
 
     private fun handleQueueRecoveryFailed(@Suppress("UNUSED_PARAMETER") message: String) {

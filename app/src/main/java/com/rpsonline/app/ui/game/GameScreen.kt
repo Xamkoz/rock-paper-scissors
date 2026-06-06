@@ -106,10 +106,8 @@ fun GameScreen(
 
     DisposableEffect(matchId) {
         triggerMatchFoundFeedback(context, matchId)
-        MatchSessionMonitor.setVisibleMatchScreenId(matchId)
         pulseNotifier?.enterLiveMatch(matchId)
         onDispose {
-            MatchSessionMonitor.setVisibleMatchScreenId(null)
             pulseNotifier?.leaveLiveMatch(matchId)
             moveSoundPlayer.release()
         }
