@@ -90,6 +90,7 @@ object MatchClockSoundController {
                         .coerceIn(1L, LOBBY_ALERT_TICK_MS)
                     delay(waitMs)
                 }
+                delay(MatchClockSoundPolicy.TICK_AFTER_CLOCK_RUNNING_MS)
                 while (isActive) {
                     val ctx = appContext
                     val mode = ctx?.let { SoundPreferences(it).getMode() }

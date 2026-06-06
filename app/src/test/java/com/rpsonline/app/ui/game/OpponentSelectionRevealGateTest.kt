@@ -230,6 +230,24 @@ class OpponentSelectionRevealGateTest {
     }
 
     @Test
+    fun resolveBetweenRoundsRecapRound_keepsRecapWhenOpponentMovedFirstOnNextRound() {
+        val last = dummyRound()
+        val opponentFirstOpen = RoundResult(
+            roundNumber = 2,
+            player1Submitted = false,
+            player2Submitted = true,
+        )
+        assertEquals(
+            last,
+            resolveBetweenRoundsRecapRound(
+                pendingOutcome = null,
+                lastResolved = last,
+                openRound = opponentFirstOpen,
+            ),
+        )
+    }
+
+    @Test
     fun resolveBetweenRoundsRecapRound_nullWhileOpenRoundStillResolving() {
         val last = dummyRound()
         val resolvingOpen = RoundResult(
@@ -578,6 +596,37 @@ class OpponentSelectionRevealGateTest {
     fun recapDismissedForUi_falseWhileMatchEndGateHeld() {
         assertFalse(recapDismissedForUi(recapDismissed = true, holdMatchEndRecapGate = true))
         assertTrue(recapDismissedForUi(recapDismissed = true, holdMatchEndRecapGate = false))
+    }
+
+    @Test
+    fun dualSelectionRevealAllowedForFrame_holdsThroughGateFlicker() {
+        assertFalse(
+            dualSelectionRevealAllowedForFrame(
+                holdCompleted = false,
+                resolveHoldStartedAtMs = 1_000L,
+                gateActive = false,
+                roundKey = 10_001,
+                revealAllowed = false,
+            ),
+        )
+        assertTrue(
+            dualSelectionRevealAllowedForFrame(
+                holdCompleted = true,
+                resolveHoldStartedAtMs = 1_000L,
+                gateActive = false,
+                roundKey = 10_001,
+                revealAllowed = false,
+            ),
+        )
+        assertTrue(
+            dualSelectionRevealAllowedForFrame(
+                holdCompleted = false,
+                resolveHoldStartedAtMs = 0L,
+                gateActive = false,
+                roundKey = 10_001,
+                revealAllowed = false,
+            ),
+        )
     }
 
     @Test

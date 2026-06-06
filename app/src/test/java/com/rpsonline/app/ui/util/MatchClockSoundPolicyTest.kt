@@ -37,8 +37,13 @@ class MatchClockSoundPolicyTest {
     }
 
     @Test
+    fun tickAfterClockRunningMs_constant() {
+        assertEquals(3_000L, MatchClockSoundPolicy.TICK_AFTER_CLOCK_RUNNING_MS)
+    }
+
+    @Test
     fun hapticAfterClockRunningMs_constant() {
-        assertEquals(5_000L, MatchClockSoundPolicy.HAPTIC_AFTER_CLOCK_RUNNING_MS)
+        assertEquals(7_000L, MatchClockSoundPolicy.HAPTIC_AFTER_CLOCK_RUNNING_MS)
     }
 
     private fun runningClockMatch(

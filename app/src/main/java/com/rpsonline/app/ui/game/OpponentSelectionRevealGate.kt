@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 const val DUAL_SELECTION_MIN_DISPLAY_MS = 200L
 
 /** Minimum time revealed recap (both icons + round banner) stays before next-round clocks. */
-const val ROUND_RECAP_REVEALED_MIN_DISPLAY_MS = 1_800L
+const val ROUND_RECAP_REVEALED_MIN_DISPLAY_MS = 1_200L
 
 @Deprecated("Use DUAL_SELECTION_MIN_DISPLAY_MS", ReplaceWith("DUAL_SELECTION_MIN_DISPLAY_MS"))
 const val OPPONENT_SELECTION_MIN_DISPLAY_MS = DUAL_SELECTION_MIN_DISPLAY_MS
@@ -203,7 +203,15 @@ fun resolveBetweenRoundsRecapRound(
     if (last.winner == null || last.winner == "tie") return null
     if (last.player1Choice == null || last.player2Choice == null) return null
     if (openRound != null && openRound.roundNumber <= last.roundNumber) return null
-    if (isOpenRoundAwaitingServerResolve(openRound)) return null
+    // Only suppress when the next round is fully blind-committed (both picked), not opponent-first.
+    if (
+        openRound != null &&
+        openRound.player1Submitted &&
+        openRound.player2Submitted &&
+        isOpenRoundAwaitingServerResolve(openRound)
+    ) {
+        return null
+    }
     return last
 }
 
@@ -332,11 +340,25 @@ fun shouldDelayDualSelectionReveal(
     return dualSelectionElapsedMs(holdStartedAtMs, nowMs) < DUAL_SELECTION_MIN_DISPLAY_MS
 }
 
+fun dualSelectionRevealAllowedForFrame(
+    holdCompleted: Boolean,
+    resolveHoldStartedAtMs: Long,
+    gateActive: Boolean,
+    roundKey: Int?,
+    revealAllowed: Boolean,
+): Boolean {
+    if (holdCompleted) return true
+    if (resolveHoldStartedAtMs != 0L) return revealAllowed
+    if (!gateActive || roundKey == null) return true
+    return revealAllowed
+}
+
 /**
  * After a round resolves ([gateActive]), keeps both moves on secret placeholders and
  * delays outcome banner for [DUAL_SELECTION_MIN_DISPLAY_MS] from that moment.
  *
- * Timing is keyed only by [roundKey] so a one-frame [gateActive] flicker does not skip the hold.
+ * Timing is keyed only by [roundKey]; once the hold starts it runs to completion even if
+ * [gateActive] flickers off (e.g. opponent submits on the next round before pendingOutcome arrives).
  */
 @Composable
 fun rememberDualSelectionRevealAllowed(
@@ -354,7 +376,8 @@ fun rememberDualSelectionRevealAllowed(
     }
 
     LaunchedEffect(roundKey, gateActive) {
-        if (roundKey == null || !gateActive || holdCompleted) return@LaunchedEffect
+        if (roundKey == null || holdCompleted) return@LaunchedEffect
+        if (!gateActive && resolveHoldStartedAtMs == 0L) return@LaunchedEffect
 
         if (resolveHoldStartedAtMs == 0L) {
             resolveHoldStartedAtMs = SystemClock.elapsedRealtime()
@@ -369,9 +392,13 @@ fun rememberDualSelectionRevealAllowed(
         holdCompleted = true
     }
 
-    if (holdCompleted) return true
-    if (!gateActive || roundKey == null) return true
-    return revealAllowed
+    return dualSelectionRevealAllowedForFrame(
+        holdCompleted = holdCompleted,
+        resolveHoldStartedAtMs = resolveHoldStartedAtMs,
+        gateActive = gateActive,
+        roundKey = roundKey,
+        revealAllowed = revealAllowed,
+    )
 }
 
 /**

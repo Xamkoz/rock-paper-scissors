@@ -8,13 +8,13 @@ import org.junit.Test
 class MatchClockTickTimingTest {
 
     @Test
-    fun matchClockHapticDelayElapsed_falseBeforeFiveSeconds() {
-        assertFalse(matchClockHapticDelayElapsed(anchorElapsedMs = 100L, nowElapsedMs = 5_099L))
+    fun matchClockHapticDelayElapsed_falseBeforeSevenSeconds() {
+        assertFalse(matchClockHapticDelayElapsed(anchorElapsedMs = 100L, nowElapsedMs = 7_099L))
     }
 
     @Test
-    fun matchClockHapticDelayElapsed_trueAfterFiveSeconds() {
-        assertTrue(matchClockHapticDelayElapsed(anchorElapsedMs = 100L, nowElapsedMs = 5_100L))
+    fun matchClockHapticDelayElapsed_trueAfterSevenSeconds() {
+        assertTrue(matchClockHapticDelayElapsed(anchorElapsedMs = 100L, nowElapsedMs = 7_100L))
     }
 
     @Test
