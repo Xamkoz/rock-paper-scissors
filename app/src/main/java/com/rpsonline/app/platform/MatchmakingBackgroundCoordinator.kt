@@ -52,19 +52,6 @@ object MatchmakingBackgroundCoordinator {
                         serviceRunning = snapshot.shouldRun
                         MatchmakingForegroundService.sync(appContext, snapshot.shouldRun)
                     }
-                    val match = MatchSessionMonitor.activeMatch.value
-                    val uid = FirebaseAuth.getInstance().currentUser?.uid
-                    if (
-                        match != null &&
-                        uid != null &&
-                        MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
-                            match = match,
-                            uid = uid,
-                            visibleMatchScreenId = MatchSessionMonitor.visibleMatchScreenId.value,
-                        )
-                    ) {
-                        MatchNotificationHelper.showInMatch(appContext, match, uid)
-                    }
                 }
         }
     }

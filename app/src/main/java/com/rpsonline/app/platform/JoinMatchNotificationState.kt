@@ -50,6 +50,9 @@ internal object JoinMatchNotificationState {
                 if (lobbyMatch?.id == match.id || lobbyAlertMatchId == match.id) {
                     lobbyMatch = match
                 }
+                if (match.hasGameplayStarted()) {
+                    endLobbyAlertPhase()
+                }
             }
             else -> {
                 if (lobbyMatch?.id == match.id || lobbyAlertMatchId == match.id) {

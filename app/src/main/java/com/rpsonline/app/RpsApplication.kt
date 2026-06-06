@@ -47,7 +47,6 @@ class RpsApplication : Application() {
     private fun syncJoinMatchNotification() {
         val match = MatchSessionMonitor.activeMatch.value
         val uid = FirebaseAuth.getInstance().currentUser?.uid
-        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)
         if (
             MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
                 match,
@@ -60,6 +59,7 @@ class RpsApplication : Application() {
         ) {
             MatchNotificationHelper.dismissMatchFound(this, match, uid)
         }
+        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)
         MatchClockSoundController.syncLobbyAlert(shouldRunLobbyAlert)
     }
 

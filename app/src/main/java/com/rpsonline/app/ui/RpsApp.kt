@@ -457,7 +457,15 @@ fun RpsApp() {
         onPauseOrDispose { }
     }
 
-    LaunchedEffect(activeMatch?.id, activeMatch?.status, user?.uid, visibleMatchScreenId) {
+    LaunchedEffect(
+        activeMatch?.id,
+        activeMatch?.status,
+        activeMatch?.rounds,
+        activeMatch?.player1Ready,
+        activeMatch?.player2Ready,
+        user?.uid,
+        visibleMatchScreenId,
+    ) {
         val match = activeMatch
         val uid = user?.uid
         MatchClockSoundController.initialize(context)

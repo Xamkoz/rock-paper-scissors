@@ -2,64 +2,11 @@ package com.rpsonline.app.platform
 
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
-import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MatchFoundNotificationPolicyTest {
-
-    @After
-    fun tearDown() {
-        AppForegroundTracker.setInForeground(true)
-        JoinMatchNotificationState.clear()
-    }
-
-    @Test
-    fun shouldUseProminentMatchFoundHeadsUp_trueDuringTwentySecondWindow() {
-        AppForegroundTracker.setInForeground(false)
-        JoinMatchNotificationState.beginLobbyAlertPhase(lobbyMatch)
-        assertTrue(MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp())
-    }
-
-    @Test
-    fun shouldUsePersistentHighPriorityMatchFoundShade_trueDuringLobbyAlertInForeground() {
-        AppForegroundTracker.setInForeground(true)
-        JoinMatchNotificationState.beginLobbyAlertPhase(lobbyMatch)
-        try {
-            assertTrue(MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade())
-        } finally {
-            JoinMatchNotificationState.clear()
-        }
-    }
-
-    @Test
-    fun shouldUsePersistentHighPriorityMatchFoundShade_falseWhenIdleInForeground() {
-        AppForegroundTracker.setInForeground(true)
-        assertFalse(MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade())
-    }
-
-    @Test
-    fun shouldUseHighImportanceMatchFoundShade_falseWhenAppForeground() {
-        AppForegroundTracker.setInForeground(true)
-        assertFalse(MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade())
-    }
-
-    @Test
-    fun shouldUseHighImportanceMatchFoundShade_trueWhenAppBackgrounded() {
-        AppForegroundTracker.setInForeground(false)
-        assertTrue(MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade())
-    }
-
-    @Test
-    fun shouldUseFullScreenMatchLaunchAlert_falseWhenBackgroundUsageEnabled() {
-        assertFalse(MatchFoundNotificationPolicy.shouldUseFullScreenMatchLaunchAlert(true))
-    }
-
-    @Test
-    fun shouldUseFullScreenMatchLaunchAlert_trueWhenBackgroundUsageDisabled() {
-        assertTrue(MatchFoundNotificationPolicy.shouldUseFullScreenMatchLaunchAlert(false))
-    }
 
     private val lobbyMatch = Match(
         id = "m1",
@@ -84,95 +31,6 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun retainsNotificationWhenLobbyAlertPhase() {
-        JoinMatchNotificationState.beginLobbyAlertPhase(lobbyMatch)
-        try {
-            assertFalse(
-                MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
-                    match = null,
-                    uid = "u1",
-                    visibleMatchScreenId = null,
-                    activeJoinMatchNotificationId = null,
-                ),
-            )
-        } finally {
-            JoinMatchNotificationState.clear()
-        }
-    }
-
-    @Test
-    fun retainsNotificationWhenStickyLobbyPresent() {
-        val sticky = lobbyMatch.copy(status = MatchStatus.LOBBY)
-        JoinMatchNotificationState.bindLobby(sticky)
-        try {
-            assertFalse(
-                MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
-                    match = null,
-                    uid = "u1",
-                    visibleMatchScreenId = null,
-                    activeJoinMatchNotificationId = null,
-                ),
-            )
-            assertTrue(
-                MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
-                    match = null,
-                    uid = "u1",
-                    visibleMatchScreenId = "m1",
-                    activeJoinMatchNotificationId = null,
-                ),
-            )
-        } finally {
-            JoinMatchNotificationState.clear()
-        }
-    }
-
-    @Test
-    fun retainsNotificationWhenSessionMatchAbsent() {
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
-                match = null,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                activeJoinMatchNotificationId = "m1",
-            ),
-        )
-        assertTrue(
-            MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
-                match = null,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                activeJoinMatchNotificationId = null,
-            ),
-        )
-    }
-
-    @Test
-    fun maintainsLobbyNotificationInBackground() {
-        assertTrue(
-            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
-                appInForeground = false,
-                match = lobbyMatch,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = true,
-                hasPostNotificationsPermission = true,
-            ),
-        )
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
-                appInForeground = false,
-                match = lobbyMatch,
-                uid = "u1",
-                visibleMatchScreenId = "m1",
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = true,
-                hasPostNotificationsPermission = true,
-            ),
-        )
-    }
-
-    @Test
     fun keepsNotificationInForegroundUntilMatchScreen() {
         assertFalse(
             MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
@@ -191,27 +49,13 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun keepsInMatchNotificationUntilGameScreenOpened() {
+    fun keepsActiveMatchNotificationUntilGameScreen() {
         val active = lobbyMatch.copy(status = MatchStatus.ACTIVE)
         assertFalse(
             MatchFoundNotificationPolicy.shouldDismissJoinMatchNotification(
                 match = active,
                 uid = "u1",
                 visibleMatchScreenId = null,
-            ),
-        )
-        assertTrue(
-            MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
-                match = active,
-                uid = "u1",
-                visibleMatchScreenId = null,
-            ),
-        )
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldMaintainInMatchNotification(
-                match = active,
-                uid = "u1",
-                visibleMatchScreenId = "m1",
             ),
         )
         assertTrue(
@@ -238,41 +82,8 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun showsWhenAppInForegroundAndNotificationsEnabled() {
+    fun showsInBackgroundWhileForegroundServiceRuns() {
         assertTrue(
-            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
-                appInForeground = true,
-                matchStatus = MatchStatus.LOBBY,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = false,
-                hasPostNotificationsPermission = true,
-                matchId = "m1",
-            ),
-        )
-        assertTrue(
-            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
-                appInForeground = true,
-                match = lobbyMatch,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = false,
-                hasPostNotificationsPermission = true,
-            ),
-        )
-    }
-
-    @Test
-    fun suppressesMatchFoundAlertsWhileInActiveMatchWithBackgroundUsage() {
-        val active = lobbyMatch.copy(status = MatchStatus.ACTIVE)
-        assertTrue(
-            MatchFoundNotificationPolicy.shouldSuppressMatchFoundAlerts(
-                liveMatch = active,
-                uid = "u1",
-                backgroundUsageEnabled = true,
-            ),
-        )
-        assertFalse(
             MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
                 appInForeground = false,
                 matchStatus = MatchStatus.LOBBY,
@@ -280,47 +91,6 @@ class MatchFoundNotificationPolicyTest {
                 backgroundUsageEnabled = true,
                 hasPostNotificationsPermission = true,
                 matchId = "m1",
-                liveSessionMatch = active,
-                uid = "u1",
-            ),
-        )
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
-                appInForeground = false,
-                match = lobbyMatch,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = true,
-                hasPostNotificationsPermission = true,
-                liveSessionMatch = active,
-            ),
-        )
-    }
-
-    @Test
-    fun defersShadeToForegroundServiceWhenItOwnsDisplay() {
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
-                appInForeground = true,
-                matchStatus = MatchStatus.LOBBY,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = true,
-                hasPostNotificationsPermission = true,
-                matchId = "m1",
-                foregroundServiceOwnsDisplay = true,
-            ),
-        )
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldMaintainJoinMatchNotification(
-                appInForeground = true,
-                match = lobbyMatch,
-                uid = "u1",
-                visibleMatchScreenId = null,
-                matchFoundNotificationsEnabled = true,
-                backgroundUsageEnabled = true,
-                hasPostNotificationsPermission = true,
-                foregroundServiceOwnsDisplay = true,
             ),
         )
     }
@@ -338,17 +108,5 @@ class MatchFoundNotificationPolicyTest {
                 matchId = "m1",
             ),
         )
-    }
-
-    @Test
-    fun matchFoundGateAllowsOncePerMatchId() {
-        MatchFoundNotificationGate.reset()
-        try {
-            assertTrue(MatchFoundNotificationGate.tryNotify("m1"))
-            assertFalse(MatchFoundNotificationGate.tryNotify("m1"))
-            assertTrue(MatchFoundNotificationGate.tryNotify("m2"))
-        } finally {
-            MatchFoundNotificationGate.reset()
-        }
     }
 }

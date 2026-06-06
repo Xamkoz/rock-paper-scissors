@@ -2,6 +2,7 @@ package com.rpsonline.app.ui.util
 
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.platform.JoinMatchNotificationState
 import org.junit.After
 import org.junit.Assert.assertFalse
@@ -100,6 +101,26 @@ class PreGameLobbySoundPolicyTest {
         )
         JoinMatchNotificationState.beginLobbyAlertPhase(active)
         assertTrue(
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
+                match = active,
+                uid = "p1",
+                visibleMatchScreenId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldRunMatchFoundLobbyAlert_falseAfterFirstRoundStarts() {
+        val active = lobbyMatch("m1").copy(
+            status = MatchStatus.ACTIVE,
+            player1Ready = true,
+            player2Ready = true,
+            lastActivityAt = System.currentTimeMillis(),
+            rounds = listOf(
+                RoundResult(roundNumber = 1, startedAt = System.currentTimeMillis()),
+            ),
+        )
+        assertFalse(
             PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
                 match = active,
                 uid = "p1",

@@ -57,7 +57,7 @@ class NetworkConnectionMonitor(
             network: Network,
             networkCapabilities: NetworkCapabilities,
         ) {
-            requestProbe()
+            requestProbe(restoreFirestore = false)
         }
     }
 
@@ -97,11 +97,15 @@ class NetworkConnectionMonitor(
             withContext(Dispatchers.IO) {
                 FirestoreConnectivity.restoreAfterConnectivityLoss(preferHardReset = preferHardReset)
             }
-            requestProbe()
+            requestProbe(restoreFirestore = false)
         }
     }
 
-    private fun requestProbe() {
+    private fun requestProbe(restoreFirestore: Boolean) {
+        if (restoreFirestore) {
+            scheduleConnectivityRestore()
+            return
+        }
         val scope = monitorScope ?: return
         scope.launch {
             probeMutex.withLock {
@@ -121,9 +125,6 @@ class NetworkConnectionMonitor(
         if (!hasValidatedNetwork()) {
             _status.value = NetworkConnectionStatus.Offline
             return
-        }
-        if (showChecking && _status.value != NetworkConnectionStatus.Connected) {
-            _status.value = NetworkConnectionStatus.Checking
         }
         NetworkDataActivityTracker.bump(NetworkDataActivityKind.Connection)
         val nowMs = System.currentTimeMillis()

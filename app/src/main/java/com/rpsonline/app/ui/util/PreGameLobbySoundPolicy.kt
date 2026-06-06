@@ -10,8 +10,9 @@ import com.rpsonline.app.platform.JoinMatchNotificationState
 /** Pre-game lobby waiting (both players), not only the match-found notification burst. */
 object PreGameLobbySoundPolicy {
     /**
-     * Match-found alert ticks/haptics (every 500ms) until the user opens this match's game screen.
-     * Distinct from the in-lobby "waiting for opponent" screen, which stays silent.
+     * Match-found alert ticks/haptics (every 500ms) until the user opens this match's game screen
+     * or the first live round starts. Distinct from the in-lobby "waiting for opponent" screen,
+     * which stays silent.
      */
     fun shouldRunMatchFoundLobbyAlert(
         match: Match?,
@@ -27,7 +28,7 @@ object PreGameLobbySoundPolicy {
         if (visibleMatchScreenId == lobbyMatch.id) return false
         return when (lobbyMatch.status) {
             MatchStatus.LOBBY -> true
-            MatchStatus.ACTIVE -> lobbyMatch.isLiveForReconnect()
+            MatchStatus.ACTIVE -> lobbyMatch.isPreGameSegmentedDisplayPhase(uid)
             else -> false
         }
     }
@@ -47,7 +48,6 @@ object PreGameLobbySoundPolicy {
             ?: JoinMatchNotificationState.lobbyMatch()
         return match != null &&
             match.isParticipant(uid) &&
-            (match.status == MatchStatus.LOBBY ||
-                (match.status == MatchStatus.ACTIVE && match.isLiveForReconnect()))
+            match.isPreGameSegmentedDisplayPhase(uid)
     }
 }
