@@ -18,7 +18,7 @@ import com.rpsonline.app.data.repository.quotaExceededUserMessage
 import com.rpsonline.app.data.repository.userFacingFirebaseError
 import com.rpsonline.app.domain.GameRules
 import com.rpsonline.app.domain.LiveEloPreview
-import com.rpsonline.app.domain.liveEloPreview
+import com.rpsonline.app.domain.eloPreviewForGame
 import com.rpsonline.app.domain.resultEloPreview
 import com.rpsonline.app.ui.game.computeRoundSecondsFromAnchor
 import com.rpsonline.app.ui.game.roundElapsedAtSyncMs
@@ -349,11 +349,7 @@ class GameViewModel(
             lastAppliedMatchFingerprint = fingerprint
         }
         val eloPreview = if (match != null && userId != null) {
-            when (match.status) {
-                MatchStatus.ACTIVE -> match.liveEloPreview(userId)
-                MatchStatus.COMPLETED -> match.resultEloPreview(userId)
-                else -> null
-            }
+            match.eloPreviewForGame(userId)
         } else {
             null
         }

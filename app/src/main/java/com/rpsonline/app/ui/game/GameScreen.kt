@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rpsonline.app.data.model.Match
 import com.rpsonline.app.data.model.MatchStatus
+import com.rpsonline.app.domain.isSeriesDecided
 import com.rpsonline.app.data.model.Move
 import com.rpsonline.app.data.model.RoundResult
 import com.rpsonline.app.R
@@ -686,7 +687,9 @@ fun GameScreen(
                 MatchLiveEloPreviewRow(
                     preview = preview,
                     style = MaterialTheme.typography.labelMedium,
-                    colorDeltasBySign = layoutMatch.status == MatchStatus.COMPLETED,
+                    colorDeltasBySign = layoutMatch.status == MatchStatus.COMPLETED ||
+                        layoutMatch.isSeriesDecided() ||
+                        layoutMatch.myEloDelta(userId) != null,
                 )
                 Spacer(modifier = Modifier.height(if (compactLayout) 2.dp else 4.dp))
             }

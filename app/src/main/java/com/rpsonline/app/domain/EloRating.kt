@@ -25,9 +25,9 @@ data class EloDeltaPair(val deltaA: Int, val deltaB: Int)
 data class LiveEloPreview(
     /** Pre-match rating stored on the match doc. */
     val myElo: Int,
-    /** ELO change if the viewer wins the series. */
+    /** Viewer ELO change if they win the series (live), or their actual delta once resolved. */
     val myWinDelta: Int,
-    /** ELO change if the viewer loses the series (zero or negative). */
+    /** Opponent ELO change if they win the series (live), or their actual delta once resolved. */
     val myLossDelta: Int,
     val opponentElo: Int,
 )
@@ -115,17 +115,86 @@ fun Match.resultEloPreview(userId: String): LiveEloPreview? {
     )
 }
 
+private fun Match.seriesWinCountsForElo(): Pair<Int, Int> = liveSeriesWinCounts()
+
+fun Match.isSeriesDecided(): Boolean {
+    val (player1Wins, player2Wins) = seriesWinCountsForElo()
+    val winsToFinish = matchMode.winsToFinish
+    return player1Wins >= winsToFinish || player2Wins >= winsToFinish
+}
+
+/** Actual ELO deltas from the decided series score (before COMPLETED status / stored deltas). */
+fun Match.computeActualEloPreview(userId: String): LiveEloPreview? {
+    val myRating = myElo(userId) ?: return null
+    val opponentRating = opponentElo(userId) ?: return null
+    val ratingA = player1Elo ?: return null
+    val ratingB = player2Elo ?: return null
+    val (player1Wins, player2Wins) = seriesWinCountsForElo()
+    val winsToFinish = matchMode.winsToFinish
+    val winnerId = when {
+        player1Wins >= winsToFinish -> player1
+        player2Wins >= winsToFinish -> player2
+        else -> return null
+    }
+    val result = calculateMatchElo(
+        ratingA = ratingA,
+        ratingB = ratingB,
+        scoreA = if (winnerId == player1) 1.0 else 0.0,
+        matchMode = matchMode,
+        winnerId = winnerId,
+        player1 = player1,
+        player2 = player2,
+        player1Wins = player1Wins,
+        player2Wins = player2Wins,
+    )
+    val myDelta = if (userId == player1) result.deltaA else result.deltaB
+    val opponentDelta = if (userId == player1) result.deltaB else result.deltaA
+    return LiveEloPreview(
+        myElo = myRating,
+        myWinDelta = myDelta,
+        myLossDelta = opponentDelta,
+        opponentElo = opponentRating,
+    )
+}
+
+/**
+ * ELO row for the game screen: live win/loss swings while playing, actual deltas once the
+ * series is decided or the match doc stores final deltas.
+ */
+fun Match.eloPreviewForGame(userId: String): LiveEloPreview? {
+    when (status) {
+        MatchStatus.COMPLETED -> return resultEloPreview(userId)
+        MatchStatus.ACTIVE -> {
+            val storedMyDelta = myEloDelta(userId)
+            val storedOpponentDelta = opponentEloDelta(userId)
+            if (storedMyDelta != null && storedOpponentDelta != null) {
+                return LiveEloPreview(
+                    myElo = myElo(userId) ?: return null,
+                    myWinDelta = storedMyDelta,
+                    myLossDelta = storedOpponentDelta,
+                    opponentElo = opponentElo(userId) ?: return null,
+                )
+            }
+            if (isSeriesDecided()) return computeActualEloPreview(userId)
+            return liveEloPreview(userId)
+        }
+        else -> return null
+    }
+}
+
 /** Win ELO swings for an in-progress match, using pre-match ratings on the match doc. */
 fun Match.liveEloPreview(userId: String): LiveEloPreview? {
     if (status != MatchStatus.ACTIVE) return null
     val myRating = myElo(userId) ?: return null
     val opponentRating = opponentElo(userId) ?: return null
-    val (player1Wins, player2Wins) = liveSeriesWinCounts()
-    val player1ScoreIfViewerWins = if (userId == player1) 1.0 else 0.0
+    val opponentId = opponentId(userId)
+    val (player1Wins, player2Wins) = seriesWinCountsForElo()
+    val ratingA = player1Elo ?: return null
+    val ratingB = player2Elo ?: return null
     val ifViewerWins = calculateMatchElo(
-        ratingA = player1Elo ?: return null,
-        ratingB = player2Elo ?: return null,
-        scoreA = player1ScoreIfViewerWins,
+        ratingA = ratingA,
+        ratingB = ratingB,
+        scoreA = if (userId == player1) 1.0 else 0.0,
         matchMode = matchMode,
         winnerId = userId,
         player1 = player1,
@@ -133,11 +202,23 @@ fun Match.liveEloPreview(userId: String): LiveEloPreview? {
         player1Wins = player1Wins,
         player2Wins = player2Wins,
     )
+    val ifOpponentWins = calculateMatchElo(
+        ratingA = ratingA,
+        ratingB = ratingB,
+        scoreA = if (userId == player1) 0.0 else 1.0,
+        matchMode = matchMode,
+        winnerId = opponentId,
+        player1 = player1,
+        player2 = player2,
+        player1Wins = player1Wins,
+        player2Wins = player2Wins,
+    )
     val myWinDelta = if (userId == player1) ifViewerWins.deltaA else ifViewerWins.deltaB
+    val opponentWinDelta = if (userId == player1) ifOpponentWins.deltaB else ifOpponentWins.deltaA
     return LiveEloPreview(
         myElo = myRating,
         myWinDelta = myWinDelta,
-        myLossDelta = -myWinDelta,
+        myLossDelta = opponentWinDelta,
         opponentElo = opponentRating,
     )
 }
