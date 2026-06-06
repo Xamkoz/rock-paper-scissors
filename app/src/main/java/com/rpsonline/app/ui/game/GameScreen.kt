@@ -55,7 +55,6 @@ import com.rpsonline.app.ui.util.MATCH_END_NAVIGATION_DELAY_MS
 import com.rpsonline.app.ui.util.MoveSoundPlayer
 import com.rpsonline.app.ui.util.awaitMatchEndResolutionFeedback
 import com.rpsonline.app.ui.util.playLiveRoundResolutionFeedback
-import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 import com.rpsonline.app.viewmodel.GameTimerUiState
 import com.rpsonline.app.viewmodel.GameUiState
 import com.rpsonline.app.viewmodel.GameViewModel
@@ -105,7 +104,6 @@ fun GameScreen(
     }
 
     DisposableEffect(matchId) {
-        triggerMatchFoundFeedback(context, matchId)
         pulseNotifier?.enterLiveMatch(matchId)
         onDispose {
             pulseNotifier?.leaveLiveMatch(matchId)
@@ -634,8 +632,13 @@ fun GameScreen(
         val pickPrompt = when {
             inMatchEndTransition -> null
             uiState.hasSubmittedMove -> null
-            drawReplay != null || awaitingNextRound || showMovePicker ->
-                stringResource(R.string.pick_move_per_round)
+            shouldShowPickMovePrompt(
+                allowRoundMovePicker = allowRoundMovePicker,
+                inDualSelectionHold = inDualSelectionHold,
+                showMovePicker = showMovePicker,
+                hasDrawReplay = drawReplay != null,
+                awaitingNextRound = awaitingNextRound,
+            ) -> stringResource(R.string.pick_move_per_round)
             else -> null
         }
         val pickerTitle = panelStatusMessage ?: pickPrompt

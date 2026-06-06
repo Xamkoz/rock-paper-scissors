@@ -19,8 +19,9 @@ internal object MatchFoundFeedbackGate {
 }
 
 /**
- * One-shot match-found burst when opening the game screen.
- * Repeating lobby ticks use [MatchClockSoundController.syncLobbyAlert].
+ * One-shot match-found burst when the notification path cannot run repeating lobby ticks.
+ * Repeating lobby ticks use [MatchClockSoundController.syncLobbyAlert]; the game screen does not
+ * call this (avoids an extra ready tick on reconnect or when opening the match).
  *
  * @param playReadyBurst false when [syncLobbyAlert] already drives tick/haptic feedback.
  */

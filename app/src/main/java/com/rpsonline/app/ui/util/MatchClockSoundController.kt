@@ -22,6 +22,12 @@ object MatchClockSoundController {
     private var tickJob: Job? = null
     private var lobbyTickJob: Job? = null
     private var hapticAnchorElapsedMs: Long? = null
+    private var lastLobbyAlertStoppedElapsedMs: Long? = null
+
+    private fun lobbyStoppedRecently(): Boolean {
+        val stoppedAt = lastLobbyAlertStoppedElapsedMs ?: return false
+        return SystemClock.elapsedRealtime() - stoppedAt < LOBBY_TO_CLOCK_HANDOFF_MS
+    }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -70,12 +76,20 @@ object MatchClockSoundController {
             }
             return
         }
+        val handoffFromLobby = lobbyTicksActive()
         syncLobbyAlert(false)
         val tickPlayer = player ?: return
         if (tickJob?.isActive == true) return
         hapticAnchorElapsedMs = SystemClock.elapsedRealtime()
         tickJob = scope.launch {
             try {
+                if (handoffFromLobby && lobbyStoppedRecently()) {
+                    val stoppedAt = lastLobbyAlertStoppedElapsedMs ?: SystemClock.elapsedRealtime()
+                    val elapsed = SystemClock.elapsedRealtime() - stoppedAt
+                    val waitMs = (LOBBY_ALERT_TICK_MS - (elapsed % LOBBY_ALERT_TICK_MS))
+                        .coerceIn(1L, LOBBY_ALERT_TICK_MS)
+                    delay(waitMs)
+                }
                 while (isActive) {
                     val ctx = appContext
                     val mode = ctx?.let { SoundPreferences(it).getMode() }
@@ -109,14 +123,17 @@ object MatchClockSoundController {
      */
     fun syncLobbyAlert(shouldRun: Boolean) {
         if (!shouldRun) {
+            if (lobbyTickJob?.isActive == true) {
+                lastLobbyAlertStoppedElapsedMs = SystemClock.elapsedRealtime()
+            }
             lobbyTickJob?.cancel()
             lobbyTickJob = null
             lobbyTickPlayer?.stop()
             return
         }
+        if (lobbyTickJob?.isActive == true) return
         sync(false)
         val tickPlayer = lobbyTickPlayer ?: return
-        if (lobbyTickJob?.isActive == true) return
         lobbyTickJob = scope.launch {
             try {
                 val ctx = appContext
@@ -141,15 +158,27 @@ object MatchClockSoundController {
         }
     }
 
-    /** Keeps lobby/match clock feedback while backgrounded; Compose stops receiving match updates there. */
-    fun syncFromSessionWhenBackground(context: Context) {
+    /**
+     * Picks match-found lobby alert ticks or in-match clock ticks, never both.
+     * Foreground UI drives ticks via Compose; background uses the foreground service loop.
+     */
+    fun reconcileSession(context: Context) {
         initialize(context)
-        if (PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(context)) {
-            syncLobbyAlert(true)
-        } else {
-            syncLobbyAlert(false)
+        when {
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(context) -> syncLobbyAlert(true)
+            MatchClockSoundPolicy.shouldRunMatchClock(context) -> sync(true)
+            else -> {
+                syncLobbyAlert(false)
+                sync(false)
+            }
         }
+    }
+
+    /** Background-only; foreground tick sync is owned by Compose effects. */
+    fun syncFromSessionWhenBackground(context: Context) {
         if (AppForegroundTracker.isInForeground) return
-        sync(MatchClockSoundPolicy.shouldRunMatchClock(context))
+        reconcileSession(context)
     }
 }
+
+private const val LOBBY_TO_CLOCK_HANDOFF_MS = 450L

@@ -82,6 +82,45 @@ class OpponentSelectionRevealGateTest {
     }
 
     @Test
+    fun shouldShowPickMovePrompt_falseDuringDualRevealHold() {
+        assertFalse(
+            shouldShowPickMovePrompt(
+                allowRoundMovePicker = true,
+                inDualSelectionHold = true,
+                showMovePicker = true,
+                hasDrawReplay = false,
+                awaitingNextRound = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldShowPickMovePrompt_falseWhileRecapOwnsPanel() {
+        assertFalse(
+            shouldShowPickMovePrompt(
+                allowRoundMovePicker = false,
+                inDualSelectionHold = false,
+                showMovePicker = false,
+                hasDrawReplay = false,
+                awaitingNextRound = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldShowPickMovePrompt_trueWhenNextRoundReady() {
+        assertTrue(
+            shouldShowPickMovePrompt(
+                allowRoundMovePicker = true,
+                inDualSelectionHold = false,
+                showMovePicker = true,
+                hasDrawReplay = false,
+                awaitingNextRound = true,
+            ),
+        )
+    }
+
+    @Test
     fun shouldAllowRoundMovePicker_falseDuringRecap() {
         assertFalse(
             shouldAllowRoundMovePicker(

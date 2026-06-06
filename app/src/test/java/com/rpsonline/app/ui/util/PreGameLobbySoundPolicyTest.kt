@@ -130,6 +130,23 @@ class PreGameLobbySoundPolicyTest {
     }
 
     @Test
+    fun shouldRunMatchFoundLobbyAlert_falseWhilePlayerClockRunning() {
+        val active = lobbyMatch("m1").copy(
+            status = MatchStatus.ACTIVE,
+            player1Ready = true,
+            player2Ready = true,
+            rounds = listOf(RoundResult(roundNumber = 1)),
+        )
+        assertFalse(
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
+                match = active,
+                uid = "p1",
+                visibleMatchScreenId = null,
+            ),
+        )
+    }
+
+    @Test
     fun shouldRunMatchFoundLobbyAlert_keepsAlertPhaseWhenMatchBecomesActive() {
         val lobby = lobbyMatch("m1")
         JoinMatchNotificationState.beginLobbyAlertPhase(lobby)

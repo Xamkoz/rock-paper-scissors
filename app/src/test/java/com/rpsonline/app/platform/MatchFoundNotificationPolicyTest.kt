@@ -68,15 +68,51 @@ class MatchFoundNotificationPolicyTest {
     }
 
     @Test
-    fun skipsWhenAppInForegroundAndNotificationsDisabled() {
-        assertFalse(
-            MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+    fun runsAlertInForegroundWhenBackgroundUsageEnabled() {
+        assertTrue(
+            MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
                 appInForeground = true,
                 matchStatus = MatchStatus.LOBBY,
                 matchFoundNotificationsEnabled = false,
                 backgroundUsageEnabled = true,
                 hasPostNotificationsPermission = true,
                 matchId = "m1",
+                visibleMatchScreenId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun postsShadeInForegroundWhenBackgroundServiceOwnsDisplay() {
+        assertTrue(
+            MatchFoundNotificationPolicy.shouldPostMatchFoundShadeNotification(
+                foregroundServiceOwnsDisplay = true,
+                appInForeground = true,
+                matchFoundNotificationsEnabled = false,
+                backgroundUsageEnabled = true,
+            ),
+        )
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldPostMatchFoundShadeNotification(
+                foregroundServiceOwnsDisplay = true,
+                appInForeground = false,
+                matchFoundNotificationsEnabled = true,
+                backgroundUsageEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun skipsWhenAppInForegroundAndNotificationsDisabled() {
+        assertFalse(
+            MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
+                appInForeground = true,
+                matchStatus = MatchStatus.LOBBY,
+                matchFoundNotificationsEnabled = false,
+                backgroundUsageEnabled = false,
+                hasPostNotificationsPermission = true,
+                matchId = "m1",
+                visibleMatchScreenId = null,
             ),
         )
     }
@@ -93,6 +129,27 @@ class MatchFoundNotificationPolicyTest {
                 matchId = "m1",
             ),
         )
+    }
+
+    @Test
+    fun highImportanceMatchFoundShade_whenForegroundWithBackgroundService() {
+        AppForegroundTracker.setInForeground(true)
+        try {
+            assertTrue(
+                MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade(
+                    backgroundUsageEnabled = true,
+                    foregroundServiceRunning = true,
+                ),
+            )
+            assertFalse(
+                MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade(
+                    backgroundUsageEnabled = true,
+                    foregroundServiceRunning = false,
+                ),
+            )
+        } finally {
+            AppForegroundTracker.setInForeground(false)
+        }
     }
 
     @Test

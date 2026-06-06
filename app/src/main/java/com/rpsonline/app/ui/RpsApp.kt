@@ -472,12 +472,18 @@ fun RpsApp() {
         if (match != null && uid != null && match.isParticipant(uid)) {
             JoinMatchNotificationState.bindLobby(match)
         }
-        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
-            match,
-            uid,
-            visibleMatchScreenId,
-        )
-        MatchClockSoundController.syncLobbyAlert(shouldRunLobbyAlert)
+        val clockRunning = match?.isPlayerClockRunning(uid) == true
+        val shouldRunLobbyAlert = !clockRunning &&
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
+                match,
+                uid,
+                visibleMatchScreenId,
+            )
+        if (shouldRunLobbyAlert) {
+            MatchClockSoundController.syncLobbyAlert(true)
+        } else {
+            MatchClockSoundController.syncLobbyAlert(false)
+        }
         if (
             !shouldRunLobbyAlert &&
             uid != null &&
@@ -518,23 +524,18 @@ fun RpsApp() {
         )
         if (
             match.status == MatchStatus.LOBBY &&
-            (
-                fgsOwnsDisplay ||
-                    MatchFoundNotificationPolicy.shouldPostJoinMatchNotification(
-                        appInForeground = AppForegroundTracker.isInForeground,
-                        matchStatus = match.status,
-                        matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
-                        backgroundUsageEnabled = backgroundUsageEnabled,
-                        hasPostNotificationsPermission =
-                            NotificationPermissionHelper.hasPostNotificationsPermission(context),
-                        lastNotifiedMatchId =
-                            MatchForegroundLaunchCoordinator.activeJoinMatchNotificationId(),
-                        matchId = match.id,
-                        foregroundServiceOwnsDisplay = fgsOwnsDisplay,
-                        liveSessionMatch = match,
-                        uid = uid,
-                    )
-                )
+            MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
+                appInForeground = AppForegroundTracker.isInForeground,
+                matchStatus = match.status,
+                matchFoundNotificationsEnabled = matchFoundNotificationsEnabled,
+                backgroundUsageEnabled = backgroundUsageEnabled,
+                hasPostNotificationsPermission =
+                    NotificationPermissionHelper.hasPostNotificationsPermission(context),
+                matchId = match.id,
+                visibleMatchScreenId = visibleMatchScreenId,
+                liveSessionMatch = match,
+                uid = uid,
+            )
         ) {
             MatchForegroundLaunchCoordinator.postLobbyMatchFoundIfNeeded(context, match)
         }
@@ -551,8 +552,7 @@ fun RpsApp() {
                     NotificationPermissionHelper.hasPostNotificationsPermission(context),
                 foregroundServiceOwnsDisplay = fgsOwnsDisplay,
                 liveSessionMatch = match,
-            ) &&
-            !MatchmakingForegroundService.isRunning()
+            )
         ) {
             MatchNotificationHelper.maintainJoinMatchNotification(context, match, uid)
         } else if (

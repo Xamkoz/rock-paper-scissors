@@ -33,6 +33,15 @@ object MatchForegroundLaunchCoordinator {
             }
         }
         if (AppForegroundTracker.isInForeground) {
+            val sessionMatch = match
+            if (
+                sessionMatch != null &&
+                uid != null &&
+                sessionMatch.isParticipant(uid) &&
+                sessionMatch.status == MatchStatus.LOBBY
+            ) {
+                postLobbyMatchFoundIfNeeded(appContext, sessionMatch)
+            }
             return
         }
         val sessionMatch = match ?: return
@@ -55,7 +64,7 @@ object MatchForegroundLaunchCoordinator {
     ) {
         val prefs = MatchmakingPreferences(appContext)
         if (
-            !MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+            !MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
                 appInForeground = false,
                 matchStatus = match.status,
                 matchFoundNotificationsEnabled = prefs.isMatchFoundNotificationsEnabled(),
@@ -63,8 +72,9 @@ object MatchForegroundLaunchCoordinator {
                 hasPostNotificationsPermission =
                     NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
                 matchId = match.id,
-                foregroundServiceOwnsDisplay =
-                    MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext),
+                visibleMatchScreenId = MatchSessionMonitor.visibleMatchScreenId.value,
+                liveSessionMatch = match,
+                uid = uid,
             )
         ) {
             return
@@ -103,10 +113,8 @@ object MatchForegroundLaunchCoordinator {
         if (!match.isParticipant(uid) || match.status != MatchStatus.LOBBY) return
         val appContext = context.applicationContext
         val prefs = MatchmakingPreferences(appContext)
-        val fgsOwnsDisplay =
-            MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext)
         if (
-            !MatchFoundNotificationPolicy.shouldShowJoinMatchNotification(
+            !MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
                 appInForeground = AppForegroundTracker.isInForeground,
                 matchStatus = match.status,
                 matchFoundNotificationsEnabled = prefs.isMatchFoundNotificationsEnabled(),
@@ -114,7 +122,7 @@ object MatchForegroundLaunchCoordinator {
                 hasPostNotificationsPermission =
                     NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
                 matchId = match.id,
-                foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                visibleMatchScreenId = MatchSessionMonitor.visibleMatchScreenId.value,
                 liveSessionMatch = MatchSessionMonitor.activeMatch.value,
                 uid = uid,
             )

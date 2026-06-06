@@ -513,6 +513,8 @@ class MatchmakingForegroundService : Service() {
             description = getString(R.string.match_found_notification_channel_desc)
             setSound(null, null)
             enableVibration(false)
+            enableLights(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(queueChannel)
         manager.createNotificationChannel(matchChannel)
@@ -538,7 +540,22 @@ class MatchmakingForegroundService : Service() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return false
         val alertMatchId = JoinMatchNotificationState.activeMatchId() ?: return false
         if (MatchSessionMonitor.visibleMatchScreenId.value == alertMatchId) return false
-        return MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade()
+        val backgroundUsageEnabled = MatchmakingPreferences(this).isBackgroundUsageEnabled()
+        return MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade(
+            backgroundUsageEnabled = backgroundUsageEnabled,
+            foregroundServiceRunning = true,
+        )
+    }
+
+    private fun shouldElevateMatchFoundForegroundTile(display: TopBarStatusRowSpec): Boolean {
+        if (display.status != SegmentedNotificationStatus.MATCH_FOUND) return false
+        if (!JoinMatchNotificationState.isLobbyAlertPhase()) return false
+        val alertMatchId = JoinMatchNotificationState.activeMatchId() ?: return false
+        if (MatchSessionMonitor.visibleMatchScreenId.value == alertMatchId) return false
+        return MatchFoundNotificationPolicy.shouldUseHighImportanceMatchFoundShade(
+            backgroundUsageEnabled = MatchmakingPreferences(this).isBackgroundUsageEnabled(),
+            foregroundServiceRunning = true,
+        )
     }
 
     private fun usesPersistentSessionChannel(display: TopBarStatusRowSpec): Boolean =
@@ -574,13 +591,10 @@ class MatchmakingForegroundService : Service() {
         val display = resolveNotificationDisplay()
         val accessibilityTime = formatQueueTimeMmSs(display.elapsedSeconds)
         val needsLaunchAlert = shouldUseLaunchAlert(display)
+        val elevatedMatchFoundTile = shouldElevateMatchFoundForegroundTile(display)
         val persistentSession = usesPersistentSessionChannel(display)
-        val lowImportanceMatchFound = persistentSession &&
-            display.status == SegmentedNotificationStatus.MATCH_FOUND &&
-            !MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade()
         val channelId = when {
-            needsLaunchAlert -> FOREGROUND_ALERT_CHANNEL_ID
-            lowImportanceMatchFound -> FOREGROUND_CHANNEL_ID
+            needsLaunchAlert || elevatedMatchFoundTile -> FOREGROUND_ALERT_CHANNEL_ID
             persistentSession -> FOREGROUND_ALERT_CHANNEL_ID
             else -> FOREGROUND_CHANNEL_ID
         }
@@ -609,19 +623,22 @@ class MatchmakingForegroundService : Service() {
                 builder.setFullScreenIntent(pendingIntent, true)
             }
         } else if (persistentSession) {
-            if (lowImportanceMatchFound) {
-                builder
-                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .setCategory(NotificationCompat.CATEGORY_STATUS)
-                    .setOnlyAlertOnce(true)
-                    .setSilent(true)
+            val priority = if (elevatedMatchFoundTile) {
+                NotificationCompat.PRIORITY_MAX
             } else {
-                builder
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setCategory(NotificationCompat.CATEGORY_STATUS)
-                    .setOnlyAlertOnce(true)
-                    .setSilent(true)
+                NotificationCompat.PRIORITY_HIGH
             }
+            builder
+                .setPriority(priority)
+                .setCategory(
+                    if (elevatedMatchFoundTile) {
+                        NotificationCompat.CATEGORY_ALARM
+                    } else {
+                        NotificationCompat.CATEGORY_STATUS
+                    },
+                )
+                .setOnlyAlertOnce(!needsLaunchAlert)
+                .setSilent(true)
         } else {
             builder
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -641,7 +658,7 @@ class MatchmakingForegroundService : Service() {
     companion object {
         /** New id so existing installs pick up [NotificationManager.IMPORTANCE_DEFAULT] for the status bar icon. */
         private const val FOREGROUND_CHANNEL_ID = "matchmaking_background_status"
-        private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert_v4"
+        private const val FOREGROUND_ALERT_CHANNEL_ID = "matchmaking_background_alert_v5"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
         /** Idle status (no live MM:SS) — 1 Hz stays under NotificationService enqueue limits. */
         private const val NOTIFICATION_TICK_MS = 1_000L

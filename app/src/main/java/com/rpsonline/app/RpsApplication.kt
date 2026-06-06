@@ -59,8 +59,13 @@ class RpsApplication : Application() {
         ) {
             MatchNotificationHelper.dismissMatchFound(this, match, uid)
         }
-        val shouldRunLobbyAlert = PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)
-        MatchClockSoundController.syncLobbyAlert(shouldRunLobbyAlert)
+        if (AppForegroundTracker.isInForeground) {
+            if (!PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)) {
+                MatchClockSoundController.syncLobbyAlert(false)
+            }
+        } else {
+            MatchClockSoundController.syncFromSessionWhenBackground(this)
+        }
     }
 
     private fun handleQueueRecoveryFailed(@Suppress("UNUSED_PARAMETER") message: String) {

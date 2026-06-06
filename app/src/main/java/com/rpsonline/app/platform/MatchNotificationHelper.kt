@@ -25,11 +25,9 @@ import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 import com.rpsonline.app.ui.util.triggerMatchFoundFeedback
 
 object MatchNotificationHelper {
-    /** v3 channel: fresh HIGH importance for heads-up / launcher visibility on upgraded installs. */
-    /** Silent channel — match-found audio uses in-game ticks, not the system default sound. */
-    private const val MATCH_FOUND_CHANNEL_ID = "match_found_alert_v4"
-    private const val MATCH_FOUND_FOREGROUND_CHANNEL_ID = "match_found_alert_foreground_v1"
-    private const val MATCH_FOUND_HEADS_UP_CHANNEL_ID = "match_found_heads_up_v2"
+    /** v5 channel: HIGH importance for lock-screen / status-bar visibility on all installs. */
+    private const val MATCH_FOUND_CHANNEL_ID = "match_found_alert_v5"
+    private const val MATCH_FOUND_HEADS_UP_CHANNEL_ID = "match_found_heads_up_v3"
     const val MATCH_FOUND_NOTIFICATION_ID = 2001
     private const val MATCH_FOUND_HEADS_UP_NOTIFICATION_ID = 2002
 
@@ -64,19 +62,7 @@ object MatchNotificationHelper {
             enableLights(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        val foregroundChannel = NotificationChannel(
-            MATCH_FOUND_FOREGROUND_CHANNEL_ID,
-            context.getString(R.string.match_found_notification_channel),
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = context.getString(R.string.match_found_notification_channel_desc)
-            setSound(null, null)
-            enableVibration(false)
-            enableLights(false)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        }
         manager.createNotificationChannel(channel)
-        manager.createNotificationChannel(foregroundChannel)
         manager.createNotificationChannel(headsUpChannel)
     }
 
@@ -90,8 +76,20 @@ object MatchNotificationHelper {
             return false
         }
         if (
-            AppForegroundTracker.isInForeground &&
-            !MatchmakingPreferences(appContext).isMatchFoundNotificationsEnabled()
+            !MatchFoundNotificationPolicy.shouldRunMatchFoundAlert(
+                appInForeground = AppForegroundTracker.isInForeground,
+                matchStatus = match.status,
+                matchFoundNotificationsEnabled =
+                    MatchmakingPreferences(appContext).isMatchFoundNotificationsEnabled(),
+                backgroundUsageEnabled =
+                    MatchmakingPreferences(appContext).isBackgroundUsageEnabled(),
+                hasPostNotificationsPermission =
+                    NotificationPermissionHelper.hasPostNotificationsPermission(appContext),
+                matchId = match.id,
+                visibleMatchScreenId = MatchSessionMonitor.visibleMatchScreenId.value,
+                liveSessionMatch = match,
+                uid = uid,
+            )
         ) {
             return false
         }
@@ -139,10 +137,21 @@ object MatchNotificationHelper {
             }
             maintainJoinMatchNotification(context, match, uid)
         } else {
-            manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
-            manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
-            if (fgsRunning) {
-                MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
+            syncMatchFoundForegroundDisplay(appContext, match)
+            if (
+                MatchFoundNotificationPolicy.shouldPostMatchFoundShadeNotification(
+                    foregroundServiceOwnsDisplay = true,
+                    appInForeground = AppForegroundTracker.isInForeground,
+                    matchFoundNotificationsEnabled =
+                        MatchmakingPreferences(appContext).isMatchFoundNotificationsEnabled(),
+                    backgroundUsageEnabled =
+                        MatchmakingPreferences(appContext).isBackgroundUsageEnabled(),
+                )
+            ) {
+                maintainJoinMatchNotification(context, match, uid)
+            } else {
+                manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
+                manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
             }
         }
         triggerMatchFoundFeedback(context, matchId, playReadyBurst = false)
@@ -203,7 +212,7 @@ object MatchNotificationHelper {
         MatchClockSoundController.syncLobbyAlert(false)
     }
 
-    /** Refreshes lobby match-found UI: FGS tile when running, otherwise notification 2001 (never both). */
+    /** Refreshes lobby match-found UI: FGS tile when running, plus shade 2001 when policy allows. */
     fun maintainJoinMatchNotification(context: Context, match: Match, uid: String) {
         if (MatchSessionMonitor.visibleMatchScreenId.value == match.id) return
         if (suppressMatchFoundDuringActiveSession(context.applicationContext, uid)) return
@@ -217,27 +226,35 @@ object MatchNotificationHelper {
         if (!maintainableStatus) return
         JoinMatchNotificationState.bindLobby(match)
         MatchmakingForegroundService.applySessionMatchHint(match)
-        val manager = NotificationManagerCompat.from(context)
-        if (MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(context)) {
-            manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
-            manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
-            if (MatchmakingForegroundService.isRunning()) {
-                MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
-            }
-            return
+        val appContext = context.applicationContext
+        val fgsOwnsDisplay =
+            MatchmakingBackgroundCoordinator.foregroundServiceOwnsMatchFoundDisplay(appContext)
+        if (fgsOwnsDisplay || MatchmakingForegroundService.isRunning()) {
+            syncMatchFoundForegroundDisplay(appContext, match)
         }
-        if (MatchmakingForegroundService.isRunning()) {
-            manager.cancel(MATCH_FOUND_NOTIFICATION_ID)
-            manager.cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
-            MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
+        val prefs = MatchmakingPreferences(appContext)
+        if (
+            !MatchFoundNotificationPolicy.shouldPostMatchFoundShadeNotification(
+                foregroundServiceOwnsDisplay = fgsOwnsDisplay,
+                appInForeground = AppForegroundTracker.isInForeground,
+                matchFoundNotificationsEnabled = prefs.isMatchFoundNotificationsEnabled(),
+                backgroundUsageEnabled = prefs.isBackgroundUsageEnabled(),
+            )
+        ) {
+            NotificationManagerCompat.from(appContext).apply {
+                cancel(MATCH_FOUND_NOTIFICATION_ID)
+                cancel(MATCH_FOUND_HEADS_UP_NOTIFICATION_ID)
+            }
             return
         }
         if (
             AppForegroundTracker.isInForeground &&
-            !MatchmakingPreferences(context.applicationContext).isMatchFoundNotificationsEnabled()
+            !prefs.isMatchFoundNotificationsEnabled() &&
+            !prefs.isBackgroundUsageEnabled()
         ) {
             return
         }
+        val manager = NotificationManagerCompat.from(context)
         if (!NotificationPermissionHelper.hasPostNotificationsPermission(context)) return
         ensureChannels(context)
         if (!manager.areNotificationsEnabled()) return
@@ -245,6 +262,15 @@ object MatchNotificationHelper {
             MATCH_FOUND_NOTIFICATION_ID,
             buildJoinMatchNotification(context, match, uid, headsUpAlert = false),
         )
+    }
+
+    private fun syncMatchFoundForegroundDisplay(context: Context, match: Match) {
+        if (MatchmakingForegroundService.isRunning()) {
+            MatchmakingForegroundService.persistMatchFoundForegroundDisplay()
+        } else {
+            MatchmakingBackgroundCoordinator.sync(context)
+        }
+        MatchmakingForegroundService.applySessionMatchHint(match)
     }
 
     private fun buildJoinMatchNotification(
@@ -274,22 +300,20 @@ object MatchNotificationHelper {
             startedAtMs = startedAtMs,
             nowMs = now,
         )
-        val highPriorityShade = MatchFoundNotificationPolicy.shouldUsePersistentHighPriorityMatchFoundShade()
-        val inProminentWindow = JoinMatchNotificationState.isWithinProminentAlertWindow()
         val useHeadsUp = headsUpAlert && MatchFoundNotificationPolicy.shouldUseProminentMatchFoundHeadsUp()
-        val channelId = when {
-            useHeadsUp -> MATCH_FOUND_HEADS_UP_CHANNEL_ID
-            highPriorityShade -> MATCH_FOUND_CHANNEL_ID
-            else -> MATCH_FOUND_FOREGROUND_CHANNEL_ID
+        val channelId = if (useHeadsUp) {
+            MATCH_FOUND_HEADS_UP_CHANNEL_ID
+        } else {
+            MATCH_FOUND_CHANNEL_ID
         }
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(RpsStatusBarNotification.smallIconRes)
             .setSortKey(if (useHeadsUp) "match_found_heads_up" else "match_found")
             .setPriority(
-                when {
-                    useHeadsUp -> NotificationCompat.PRIORITY_MAX
-                    highPriorityShade -> NotificationCompat.PRIORITY_HIGH
-                    else -> NotificationCompat.PRIORITY_DEFAULT
+                if (useHeadsUp) {
+                    NotificationCompat.PRIORITY_MAX
+                } else {
+                    NotificationCompat.PRIORITY_HIGH
                 },
             )
             .setCategory(
@@ -299,8 +323,8 @@ object MatchNotificationHelper {
                     NotificationCompat.CATEGORY_EVENT
                 },
             )
-            .setOngoing(!useHeadsUp || inProminentWindow)
-            .setOnlyAlertOnce(!inProminentWindow)
+            .setOngoing(!useHeadsUp || JoinMatchNotificationState.isWithinProminentAlertWindow())
+            .setOnlyAlertOnce(!JoinMatchNotificationState.isWithinProminentAlertWindow())
         if (useHeadsUp) {
             builder
                 .setSilent(false)

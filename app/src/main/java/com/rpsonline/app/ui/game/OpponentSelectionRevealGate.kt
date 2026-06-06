@@ -120,6 +120,18 @@ fun shouldAllowRoundMovePicker(
     return true
 }
 
+/** "Pick a move" title — blocked during dual-reveal hold and while recap still owns the panel. */
+fun shouldShowPickMovePrompt(
+    allowRoundMovePicker: Boolean,
+    inDualSelectionHold: Boolean,
+    showMovePicker: Boolean,
+    hasDrawReplay: Boolean,
+    awaitingNextRound: Boolean,
+): Boolean {
+    if (inDualSelectionHold || !allowRoundMovePicker) return false
+    return showMovePicker || hasDrawReplay || awaitingNextRound
+}
+
 /** Post-resolve recap: both moves revealed together with the round outcome banner. */
 fun resolveRecapMovePresentations(
     myChoice: String?,
