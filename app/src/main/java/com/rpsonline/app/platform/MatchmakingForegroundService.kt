@@ -440,7 +440,14 @@ class MatchmakingForegroundService : Service() {
         }
 
         if (uid != null && match?.status == MatchStatus.ACTIVE && match.isParticipant(uid)) {
-            val startedAtMs = match.createdAt.takeIf { it > 0L } ?: now
+            val startedAtMs = match.segmentedMatchElapsedAnchorMs()
+                ?: return TopBarStatusRowSpec(
+                    status = SegmentedNotificationStatus.IN_QUEUE,
+                    onlineCount = SegmentedNotificationState.onlineCount,
+                    showLiveTime = false,
+                    elapsedSeconds = 0L,
+                    spinnerStyle = SegmentedSpinnerStyle.QUEUE,
+                )
             val clockStopped = !match.isPlayerClockRunning(uid)
             return TopBarStatusRowSpec(
                 status = SegmentedNotificationStatus.IN_MATCH,

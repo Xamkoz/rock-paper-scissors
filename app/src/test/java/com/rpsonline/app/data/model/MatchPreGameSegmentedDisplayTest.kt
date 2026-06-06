@@ -1,6 +1,8 @@
 package com.rpsonline.app.data.model
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +32,50 @@ class MatchPreGameSegmentedDisplayTest {
             rounds = listOf(RoundResult(roundNumber = 1)),
         )
         assertTrue(match.isPreGameSegmentedDisplayPhase(userId = "p1"))
+    }
+
+    @Test
+    fun isPreGameSegmentedDisplayPhase_trueWhileWaitingForBothReadyOnActive() {
+        val match = lobbyMatch().copy(
+            status = MatchStatus.ACTIVE,
+            player1Ready = true,
+            player2Ready = false,
+        )
+        assertTrue(match.isPreGameSegmentedDisplayPhase(userId = "p1"))
+    }
+
+    @Test
+    fun segmentedMatchElapsedAnchorMs_nullUntilGameplayStarts() {
+        val match = lobbyMatch().copy(
+            status = MatchStatus.ACTIVE,
+            player1Ready = true,
+            player2Ready = true,
+            rounds = listOf(RoundResult(roundNumber = 1)),
+        )
+        assertFalse(match.hasGameplayStarted())
+        assertNull(match.segmentedMatchElapsedAnchorMs())
+    }
+
+    @Test
+    fun segmentedMatchElapsedAnchorMs_usesFirstRoundStartedAt() {
+        val match = lobbyMatch().copy(
+            status = MatchStatus.ACTIVE,
+            player1Ready = true,
+            player2Ready = true,
+            rounds = listOf(
+                RoundResult(roundNumber = 1, startedAt = 500L),
+                RoundResult(roundNumber = 2, startedAt = 2_000L),
+            ),
+        )
+        assertEquals(500L, match.segmentedMatchElapsedAnchorMs())
+    }
+
+    @Test
+    fun bothPlayersReady_requiresBothFlags() {
+        val oneReady = lobbyMatch().copy(player1Ready = true, player2Ready = false)
+        val bothReady = lobbyMatch().copy(player1Ready = true, player2Ready = true)
+        assertFalse(oneReady.bothPlayersReady())
+        assertTrue(bothReady.bothPlayersReady())
     }
 
     @Test

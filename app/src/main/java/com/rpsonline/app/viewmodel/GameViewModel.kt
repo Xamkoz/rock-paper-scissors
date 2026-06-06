@@ -11,6 +11,7 @@ import com.rpsonline.app.data.repository.AuthRepository
 import com.rpsonline.app.data.repository.GameFunctions
 import com.rpsonline.app.data.repository.MatchRepository
 import com.rpsonline.app.data.repository.MatchSessionMonitor
+import com.rpsonline.app.data.monitoring.NetworkConnectionStatus
 import com.rpsonline.app.data.repository.RoundTimeoutRequestDeduper
 import com.rpsonline.app.data.repository.isQuotaExceededError
 import com.rpsonline.app.data.repository.quotaExceededUserMessage
@@ -94,6 +95,7 @@ class GameViewModel(
     private var completionPollJob: Job? = null
     private var lobbyReadyJob: Job? = null
     private var lastAppliedMatchFingerprint: String? = null
+    private var clocksPausedForNetwork = false
     init {
         MatchSessionMonitor.ensureStarted()
         MatchSessionMonitor.activeMatch.value
@@ -137,6 +139,40 @@ class GameViewModel(
                 syncMatchFromServer()
             }
         }
+    }
+
+    fun onNetworkStatusChanged(status: NetworkConnectionStatus) {
+        val connected = status == NetworkConnectionStatus.Connected
+        if (!connected) {
+            if (clocksPausedForNetwork) return
+            clocksPausedForNetwork = true
+            clockJob?.cancel()
+            countdownJob?.cancel()
+            resolvingRetryJob?.cancel()
+            resolvingRetryJob = null
+            matchSnapshotAtTimeoutRequest = null
+            recoverStuckSubmitUiIfNeeded()
+            _uiState.update { state ->
+                state.copy(
+                    isResolvingTimeout = false,
+                    isSubmitting = false,
+                    error = state.error ?: CONNECTION_LOST_MESSAGE,
+                )
+            }
+            return
+        }
+        if (!clocksPausedForNetwork) return
+        clocksPausedForNetwork = false
+        _uiState.update { state ->
+            if (state.error == CONNECTION_LOST_MESSAGE) state.copy(error = null) else state
+        }
+        val match = _uiState.value.match
+        val userId = authRepository.currentUserId
+        if (match != null && userId != null) {
+            syncMatchClocks(match, userId)
+            syncCountdown(match)
+        }
+        refreshOnResume()
     }
 
     private suspend fun syncMatchFromServer() {
@@ -496,6 +532,7 @@ class GameViewModel(
     }
 
     private fun syncMatchClocks(match: Match?, userId: String?) {
+        if (clocksPausedForNetwork) return
         if (match == null || userId == null) {
             clockJob?.cancel()
             lastClockFingerprint = null
@@ -566,6 +603,7 @@ class GameViewModel(
         clockJob = viewModelScope.launch {
             val maxClockSeconds = (GameRules.MAX_CLOCK_MS / 1_000).toInt()
             while (true) {
+                if (clocksPausedForNetwork) break
                 val state = _uiState.value
                 val activeMatch = state.match ?: break
                 if (activeMatch.status != MatchStatus.ACTIVE) break
@@ -644,6 +682,7 @@ class GameViewModel(
         )
 
     private fun syncCountdown(match: Match?) {
+        if (clocksPausedForNetwork) return
         if (match?.status == MatchStatus.COMPLETED || match?.status == MatchStatus.ABANDONED) {
             countdownJob?.cancel()
             roundCountdownRoundKey = null
@@ -675,6 +714,7 @@ class GameViewModel(
             countdownJob = viewModelScope.launch {
                 val roundNumber = openRound.roundNumber
                 while (true) {
+                    if (clocksPausedForNetwork) break
                     val currentOpen = _uiState.value.match?.openRound()
                     if (currentOpen?.roundNumber != roundNumber) break
 
@@ -1104,6 +1144,8 @@ class GameViewModel(
     }
 
     companion object {
+        private const val CONNECTION_LOST_MESSAGE =
+            "Connection lost. Waiting to reconnect…"
         private const val LOBBY_WAIT_TIMEOUT_MESSAGE =
             "Opponent did not ready in time. Tap Find Match to try again."
         private const val SUBMIT_STUCK_WATCHDOG_MS = 22_000L

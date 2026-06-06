@@ -344,21 +344,35 @@ fun RpsApp() {
     ) ?: 0L
     var matchElapsedSeconds by remember(activeMatch?.id) { mutableStateOf(0L) }
 
-    LaunchedEffect(activeMatch?.id, activeMatch?.status, activeMatch?.createdAt) {
+    LaunchedEffect(
+        activeMatch?.id,
+        activeMatch?.status,
+        activeMatch?.rounds,
+        user?.uid,
+    ) {
         val match = activeMatch
+        val uid = user?.uid
         if (match == null || match.createdAt <= 0L) {
             matchElapsedSeconds = 0L
             return@LaunchedEffect
         }
         if (match.status == MatchStatus.COMPLETED || match.status == MatchStatus.ABANDONED) {
-            matchElapsedSeconds = ((System.currentTimeMillis() - match.createdAt) / 1_000).coerceAtLeast(0L)
+            val anchorMs = match.segmentedMatchElapsedAnchorMs() ?: match.createdAt
+            matchElapsedSeconds = ((System.currentTimeMillis() - anchorMs) / 1_000).coerceAtLeast(0L)
             return@LaunchedEffect
         }
-        if (match.status != MatchStatus.ACTIVE && match.status != MatchStatus.LOBBY) {
+        if (match.isPreGameSegmentedDisplayPhase(uid)) {
             matchElapsedSeconds = 0L
             return@LaunchedEffect
         }
-        val startedAtMs = match.createdAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+        if (match.status != MatchStatus.ACTIVE) {
+            matchElapsedSeconds = 0L
+            return@LaunchedEffect
+        }
+        val startedAtMs = match.segmentedMatchElapsedAnchorMs() ?: run {
+            matchElapsedSeconds = 0L
+            return@LaunchedEffect
+        }
         while (true) {
             val nowMs = System.currentTimeMillis()
             matchElapsedSeconds = ((nowMs - startedAtMs) / 1_000).coerceAtLeast(0L)
@@ -624,7 +638,8 @@ fun RpsApp() {
                                     inLobby ->
                                         JoinMatchNotificationState.lobbyAlertStartedAtMs()
                                             ?: activeMatch?.createdAt?.takeIf { it > 0L }
-                                    inMatch -> activeMatch?.createdAt?.takeIf { it > 0L }
+                                    inMatch -> activeMatch?.segmentedMatchElapsedAnchorMs()
+                                        ?: activeMatch?.createdAt?.takeIf { it > 0L }
                                     else -> queueAnchorMs?.takeIf { matchmakingInProgress }
                                 }
                                 val playerClockStopped = inMatch &&

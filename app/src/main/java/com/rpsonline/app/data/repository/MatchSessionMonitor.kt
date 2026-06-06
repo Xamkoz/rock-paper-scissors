@@ -462,7 +462,6 @@ object MatchSessionMonitor {
         userListener = firestore.collection("users").document(uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    _activeMatch.value = null
                     return@addSnapshotListener
                 }
 
@@ -672,7 +671,14 @@ object MatchSessionMonitor {
         matchListener = firestore.collection("matches").document(matchId)
             .addSnapshotListener { matchSnapshot, matchError ->
                 if (matchError != null) {
-                    _activeMatch.value = null
+                    if (
+                        MatchSnapshotPolicy.shouldRetainActiveMatchOnListenerError(
+                            trackedMatchId = _activeMatch.value?.id ?: listeningMatchId,
+                            error = matchError,
+                        )
+                    ) {
+                        return@addSnapshotListener
+                    }
                     return@addSnapshotListener
                 }
                 if (matchSnapshot != null) {

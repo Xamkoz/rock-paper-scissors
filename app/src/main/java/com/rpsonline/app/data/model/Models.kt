@@ -168,10 +168,19 @@ data class Match(
     fun isPreGameSegmentedDisplayPhase(userId: String? = null): Boolean {
         if (status == MatchStatus.LOBBY) return true
         if (status != MatchStatus.ACTIVE) return false
+        if (!bothPlayersReady()) return true
         if (userId != null && (!isPlayerReady(userId) || !isOpponentReady(userId))) {
             return true
         }
         return !hasGameplayStarted()
+    }
+
+    fun bothPlayersReady(): Boolean = player1Ready && player2Ready
+
+    /** Anchor for in-match segmented elapsed time; null until the first live round starts. */
+    fun segmentedMatchElapsedAnchorMs(): Long? {
+        if (!hasGameplayStarted()) return null
+        return rounds.mapNotNull { it.startedAt }.minOrNull()
     }
 
     /** True once the server has started a live round (not the lobby placeholder slot). */

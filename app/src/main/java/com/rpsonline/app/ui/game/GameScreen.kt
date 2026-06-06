@@ -42,6 +42,7 @@ import com.rpsonline.app.ui.components.formatMatchModeCode
 import com.rpsonline.app.ui.components.MatchRoundHistoryFit
 import com.rpsonline.app.ui.components.MovePicker
 import com.rpsonline.app.ui.components.PlayerDisplayNameText
+import com.rpsonline.app.ui.components.LocalNetworkConnectionStatus
 import com.rpsonline.app.ui.components.ProvideOnlinePresence
 import com.rpsonline.app.ui.components.RpsLoadingColumn
 import com.rpsonline.app.ui.components.rpsScreenPadding
@@ -72,6 +73,7 @@ fun GameScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val monitorMatch by MatchSessionMonitor.activeMatch.collectAsStateWithLifecycle()
+    val connectionStatus = LocalNetworkConnectionStatus.current
     val userId = uiState.userId
     val screenMatch = uiState.match?.takeIf { it.id == matchId }
         ?: monitorMatch?.takeIf { it.id == matchId }
@@ -116,6 +118,10 @@ fun GameScreen(
     LifecycleResumeEffect(matchId, userId) {
         viewModel.refreshOnResume()
         onPauseOrDispose { }
+    }
+
+    LaunchedEffect(connectionStatus) {
+        viewModel.onNetworkStatusChanged(connectionStatus)
     }
 
     LaunchedEffect(monitorMatch?.status, monitorMatch?.id, screenMatch?.status, matchId) {
