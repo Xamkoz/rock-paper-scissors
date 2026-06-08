@@ -5,13 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 RPS Online — real-time online rock-paper-scissors for Android (Kotlin/Compose), backed by Firebase
-(Firestore + Cloud Functions). It's a monorepo with three independently-built parts:
+(Firestore + Cloud Functions). It's a monorepo with two independently-built parts:
 
 | Path | What | Language |
 |------|------|----------|
 | `app/` | Android client | Kotlin / Jetpack Compose |
 | `functions/` | Firebase Cloud Functions (match logic, ELO, timeouts) | TypeScript |
-| `ai/` | Self-hosted matchmaking bot + intel/ranking tools | TypeScript (Node, ESM) |
 | `shared/game-rules.json` | Single source of truth for timing/format constants, read by both `app` and `functions` | JSON |
 
 Full architecture: [docs/STRUCTURE.md](docs/STRUCTURE.md). Gameplay rules: [docs/GAME_RULES.md](docs/GAME_RULES.md).
@@ -36,16 +35,6 @@ npm run lint
 node --test lib/game.test.js                    # single test file (after `npm run build`)
 firebase deploy --only functions,firestore:rules,firestore:indexes   # or ./scripts/deploy-backend.sh
 ```
-
-### AI bot (`ai/`)
-```bash
-cd ai
-npm install && npm run build && npm start   # or `npm run dev` (build+start); from repo root: `npm start`
-npm run rank                                 # intel/leaderboard stats, no Firebase queue join
-npm test                                     # builds then `node --test lib/**/*.test.js`
-```
-Requires `ai/.env` (copy from `.env.example`) with `FIREBASE_*` and `BOT_*` values, and a dedicated
-bot user with email/password sign-in.
 
 ### Shared game rules
 After editing `shared/game-rules.json`, run `./scripts/sync-game-rules.sh` (regenerates
@@ -88,19 +77,7 @@ and a `ViewModel` if state is non-trivial. Root columns use `Modifier.rpsScreenP
   resolving timeouts.
 - Firestore paths: `users/{uid}`, `queue/{uid}` (client writes + 30s heartbeat), `matches/{id}`
   (function-written, client-read), `matches/{id}/rounds/{n}/choices/{uid}`,
-  `matches/{id}/rounds/{n}/timeoutRequests/{id}`, `intel/matches/items/{id}` (bot sync).
-  Security rules: `firestore.rules`.
-
-### AI bot (`ai/src/`)
-History-based player (no LLM) that mirrors the client's matchmaking flow using the same callables
-(`joinMatchmakingQueue`, `confirmMatchReady`, `submitMatchMove`, plus `pullIntelMatches` for
-population-history sync):
-- `player/PlayerAgent.ts` — queue, match listener, move selection.
-- `intel/` — scenario trees (decay-weighted throw counts), Firebase intel sync, blend-weight
-  optimization (global/personal/recent/h2h, grid-searched and frozen per match), EV-based counter-pick logic.
-- `db/matchDatabase.ts` — SQLite store (`matches`/`rounds`/`match_descriptions` for the bot's own
-  games, `intel_matches`/`intel_rounds`/`scenario_nodes`/`blend_weights_cache`/`round_timings` for synced data).
-- `firebase/` — client SDK + callable wrappers. `analysis/`, `narrative/`, `log/` — supporting tools.
+  `matches/{id}/rounds/{n}/timeoutRequests/{id}`. Security rules: `firestore.rules`.
 
 ## Conventions
 
