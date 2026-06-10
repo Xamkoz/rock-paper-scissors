@@ -97,9 +97,11 @@ object MatchNotificationHelper {
         val playAlert = MatchFoundNotificationGate.tryNotify(matchId)
         if (!playAlert) {
             maintainJoinMatchNotification(context, match, uid)
+            MatchClockSoundController.initialize(appContext)
             if (PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(appContext)) {
-                MatchClockSoundController.initialize(appContext)
                 MatchClockSoundController.syncLobbyAlert(true)
+            } else {
+                MatchClockSoundController.syncLobbyAlert(false)
             }
             return false
         }

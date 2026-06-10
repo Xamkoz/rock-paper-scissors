@@ -67,6 +67,22 @@ class PreGameLobbySoundPolicyTest {
     }
 
     @Test
+    fun shouldRunMatchFoundLobbyAlert_falseOnGameScreenDuringActivePreGame() {
+        val active = lobbyMatch("m1").copy(
+            status = MatchStatus.ACTIVE,
+            lastActivityAt = System.currentTimeMillis(),
+        )
+        JoinMatchNotificationState.beginLobbyAlertPhase(active)
+        assertFalse(
+            PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(
+                match = active,
+                uid = "p1",
+                visibleMatchScreenId = "m1",
+            ),
+        )
+    }
+
+    @Test
     fun shouldRunMatchFoundLobbyAlert_falseWhenMatchAbandoned() {
         val match = lobbyMatch("m1").copy(status = MatchStatus.ABANDONED)
         assertFalse(
