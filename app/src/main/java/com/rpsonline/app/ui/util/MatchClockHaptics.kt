@@ -21,6 +21,13 @@ object MatchClockHaptics {
         }
     }
 
+    fun cancel() {
+        try {
+            vibrator?.cancel()
+        } catch (_: Exception) {
+        }
+    }
+
     fun pulseTick() {
         val vibrator = vibrator ?: return
         if (!vibrator.hasVibrator()) return

@@ -23,6 +23,10 @@ object MatchClockSoundController {
     private var lobbyTickJob: Job? = null
     private var hapticAnchorElapsedMs: Long? = null
     private var lastLobbyAlertStoppedElapsedMs: Long? = null
+    private var matchClockGeneration = 0
+    private var activeMatchClockGeneration = 0
+    private var lobbyAlertGeneration = 0
+    private var activeLobbyAlertGeneration = 0
 
     private fun lobbyStoppedRecently(): Boolean {
         val stoppedAt = lastLobbyAlertStoppedElapsedMs ?: return false
@@ -66,20 +70,62 @@ object MatchClockSoundController {
 
     private fun lobbyTicksActive(): Boolean = lobbyTickJob?.isActive == true
 
+    private fun shouldRunMatchClockNow(): Boolean {
+        val ctx = appContext ?: return false
+        return MatchClockSoundPolicy.shouldRunMatchClock(ctx)
+    }
+
+    private fun shouldRunLobbyAlertNow(): Boolean {
+        val ctx = appContext ?: return false
+        return PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(ctx)
+    }
+
+    private fun stopMatchClockFeedback() {
+        if (!lobbyTicksActive()) {
+            player?.stop()
+            MatchClockHaptics.cancel()
+            hapticAnchorElapsedMs = null
+        }
+    }
+
+    private fun stopMatchClockTicks() {
+        matchClockGeneration++
+        tickJob?.cancel()
+        tickJob = null
+        stopMatchClockFeedback()
+    }
+
+    private fun stopLobbyAlertTicks() {
+        if (lobbyTickJob?.isActive == true) {
+            lastLobbyAlertStoppedElapsedMs = SystemClock.elapsedRealtime()
+        }
+        lobbyAlertGeneration++
+        lobbyTickJob?.cancel()
+        lobbyTickJob = null
+        lobbyTickPlayer?.stop()
+        MatchClockHaptics.cancel()
+    }
+
     fun sync(shouldRun: Boolean) {
         if (!shouldRun) {
-            tickJob?.cancel()
-            tickJob = null
-            if (!lobbyTicksActive()) {
-                player?.stop()
-                hapticAnchorElapsedMs = null
-            }
+            stopMatchClockTicks()
+            return
+        }
+        if (!shouldRunMatchClockNow()) {
+            stopMatchClockTicks()
             return
         }
         val handoffFromLobby = lobbyTicksActive()
         syncLobbyAlert(false)
         val tickPlayer = player ?: return
-        if (tickJob?.isActive == true) return
+        if (tickJob?.isActive == true && activeMatchClockGeneration == matchClockGeneration) {
+            return
+        }
+        matchClockGeneration++
+        activeMatchClockGeneration = matchClockGeneration
+        val generation = matchClockGeneration
+        tickJob?.cancel()
+        tickJob = null
         hapticAnchorElapsedMs = SystemClock.elapsedRealtime()
         tickJob = scope.launch {
             try {
@@ -91,7 +137,7 @@ object MatchClockSoundController {
                     delay(waitMs)
                 }
                 delay(MatchClockSoundPolicy.TICK_AFTER_CLOCK_RUNNING_MS)
-                while (isActive) {
+                while (isActive && generation == matchClockGeneration && shouldRunMatchClockNow()) {
                     val ctx = appContext
                     val mode = ctx?.let { SoundPreferences(it).getMode() }
                     if (mode?.allowsSound() == true) {
@@ -111,8 +157,10 @@ object MatchClockSoundController {
                     delay(500)
                 }
             } finally {
-                tickPlayer.stop()
-                hapticAnchorElapsedMs = null
+                if (generation == matchClockGeneration) {
+                    tickPlayer.stop()
+                    hapticAnchorElapsedMs = null
+                }
             }
         }
     }
@@ -124,27 +172,35 @@ object MatchClockSoundController {
      */
     fun syncLobbyAlert(shouldRun: Boolean) {
         if (!shouldRun) {
-            if (lobbyTickJob?.isActive == true) {
-                lastLobbyAlertStoppedElapsedMs = SystemClock.elapsedRealtime()
-            }
-            lobbyTickJob?.cancel()
-            lobbyTickJob = null
-            lobbyTickPlayer?.stop()
+            stopLobbyAlertTicks()
             return
         }
-        if (lobbyTickJob?.isActive == true) return
+        if (!shouldRunLobbyAlertNow()) {
+            stopLobbyAlertTicks()
+            return
+        }
+        if (lobbyTickJob?.isActive == true && activeLobbyAlertGeneration == lobbyAlertGeneration) {
+            return
+        }
         sync(false)
         val tickPlayer = lobbyTickPlayer ?: return
+        lobbyAlertGeneration++
+        activeLobbyAlertGeneration = lobbyAlertGeneration
+        val generation = lobbyAlertGeneration
+        lobbyTickJob?.cancel()
+        lobbyTickJob = null
         lobbyTickJob = scope.launch {
             try {
                 val ctx = appContext
                 val anchorMs = JoinMatchNotificationState.lobbyAlertStartedAtMs()
                     ?: System.currentTimeMillis()
                 var beatIndex = currentLobbyAlertBeatIndex(anchorMs)
-                while (isActive) {
+                while (isActive && generation == lobbyAlertGeneration && shouldRunLobbyAlertNow()) {
                     val waitMs = delayMsUntilNextLobbyAlertBeat(anchorMs, beatIndex)
                     if (waitMs > 0L) delay(waitMs)
-                    if (!isActive) break
+                    if (!isActive || generation != lobbyAlertGeneration || !shouldRunLobbyAlertNow()) {
+                        break
+                    }
                     if (ctx != null) {
                         if (lobbyAlertSoundsAudible(ctx)) {
                             tickPlayer.playTick()
@@ -154,7 +210,9 @@ object MatchClockSoundController {
                     beatIndex++
                 }
             } finally {
-                tickPlayer.stop()
+                if (generation == lobbyAlertGeneration) {
+                    tickPlayer.stop()
+                }
             }
         }
     }

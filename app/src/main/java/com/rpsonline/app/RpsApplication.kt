@@ -16,6 +16,7 @@ import com.rpsonline.app.platform.MatchmakingBackgroundCoordinator
 import com.rpsonline.app.ui.util.GameAudioContext
 import com.rpsonline.app.ui.util.MatchClockHaptics
 import com.rpsonline.app.ui.util.MatchClockSoundController
+import com.rpsonline.app.ui.util.MatchClockSoundPolicy
 import com.rpsonline.app.ui.util.PreGameLobbySoundPolicy
 
 class RpsApplication : Application() {
@@ -62,6 +63,9 @@ class RpsApplication : Application() {
         if (AppForegroundTracker.isInForeground) {
             if (!PreGameLobbySoundPolicy.shouldRunMatchFoundLobbyAlert(this)) {
                 MatchClockSoundController.syncLobbyAlert(false)
+            }
+            if (!MatchClockSoundPolicy.shouldRunMatchClock(this)) {
+                MatchClockSoundController.sync(false)
             }
         } else {
             MatchClockSoundController.syncFromSessionWhenBackground(this)

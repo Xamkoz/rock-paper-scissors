@@ -781,6 +781,8 @@ private fun GlobalMatchClockTickEffect(
         appInForeground,
         activeMatch?.id,
         activeMatch?.status,
+        activeMatch?.rounds,
+        activeMatch?.clocksUpdatedAt,
         openRound?.roundNumber,
         openRound?.player1Submitted,
         openRound?.player2Submitted,
