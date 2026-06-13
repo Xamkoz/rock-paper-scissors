@@ -18,6 +18,9 @@ functions/lib/
 .firebase/
 *.log
 
+# Draft release notes for gh release create (published notes live on GitHub)
+.release-notes-v*.md
+
 # Self-hosted AI player SQLite (MATCH_DB_PATH, default data/matches.db)
 **/matches.db
 **/matches.db-wal

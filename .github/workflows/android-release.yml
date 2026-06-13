@@ -1,7 +1,7 @@
 name: Android Release
 
 # Builds and uploads the release APK for an already-created GitHub Release.
-# Example: gh release create v1.0.0 --target main --generate-notes
+# Example: gh release create v1.0.0 --target main --notes-file docs/releases/v1.0.0.md
 on:
   release:
     types: [published]
